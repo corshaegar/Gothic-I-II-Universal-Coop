@@ -1,0 +1,297 @@
+From af0b395855052daf9e36867be931b83a6e84ac74 Mon Sep 17 00:00:00 2001
+From: GothicCoop <corshaegar@users.noreply.github.com>
+Date: Sat, 24 Oct 2026 13:41:32 +0200
+Subject: [PATCH] coop8: Bild des Coop-Weltprozesses teilen
+ (GDX_CoopFrameShare) und im Zuschau-Fenster zeigen (GDX_CoopSecondViewShared)
+
+---
+ D3D11Engine/D3D11GraphicsEngine.cpp | 193 ++++++++++++++++++++++++++++
+ D3D11Engine/D3D11GraphicsEngine.h   |   4 +
+ D3D11Engine/IkarusBindings.cpp      |  23 +++-
+ 3 files changed, 218 insertions(+), 2 deletions(-)
+
+diff --git a/D3D11Engine/D3D11GraphicsEngine.cpp b/D3D11Engine/D3D11GraphicsEngine.cpp
+index 52a3f2e..c3d9a54 100644
+--- a/D3D11Engine/D3D11GraphicsEngine.cpp
++++ b/D3D11Engine/D3D11GraphicsEngine.cpp
+@@ -2913,6 +2913,9 @@ XRESULT D3D11GraphicsEngine::OnStartWorldRendering() {
+             }
+         }
+ 
++        // GothicCoop coop8: im Weltprozess das Weltbild teilen (nur wenn GothicCoop es ueber GDX_CoopFrameShare eingeschaltet hat)
++        RenderCoopFrameShare();
++
+         // GothicCoop: Zweitbild oben rechts (nur wenn GothicCoop es ueber GDX_CoopSecondView eingeschaltet hat)
+         RenderCoopSecondView();
+ 
+@@ -2984,6 +2987,73 @@ namespace {
+         INT2 depthSaveSize = INT2( 0, 0 );
+     };
+     CoopSecondViewState g_CoopSV;
++
++    // coop8 (u38): Bild des Weltprozesses. Nutzer: "die Idee war ja dass man mit Shift + F5 das Fenster im Spiel sieht so wie
++    // auch davor" - der Mitspieler ist in einer anderen Welt, die nur der Weltprozess (zweites Gothic mit -coopwelt, GothicCoop
++    // CoopWorldProcess.cpp) geladen hat. Weltprozess: nach dem Weltbild (HDR -> Backbuffer, vor der Oberflaeche) jedes Bild eine
++    // Kopie in eine geteilte Textur (R8G8B8A8, Groesse des Backbuffers, D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX); GothicCoop holt
++    // mit GDX_CoopFrameShare den Share-Handle und schickt ihn ueber seine Pipe ans Hauptspiel. Hauptspiel: GDX_CoopSecondViewShared
++    // oeffnet die Textur (OpenSharedResource - gleiche Grafikkarte), kopiert sie in eine eigene und zeichnet diese statt einer
++    // zweiten Kamera ins Zuschau-Fenster (Lage und Rahmen wie RenderCoopSecondView). Abgleich ueber den Keyed Mutex, Schluessel 0,
++    // beide Seiten ohne Warten: belegt = Weltprozess laesst dieses Bild aus, Hauptspiel zeigt das vorige.
++    struct CoopFrameShareState {
++        bool enabled = false;
++        bool failed = false;
++        bool savedInactiveLock = true;
++        Microsoft::WRL::ComPtr<ID3D11Texture2D> tex;
++        Microsoft::WRL::ComPtr<ID3D11RenderTargetView> rtv;
++        Microsoft::WRL::ComPtr<IDXGIKeyedMutex> mutex;
++        HANDLE handle = nullptr;
++        INT2 size = INT2( 0, 0 );
++        unsigned int frames = 0, skipped = 0;
++    };
++    CoopFrameShareState g_CoopFS;
++
++    struct CoopSharedViewState {
++        bool enabled = false;
++        HANDLE handle = nullptr;         // von GothicCoop gewuenscht
++        HANDLE opened = nullptr;         // geoeffnet
++        HANDLE failedHandle = nullptr;   // liess sich nicht oeffnen - nicht jedes Bild neu versuchen
++        Microsoft::WRL::ComPtr<ID3D11Texture2D> remote;
++        Microsoft::WRL::ComPtr<IDXGIKeyedMutex> mutex;
++        std::unique_ptr<RenderToTextureBuffer> local;
++        INT2 size = INT2( 0, 0 );
++        bool localValid = false;
++        float x = 0.70f, y = 0.03f, w = 0.27f;
++        unsigned int frames = 0, busy = 0;
++    };
++    CoopSharedViewState g_CoopSSV;
++}
++
++unsigned int D3D11GraphicsEngine_CoopFrameShare( int enabled, int* w, int* h ) {
++    const bool on = enabled != 0;
++    auto& s = Engine::GAPI->GetRendererState().RendererSettings;
++    if ( on && !g_CoopFS.enabled ) {
++        // ohne Fokus sonst 20 Bilder/s (EnableInactiveFpsLock) - der Weltprozess hat nie den Fokus, GothicCoop begrenzt selbst
++        g_CoopFS.savedInactiveLock = s.EnableInactiveFpsLock;
++        s.EnableInactiveFpsLock = false;
++    } else if ( !on && g_CoopFS.enabled ) {
++        s.EnableInactiveFpsLock = g_CoopFS.savedInactiveLock;
++    }
++    g_CoopFS.enabled = on;
++    if ( w ) *w = g_CoopFS.size.x;
++    if ( h ) *h = g_CoopFS.size.y;
++    return g_CoopFS.tex ? static_cast<unsigned int>(reinterpret_cast<uintptr_t>(g_CoopFS.handle)) : 0;
++}
++
++int D3D11GraphicsEngine_CoopSecondViewShared( int enabled, unsigned int handle, float x, float y, float w ) {
++    g_CoopSSV.enabled = enabled != 0 && handle != 0;
++    if ( !g_CoopSSV.enabled ) {
++        g_CoopSSV.localValid = false;
++        return 0;
++    }
++    g_CoopSSV.handle = reinterpret_cast<HANDLE>(static_cast<uintptr_t>(handle));
++    g_CoopSSV.x = std::clamp( x, 0.0f, 0.95f );
++    g_CoopSSV.y = std::clamp( y, 0.0f, 0.95f );
++    g_CoopSSV.w = std::clamp( w, 0.05f, 1.0f );
++    if ( g_CoopSSV.handle == g_CoopSSV.failedHandle )
++        return -1;
++    return g_CoopSSV.localValid && g_CoopSSV.opened == g_CoopSSV.handle ? 2 : 1;
+ }
+ 
+ void D3D11GraphicsEngine_CoopSecondViewSet( int enabled, const float* camToWorld, float x, float y, float w, int everyNth ) {
+@@ -3000,6 +3070,10 @@ void D3D11GraphicsEngine_CoopSecondViewSet( int enabled, const float* camToWorld
+ }
+ 
+ void D3D11GraphicsEngine::RenderCoopSecondView() {
++    if ( g_CoopSSV.enabled ) {   // coop8: Bild des Weltprozesses statt zweiter Kamera
++        RenderCoopSharedView();
++        return;
++    }
+     if ( !g_CoopSV.enabled )
+         return;
+     zCCamera* cam = zCCamera::GetCamera();
+@@ -3140,6 +3214,125 @@ void D3D11GraphicsEngine::RenderCoopSecondView() {
+     PfxRenderer->CopyTextureToRTV( g_CoopSV.tex->GetShaderResView(), Backbuffer->GetRenderTargetView(), size, false, pos );
+ }
+ 
++// coop8: Weltprozess - Weltbild (HDR, vor der Oberflaeche: ohne Hinweiszeilen) in die geteilte Textur
++void D3D11GraphicsEngine::RenderCoopFrameShare() {
++    if ( !g_CoopFS.enabled || g_CoopFS.failed )
++        return;
++    const INT2 bb = GetBackbufferResolution();
++    if ( bb.x <= 0 || bb.y <= 0 )
++        return;
++    if ( !g_CoopFS.tex || g_CoopFS.size.x != bb.x || g_CoopFS.size.y != bb.y ) {
++        // neu (Groesse geaendert = neuer Handle - GothicCoop schickt ihn erneut)
++        g_CoopFS.tex.Reset();
++        g_CoopFS.rtv.Reset();
++        g_CoopFS.mutex.Reset();
++        g_CoopFS.handle = nullptr;
++        D3D11_TEXTURE2D_DESC d = {};
++        d.Width = bb.x;
++        d.Height = bb.y;
++        d.MipLevels = 1;
++        d.ArraySize = 1;
++        d.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
++        d.SampleDesc.Count = 1;
++        d.Usage = D3D11_USAGE_DEFAULT;
++        d.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
++        d.MiscFlags = D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
++        Microsoft::WRL::ComPtr<IDXGIResource> res;
++        HANDLE handle = nullptr;
++        HRESULT hr = GetDevice()->CreateTexture2D( &d, nullptr, g_CoopFS.tex.GetAddressOf() );
++        if ( SUCCEEDED( hr ) ) hr = GetDevice()->CreateRenderTargetView( g_CoopFS.tex.Get(), nullptr, g_CoopFS.rtv.GetAddressOf() );
++        if ( SUCCEEDED( hr ) ) hr = g_CoopFS.tex.As( &g_CoopFS.mutex );
++        if ( SUCCEEDED( hr ) ) hr = g_CoopFS.tex.As( &res );
++        if ( SUCCEEDED( hr ) ) hr = res->GetSharedHandle( &handle );
++        if ( FAILED( hr ) || !handle ) {
++            LogError() << "GothicCoop coop8: geteilte Textur " << bb.x << "x" << bb.y << " nicht angelegt (hr " << std::hex << hr << std::dec
++                << ") - kein Bild fuer das Zuschau-Fenster";
++            g_CoopFS.tex.Reset();
++            g_CoopFS.rtv.Reset();
++            g_CoopFS.mutex.Reset();
++            g_CoopFS.failed = true;
++            return;
++        }
++        g_CoopFS.handle = handle;
++        g_CoopFS.size = bb;
++        LogInfo() << "GothicCoop coop8: geteilte Textur " << bb.x << "x" << bb.y << " angelegt, Handle " << std::hex
++            << reinterpret_cast<uintptr_t>(handle) << std::dec;
++    }
++    const HRESULT a = g_CoopFS.mutex->AcquireSync( 0, 0 );
++    if ( a == static_cast<HRESULT>(WAIT_TIMEOUT) || FAILED( a ) ) {   // das Hauptspiel kopiert gerade - dieses Bild auslassen
++        g_CoopFS.skipped++;
++        return;
++    }
++    SetDefaultStates();
++    PfxRenderer->CopyTextureToRTV( HDRBackBuffer->GetShaderResView(), g_CoopFS.rtv, bb );
++    g_CoopFS.mutex->ReleaseSync( 0 );
++    g_CoopFS.frames++;
++}
++
++// coop8: Hauptspiel - geteilte Textur des Weltprozesses ins Zuschau-Fenster (statt der zweiten Kamera)
++void D3D11GraphicsEngine::RenderCoopSharedView() {
++    CoopSharedViewState& v = g_CoopSSV;
++    if ( v.handle != v.opened ) {
++        v.remote.Reset();
++        v.mutex.Reset();
++        v.local.reset();
++        v.localValid = false;
++        v.opened = nullptr;
++        if ( v.handle == v.failedHandle )
++            return;
++        Microsoft::WRL::ComPtr<ID3D11Texture2D> t;
++        D3D11_TEXTURE2D_DESC d = {};
++        HRESULT hr = GetDevice()->OpenSharedResource( v.handle, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(t.GetAddressOf()) );
++        if ( SUCCEEDED( hr ) ) {
++            t->GetDesc( &d );
++            hr = t.As( &v.mutex );
++        }
++        if ( SUCCEEDED( hr ) && (d.Format != DXGI_FORMAT_R8G8B8A8_UNORM || d.Width < 16 || d.Height < 16 || d.Width > 8192 || d.Height > 8192) )
++            hr = E_INVALIDARG;
++        if ( FAILED( hr ) ) {
++            LogWarn() << "GothicCoop coop8: Bild des Weltprozesses (Handle " << std::hex << reinterpret_cast<uintptr_t>(v.handle)
++                << ") nicht geoeffnet (hr " << hr << std::dec << ") - andere Grafikkarte oder Prozess beendet?";
++            v.failedHandle = v.handle;
++            v.mutex.Reset();
++            return;
++        }
++        v.remote = t;
++        v.local = std::make_unique<RenderToTextureBuffer>( GetDevice(), d.Width, d.Height, DXGI_FORMAT_R8G8B8A8_UNORM );
++        v.size = INT2( static_cast<int>(d.Width), static_cast<int>(d.Height) );
++        v.opened = v.handle;
++        LogInfo() << "GothicCoop coop8: Bild des Weltprozesses geoeffnet, " << d.Width << "x" << d.Height;
++    }
++    if ( !v.remote || !v.local )
++        return;
++    const HRESULT a = v.mutex->AcquireSync( 0, 0 );
++    if ( a == static_cast<HRESULT>(WAIT_TIMEOUT) || FAILED( a ) ) {
++        v.busy++;   // der Weltprozess schreibt gerade - voriges Bild zeigen
++    } else {
++        GetContext()->CopyResource( v.local->GetTexture().Get(), v.remote.Get() );
++        v.mutex->ReleaseSync( 0 );
++        v.localValid = true;
++        v.frames++;
++    }
++    if ( !v.localValid )
++        return;
++
++    // Lage wie RenderCoopSecondView; Hoehe nach dem Seitenverhaeltnis des Weltprozesses
++    const INT2 bb = GetBackbufferResolution();
++    if ( bb.x <= 0 || bb.y <= 0 )
++        return;
++    INT2 size( std::max( 32, static_cast<int>(v.w * bb.x) ), 0 );
++    size.y = std::max( 18, static_cast<int>(size.x * static_cast<float>(v.size.y) / static_cast<float>(v.size.x)) );
++    INT2 pos( static_cast<int>(v.x * bb.x), static_cast<int>(v.y * bb.y) );
++    if ( pos.x + size.x + 2 > bb.x ) pos.x = std::max( 2, bb.x - size.x - 2 );
++    if ( pos.y + size.y + 2 > bb.y ) pos.y = std::max( 2, bb.y - size.y - 2 );
++
++    const float frameColor[4] = { 0.55f, 0.75f, 0.90f, 1.0f };   // andere Farbe als das Zweitbild: andere Welt
++    D3D11_RECT r = { pos.x - 2, pos.y - 2, pos.x + size.x + 2, pos.y + size.y + 2 };
++    GetContext()->ClearView( Backbuffer->GetRenderTargetView().Get(), frameColor, &r, 1 );
++    SetDefaultStates();
++    PfxRenderer->CopyTextureToRTV( v.local->GetShaderResView(), Backbuffer->GetRenderTargetView(), size, false, pos );
++}
++
+ // --- GothicCoop coop6: Figur-Vorschau im COOP-Menue (20.10.2026) -------------------------------------------------------------
+ // GothicCoop baut die eigene Figur ohne Welt (zCVob + HUMANS.MDS, Koerper/Kopf/Gesicht/Hautton wie oCNpc::InitModel/SetHead)
+ // und ruft GDX_CoopPreviewDraw aus dem Blit eines eigenen Menue-Fensters - also mitten im 2D-Teil, wie GD3D11 Inventar-Gegenstaende
+diff --git a/D3D11Engine/D3D11GraphicsEngine.h b/D3D11Engine/D3D11GraphicsEngine.h
+index 4985e71..c3abe0f 100644
+--- a/D3D11Engine/D3D11GraphicsEngine.h
++++ b/D3D11Engine/D3D11GraphicsEngine.h
+@@ -265,6 +265,10 @@ public:
+ 
+     /** GothicCoop: Zweitbild (Fenster oben rechts) aus einer zweiten Kamera - nach dem Hauptbild, vor der Oberflaeche */
+     void RenderCoopSecondView();
++    /** GothicCoop (coop8): Weltprozess - Weltbild in die geteilte Textur (GDX_CoopFrameShare) */
++    void RenderCoopFrameShare();
++    /** GothicCoop (coop8): Hauptspiel - geteilte Textur des Weltprozesses ins Zuschau-Fenster (GDX_CoopSecondViewShared) */
++    void RenderCoopSharedView();
+ 
+     /** GothicCoop (coop6): Figur (zCModel eines Vobs ohne Welt) sofort vorwaerts in ein Rechteck des Backbuffers zeichnen -
+         fuer die Vorschau im COOP-Menue. Aufruf mitten im 2D-Teil (wie DrawVobSingle fuers Inventar). 1 = gezeichnet. */
+diff --git a/D3D11Engine/IkarusBindings.cpp b/D3D11Engine/IkarusBindings.cpp
+index 3608e8f..e168a16 100644
+--- a/D3D11Engine/IkarusBindings.cpp
++++ b/D3D11Engine/IkarusBindings.cpp
+@@ -11,6 +11,8 @@
+ 
+ // GothicCoop: Zweitbild - in D3D11GraphicsEngine.cpp
+ void D3D11GraphicsEngine_CoopSecondViewSet( int enabled, const float* camToWorld, float x, float y, float w, int everyNth );
++unsigned int D3D11GraphicsEngine_CoopFrameShare( int enabled, int* w, int* h );
++int D3D11GraphicsEngine_CoopSecondViewShared( int enabled, unsigned int handle, float x, float y, float w );
+ 
+ extern "C"
+ {
+@@ -197,9 +199,26 @@ extern "C"
+         D3D11GraphicsEngine_CoopSecondViewSet( enabled, camToWorld, x, y, w, everyNth );
+     }
+ 
+-    /** GothicCoop: Fassung der Zweitbild-Schnittstelle (1 = GDX_CoopSecondView wie oben) */
++    /** GothicCoop: Fassung der Zweitbild-Schnittstelle (1 = GDX_CoopSecondView wie oben, 2 = coop8: dazu GDX_CoopFrameShare und
++        GDX_CoopSecondViewShared) */
+     __declspec(dllexport) int __cdecl GDX_CoopSecondViewVersion( void ) {
+-        return 1;
++        return 2;
++    }
++
++    /** GothicCoop (coop8, u38): Weltprozess - Weltbild jedes Bild in eine geteilte Textur (Keyed Mutex, Schluessel 0).
++        - enabled: 1 = ab dem naechsten Bild kopieren, 0 = nicht mehr (Textur und Handle bleiben)
++        - w, h (duerfen NULL sein): Groesse der Textur (= Backbuffer)
++        Rueckgabe: Share-Handle der Textur (0 = noch keine - sie entsteht beim ersten Bild nach dem Einschalten). */
++    __declspec(dllexport) unsigned int __cdecl GDX_CoopFrameShare( int enabled, int* w, int* h ) {
++        return D3D11GraphicsEngine_CoopFrameShare( enabled, w, h );
++    }
++
++    /** GothicCoop (coop8, u38): Hauptspiel - geteilte Textur eines anderen Prozesses (GDX_CoopFrameShare) im Zuschau-Fenster.
++        - enabled: 0 = aus; solange an, ersetzt es GDX_CoopSecondView
++        - handle: Share-Handle aus dem Weltprozess; x, y, w wie GDX_CoopSecondView (Hoehe nach dem Seitenverhaeltnis der Textur)
++        Rueckgabe: 0 aus, 1 wartet auf das erste Bild, 2 zeigt, -1 Handle laesst sich nicht oeffnen (andere Grafikkarte?). */
++    __declspec(dllexport) int __cdecl GDX_CoopSecondViewShared( int enabled, unsigned int handle, float x, float y, float w ) {
++        return D3D11GraphicsEngine_CoopSecondViewShared( enabled, handle, x, y, w );
+     }
+ 
+     /** GothicCoop (coop6, 20.10.2026): Figur-Vorschau im COOP-Menue.
+-- 
+2.55.0.windows.5
+

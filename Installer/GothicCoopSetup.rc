@@ -1,0 +1,27 @@
+// GothicCoop-Installer - Dialog, Manifest; Nutzlast und Fassungsangaben erzeugt tools\installer_bau.py (obj\setup_gen.rc2).
+// Nur ASCII: die Texte setzt GothicCoopSetup.cpp zur Laufzeit (Deutsch/Englisch).
+#include <windows.h>
+#include "resource.h"
+#include "obj\\setup_gen.rc2"
+
+1 RT_MANIFEST "GothicCoopSetup.manifest"
+
+IDD_MAIN DIALOGEX 0, 0, 390, 300
+STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX
+CAPTION "GothicCoop Setup"
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    LTEXT           "", IDC_TITLE, 10, 8, 370, 12
+    GROUPBOX        "", IDC_GRP_GAME, 10, 24, 370, 34
+    AUTORADIOBUTTON "", IDC_RB_G1, 18, 39, 100, 12, WS_GROUP | WS_TABSTOP
+    AUTORADIOBUTTON "", IDC_RB_G2, 122, 39, 140, 12
+    AUTORADIOBUTTON "", IDC_RB_OTH, 266, 39, 110, 12
+    GROUPBOX        "", IDC_GRP_DIR, 10, 62, 370, 34, WS_GROUP
+    COMBOBOX        IDC_DIR, 18, 76, 296, 200, CBS_DROPDOWN | CBS_AUTOHSCROLL | WS_VSCROLL | WS_TABSTOP
+    PUSHBUTTON      "", IDC_BROWSE, 318, 75, 56, 14, WS_TABSTOP
+    AUTOCHECKBOX    "", IDC_RENDERER, 10, 101, 370, 12, WS_TABSTOP
+    EDITTEXT        IDC_STATUS, 10, 116, 370, 150, ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL | WS_TABSTOP
+    PUSHBUTTON      "", IDC_UNDO, 10, 276, 150, 16, WS_TABSTOP
+    DEFPUSHBUTTON   "", IDC_INSTALL, 230, 276, 72, 16, WS_TABSTOP
+    PUSHBUTTON      "", IDCANCEL, 308, 276, 72, 16, WS_TABSTOP
+END

@@ -1,0 +1,35 @@
+Gothic-I-II-Universal-Coop – geänderte Fassung von Gothic Together (GothicCoop)
+================================================================================
+
+Diese Datei gehört zu system\Autorun\Gothic1Coop.dll bzw. Gothic2Coop.dll, COOP_MENU.D, COOP_ITEMS.D und
+PC_MULTIPLAYER_HERO.D, installiert mit dem Installer von „Gothic-I-II-Universal-Coop“.
+
+Original
+  Gothic Together / GothicCoop, https://gitlab.com/gothiccoop/gothiccoop (Branch master)
+  Lizenz: GNU Affero General Public License, Version 3 (AGPL-3.0) – Text in GothicCoop-AGPL-3.0.txt
+
+Geänderte Fassung
+  Seit 16.10.2026 geändert: zuerst für Othello 4.4.2.1, dann als allgemeines Coop für Gothic 1 und Gothic 2 Die Nacht des
+  Raben (Abgleich von Welt, Dialogen, Tagebuch und Spielständen, getrennte Welten, Weltprozess, COOP-Menü, Zuschau-Kamera,
+  Schwierigkeitsgrad, Kampf-Übergabe u. a.). Die Fassung steht in der Versionszeile im Hauptmenü („GothicCoop uNN“).
+  Die Änderungen stehen unter derselben Lizenz (AGPL-3.0). Es gibt keinerlei Gewährleistung (AGPL-3.0, Abschnitte 15 und 16).
+
+Quelltext
+  https://github.com/corshaegar/Gothic-I-II-Universal-Coop – zu jeder Veröffentlichung gehört der vollständige Quelltext
+  (Tag der Projektversion). Wer diese Dateien weitergibt, muss den Quelltext mitgeben oder zugänglich machen. Wer über das
+  Netzwerk mit einer laufenden Fassung spielt, hat ebenfalls Anspruch darauf (AGPL-3.0, Abschnitt 13).
+
+Enthaltene Fremdbibliotheken (in der Coop-DLL)
+  ENet 1.3.17               – MIT-Lizenz, ENet-LICENSE.txt
+  nlohmann/json             – MIT-Lizenz, nlohmann-json-LICENSE.MIT.txt
+
+Renderer
+  system\GD3D11\Bin\g1_avx2.dll bzw. g2a_avx2.dll ist eine geänderte Fassung von GD3D11 – siehe GD3D11-HERKUNFT.txt.
+  Fehlte GD3D11, hat der Installer GD3D11 v17.9.7 (offizielles Release, GPL-3.0, Text in system\COPYING) mitinstalliert.
+
+Gothic, Othello, Union
+  Gothic-, Othello- und Union-Dateien gehören ihren Rechteinhabern und stehen nicht unter der Lizenz des Coops. Union 1.0m
+  (Gratt, WOG RU Community; mit zParserExtender) liegt als Dateien bei, wie es Mods üblicherweise tun: fehlt Union bei
+  Gothic 1 oder Gothic 2, installiert der Installer sie mit (Data\Union.vdf; system\Union.patch, Shw32.dll, Vdfs32g.dll,
+  stdhost.exe, msvcp100.dll, msvcr100.dll) und legt system\dinput.dll (Lader von SystemPack – Union lädt SystemPack selbst)
+  nach CoopBackup. „Letzte Installation rückgängig“ nimmt beides zurück. Othello bringt Union selbst mit.

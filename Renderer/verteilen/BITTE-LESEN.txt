@@ -1,0 +1,18 @@
+Coop-GD3D11 coop3 fuer diesen PC - 19.10.2026
+(GD3D11 v17.9.7 mit Zuschau-Fenster, Schatten- und Absturz-Fix)
+
+EINFACH: Gothic beenden, dann in diesem Ordner "installieren.bat" doppelklicken.
+  Das Skript sichert die bisherige g1_avx2.dll (Original als g1_avx2.dll.original, eine aeltere
+  Coop-Fassung als g1_avx2.dll.vorher) und kopiert coop3 nach system\GD3D11\Bin\g1_avx2.dll.
+  Am Ende prueft es die Pruefsumme.
+ZURUECK: "original-zurueck.bat" stellt das Original-GD3D11 wieder her.
+
+VON HAND (gleiches Ergebnis):
+  1. system\GD3D11\Bin\g1_avx2.dll umbenennen in g1_avx2.dll.original
+  2. g1_avx2.dll.coop3 aus diesem Ordner nach system\GD3D11\Bin\ kopieren
+  3. dort in g1_avx2.dll umbenennen - die Endung .coop3 muss weg
+     (Tipp: im Explorer "Ansicht > Dateinamenerweiterungen" einschalten)
+
+Kontrolle: im Coop-Log steht nach dem Start "Renderer g1_avx2.dll mit GDX_CoopSecondView".
+Warum die Endung .coop3: dieser Ordner liegt in system\Autorun - eine .dll hier koennte Union als Plugin laden.
+SHA-256 coop3: 23380E15ECE8A63EC88609FB0066EC78DC1171FAA80F410F77785214BC2D43D3

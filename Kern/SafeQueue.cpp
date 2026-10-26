@@ -1,0 +1,59 @@
+#include <queue>
+#include <mutex>
+#include <condition_variable>
+
+namespace GOTHIC_ENGINE {
+#ifndef SAFE_QUEUE
+#define SAFE_QUEUE
+    template <class T>
+    class SafeQueue
+    {
+    public:
+        SafeQueue(void)
+            : q()
+            , m()
+            , c()
+        {}
+
+        ~SafeQueue(void)
+        {}
+
+        void enqueue(T t)
+        {
+            std::lock_guard<std::mutex> lock(m);
+            q.push(t);
+            c.notify_one();
+        }
+
+        T dequeue(void)
+        {
+            std::unique_lock<std::mutex> lock(m);
+            while (q.empty())
+            {
+                c.wait(lock);
+            }
+            T val = q.front();
+            q.pop();
+            return val;
+        }
+
+        // v97 (A13): auch Lesen unter der Sperre - die Netzfaeden reihen gleichzeitig ein (Upstream: Gothic-Workshop 6205a6b)
+        bool isEmpty()
+        {
+            std::lock_guard<std::mutex> lock(m);
+            return q.empty();
+        }
+
+        int size()
+        {
+            std::lock_guard<std::mutex> lock(m);
+            return q.size();
+        }
+
+    private:
+        std::queue<T> q;
+        mutable std::mutex m;
+        std::condition_variable c;
+    };
+#endif
+}

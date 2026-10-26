@@ -1,0 +1,33 @@
+﻿From e94dda17032603baecf1c5210018836c4e45e592 Mon Sep 17 00:00:00 2001
+From: GothicCoop <corshaegar@users.noreply.github.com>
+Date: Sat, 24 Oct 2026 12:07:12 +0200
+Subject: [PATCH] coop7: Coop-Weltprozess (-coopwelt:) schreibt
+ Log_CoopWelt.txt statt Log.txt
+
+---
+ D3D11Engine/Logger.h | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/D3D11Engine/Logger.h b/D3D11Engine/Logger.h
+index 9c71be9..55d031c 100644
+--- a/D3D11Engine/Logger.h
++++ b/D3D11Engine/Logger.h
+@@ -138,11 +138,13 @@ public:
+         GetModuleFileNameA( nullptr, path, MAX_PATH );
+         LOGFILE = std::string( path );
+         LOGFILE = LOGFILE.substr( 0, LOGFILE.find_last_of( '\\' ) + 1 );
+-        LOGFILE += "Log.txt";
++        // GothicCoop coop7: der Coop-Weltprozess (zweites Gothic beim Host, Kommandozeile -coopwelt:) schreibt ein eigenes Log -
++        // sonst leerte er beim Start das Log.txt des laufenden Hauptspiels
++        LOGFILE += strstr( GetCommandLineA(), "-coopwelt:" ) ? "Log_CoopWelt.txt" : "Log.txt";
+ 
+         FILE* f;
+         f = fopen( LOGFILE.c_str(), "w" );
+-        fclose( f );
++        if ( f ) fclose( f );
+     }
+ 
+ #pragma warning( push )
+-- 
+2.55.0.windows.5
+

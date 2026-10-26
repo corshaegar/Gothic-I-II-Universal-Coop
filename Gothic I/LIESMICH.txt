@@ -1,0 +1,25 @@
+GothicCoop u62 - Gothic 1 ohne Mod (Union-Coop)
+
+Voraussetzung: Gothic 1 (Steam/GOG, Fassung 1.08k). Union 1.0m (mit zParserExtender) liegt bei.
+Beide PCs brauchen dieselbe GothicCoop-Fassung (u62).
+
+Installation: den Inhalt dieser ZIP in den Gothic-Ordner entpacken (den Ordner, in dem "system" liegt) und
+vorhandene Dateien ersetzen. War Union noch nicht installiert: danach system\dinput.dll entfernen (der Lader von
+SystemPack - Union laedt SystemPack selbst). Bequemer und rueckgaengig machbar: der Installer.
+  Data\Union.vdf, system\Union.patch, Shw32.dll, Vdfs32g.dll, stdhost.exe, msvcp100.dll, msvcr100.dll   Union 1.0m
+  system\Autorun\              GothicCoop-DLL und drei Skripte
+  system\GothicCoopConfig.json  Vorgaben (Name, Adresse, Aussehen - im Spiel unter COOP aenderbar)
+  system\steam_api.dll und steam_appid.txt   fuer "Coop ueber Steam" (Steam muss laufen)
+  system\GD3D11\Bin\g1_avx2.dll  Coop-Renderer - nur wirksam, wenn GD3D11 installiert ist (3D-Vorschau der
+                                 Figur, Zuschau-Fenster beim Mitspieler, Bild des Weltprozesses)
+
+Spielen: Hauptmenue > COOP > Figur waehlen > "Weiter: Verbinden" > "Spiel hosten" bzw. "Ueber IP beitreten"
+(Port 9955). Protokoll: system\GothicCoop.log.
+
+Ab u42 (Versuch): Weltprozess auch in Gothic 1 - ist ein Mitspieler in einer anderen Welt (z. B. in der Alten Mine),
+startet ein zweites, unsichtbares Gothic auf dem eigenen PC, laedt den neuesten Spielstand und jene Welt; das
+Zuschau-Fenster (Shift+F5, blauer Rahmen) zeigt den Mitspieler dort. Sein Ordner liegt im Gothic-Ordner
+("Gothic\Gothic_CoopWelt", legt GT selbst an; braucht ein NTFS-Laufwerk). Shift+F12 beendet ihn bzw. startet ihn wieder.
+Beide PCs brauchen den Renderer coop8 aus dieser ZIP.
+Ab u62 (Projekt Gothic-I-II-Universal-Coop 0.2.0, Quelltext: https://github.com/corshaegar/Gothic-I-II-Universal-Coop):
+Union 1.0m liegt als Dateien bei.

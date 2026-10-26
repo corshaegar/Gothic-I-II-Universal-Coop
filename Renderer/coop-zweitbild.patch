@@ -1,0 +1,424 @@
+diff --git a/D3D11Engine/D3D11GraphicsEngine.cpp b/D3D11Engine/D3D11GraphicsEngine.cpp
+index c5c383d..ca84971 100644
+--- a/D3D11Engine/D3D11GraphicsEngine.cpp
++++ b/D3D11Engine/D3D11GraphicsEngine.cpp
+@@ -2908,6 +2908,9 @@ XRESULT D3D11GraphicsEngine::OnStartWorldRendering() {
+             }
+         }
+ 
++        // GothicCoop: Zweitbild oben rechts (nur wenn GothicCoop es ueber GDX_CoopSecondView eingeschaltet hat)
++        RenderCoopSecondView();
++
+         // Below this, we assume UI/HUD rendering
+         Engine::GAPI->GetRendererState().RendererInfo.IsRenderingWorld = false;
+ 
+@@ -2944,6 +2947,194 @@ XRESULT D3D11GraphicsEngine::OnStartWorldRendering() {
+     return XR_SUCCESS;
+ }
+ 
++// --- GothicCoop: Zweitbild (Fenster oben rechts) aus einer zweiten Kamera ------------------------------------------------
++// Othello-Coop (GothicCoop), 19.10.2026 - Beschreibung und Anleitung fuer neue GD3D11-Fassungen: GD3D11-UMBAU.md im Coop-Projekt.
++// Nach dem Hauptbild (HDR -> Backbuffer kopiert) wird die Szene ein zweites Mal gezeichnet: das Kamera-Objekt der Sitzung kurz
++// auf die zweite Kamera setzen (zCCamera::Activate liest dessen trafoObjToWorld +0x3C - Sicht und Sichtkegel folgen, damit
++// auch jede Aussortierung in GD3D11 ueber zCCamera::GetCamera()->BBox3DInFrustum), G-Buffer/HDR/Tiefe leeren (nicht Clear():
++// das leert auch den Backbuffer), Himmel + DrawWorldMeshNaive (Weltnetz, Modelle, Vobs, Licht, Sonnenschatten) + Geister, ohne
++// Punktlicht-Schatten, HBAO, Partikel und Occlusion-Culling, Kamera zurueck, HDR-Bild verkleinert in ein Zwischenbild, das mit
++// Rahmen in den Backbuffer. Das Zwischenbild bleibt - neu gezeichnet wird nur jedes n-te Bild.
++// Sonnenschatten (coop4): eigene D3D11ShadowMap fuers Zweitbild (ShadowMaps wird fuer den Durchgang getauscht), Kaskaden um die
++// Zweitkamera aus den Vobs des Zweitbilds; D3D11ShadowMap::DrawLighting fuehrt seinen bilduebergreifenden Zustand dafuer getrennt
++// (g_CoopSecondViewPass). Test coop1: geteilter Zustand verstellte die Schatten des Hauptbilds; coop2/coop3 lasen die Kaskaden
++// des Hauptbilds - die decken nur dessen Sicht.
++bool g_CoopSecondViewPass = false;
++
++// coop4: Groesse der Schattenkarten des Zweitbilds (je Kaskade) - das Fenster ist klein, 1024 reicht und spart Fuellrate
++static constexpr int COOP_SECOND_VIEW_SHADOWMAP_SIZE = 1024;
++
++namespace {
++    struct CoopSecondViewState {
++        bool enabled = false;
++        XMFLOAT4X4 camToWorld = {};
++        float x = 0.70f, y = 0.03f, w = 0.27f;   // Fenster in Bildanteilen (Hoehe folgt dem Seitenverhaeltnis)
++        int everyNth = 2;
++        unsigned int frame = 0;
++        bool texValid = false;
++        std::unique_ptr<RenderToTextureBuffer> tex;
++        INT2 texSize = INT2( 0, 0 );
++        std::unique_ptr<D3D11ShadowMap> shadow;              // coop4: Schattenkarten des Zweitbilds
++        std::unique_ptr<RenderToTextureBuffer> depthSave;    // coop4: Tiefen-Kopie des Hauptbilds waehrend des Durchgangs
++        INT2 depthSaveSize = INT2( 0, 0 );
++    };
++    CoopSecondViewState g_CoopSV;
++}
++
++void D3D11GraphicsEngine_CoopSecondViewSet( int enabled, const float* camToWorld, float x, float y, float w, int everyNth ) {
++    g_CoopSV.enabled = enabled != 0 && camToWorld != nullptr;
++    if ( !g_CoopSV.enabled ) {
++        g_CoopSV.texValid = false;
++        return;
++    }
++    memcpy( &g_CoopSV.camToWorld, camToWorld, sizeof( XMFLOAT4X4 ) );
++    g_CoopSV.x = std::clamp( x, 0.0f, 0.95f );
++    g_CoopSV.y = std::clamp( y, 0.0f, 0.95f );
++    g_CoopSV.w = std::clamp( w, 0.05f, 1.0f );
++    g_CoopSV.everyNth = std::max( 1, everyNth );
++}
++
++void D3D11GraphicsEngine::RenderCoopSecondView() {
++    if ( !g_CoopSV.enabled )
++        return;
++    zCCamera* cam = zCCamera::GetCamera();
++    oCGame* game = oCGame::GetGame();
++    if ( !cam || !game || !game->_zCSession_camVob || !Engine::GAPI->GetLoadedWorldInfo() )
++        return;
++    const INT2 res = GetResolution();
++    const INT2 bb = GetBackbufferResolution();
++    if ( res.x <= 0 || res.y <= 0 || bb.x <= 0 || bb.y <= 0 )
++        return;
++
++    INT2 size( std::max( 32, static_cast<int>(g_CoopSV.w * bb.x) ), 0 );
++    size.y = std::max( 18, static_cast<int>(size.x * static_cast<float>(res.y) / static_cast<float>(res.x)) );
++    INT2 pos( static_cast<int>(g_CoopSV.x * bb.x), static_cast<int>(g_CoopSV.y * bb.y) );
++    if ( pos.x + size.x + 2 > bb.x ) pos.x = std::max( 2, bb.x - size.x - 2 );
++    if ( pos.y + size.y + 2 > bb.y ) pos.y = std::max( 2, bb.y - size.y - 2 );
++
++    if ( !g_CoopSV.tex || g_CoopSV.texSize.x != size.x || g_CoopSV.texSize.y != size.y ) {
++        g_CoopSV.tex = std::make_unique<RenderToTextureBuffer>( GetDevice(), size.x, size.y, DXGI_FORMAT_R8G8B8A8_UNORM );
++        g_CoopSV.texSize = size;
++        g_CoopSV.texValid = false;
++    }
++
++    const bool redraw = !g_CoopSV.texValid || (++g_CoopSV.frame % static_cast<unsigned int>(g_CoopSV.everyNth)) == 0;
++    if ( redraw ) {
++        auto _ = RecordGraphicsEvent( L"GothicCoop SecondView" );
++
++        // Kamera umsetzen
++        zCVob* camVob = game->_zCSession_camVob;
++        XMFLOAT4X4* trafo = camVob->GetWorldMatrixPtr();
++        const XMFLOAT4X4 savedTrafo = *trafo;
++
++        // teure bzw. bilduebergreifend zwischengespeicherte Durchgaenge aus (Punktlicht-Schattenwuerfel gehoeren zum Licht und
++        // gelten fuer beide Bilder). Weltschatten bleiben an; EnableShadows steuert sonst auch die Modellfarbe (GothicAPI, "Let
++        // shadows do the work") - aus machte es die NPCs im Fenster dunkler als im Hauptbild.
++        auto& s = Engine::GAPI->GetRendererState().RendererSettings;
++        const auto savedPls = s.EnablePointlightShadows;
++        const bool savedHbao = s.HbaoSettings.Enabled;
++        const bool savedParticles = s.DrawParticleEffects;
++        const bool savedOcclusion = s.EnableOcclusionCulling;
++        s.EnablePointlightShadows = GothicRendererSettings::PLS_DISABLED;
++        s.HbaoSettings.Enabled = false;
++        s.DrawParticleEffects = false;
++        s.EnableOcclusionCulling = false;
++
++        *trafo = g_CoopSV.camToWorld;
++        cam->Activate();
++        Engine::GAPI->SetViewTransform( cam->GetTransformDX( zCCamera::ETransformType::TT_VIEW ), false );
++        Engine::GAPI->GetRendererState().RendererInfo.IsRenderingWorld = true;
++
++        SetDefaultStates();
++        D3D11_VIEWPORT vp;
++        vp.TopLeftX = 0.0f;
++        vp.TopLeftY = 0.0f;
++        vp.MinDepth = 0.0f;
++        vp.MaxDepth = 1.0f;
++        vp.Width = static_cast<float>(res.x);
++        vp.Height = static_cast<float>(res.y);
++        GetContext()->RSSetViewports( 1, &vp );
++
++        const float4 fog( Engine::GAPI->GetRendererState().GraphicsState.FF_FogColor, 0.0f );
++        const float zero[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
++        GetContext()->ClearDepthStencilView( DepthStencilBuffer->GetDepthStencilView().Get(), D3D11_CLEAR_DEPTH, 0, 0 );
++        GetContext()->ClearRenderTargetView( GBuffer0_Diffuse->GetRenderTargetView().Get(), reinterpret_cast<const float*>(&fog) );
++        GetContext()->ClearRenderTargetView( GBuffer1_Normals->GetRenderTargetView().Get(), zero );
++        GetContext()->ClearRenderTargetView( GBuffer2_SpecIntens_SpecPower->GetRenderTargetView().Get(), zero );
++        GetContext()->ClearRenderTargetView( HDRBackBuffer->GetRenderTargetView().Get(), zero );
++
++        ID3D11RenderTargetView* rtvs[] = {
++            GBuffer0_Diffuse->GetRenderTargetView().Get(),
++            GBuffer1_Normals->GetRenderTargetView().Get(),
++            GBuffer2_SpecIntens_SpecPower->GetRenderTargetView().Get() };
++        GetContext()->OMSetRenderTargets( 3, rtvs, DepthStencilBuffer->GetDepthStencilView().Get() );
++
++        RenderedVobs.clear();
++        FrameWaterSurfaces.clear();
++        FrameTransparencyMeshes.clear();
++        FrameTransparencyMeshesPortal.clear();
++        FrameTransparencyMeshesWaterfall.clear();
++
++        // coop4: eigene Schattenkarten fuer diesen Durchgang einsetzen
++        if ( !g_CoopSV.shadow ) {
++            g_CoopSV.shadow = std::make_unique<D3D11ShadowMap>();
++            g_CoopSV.shadow->Init( Device, Context, COOP_SECOND_VIEW_SHADOWMAP_SIZE );
++        }
++        // coop4: Tiefen-Kopie des Hauptbilds sichern - der Licht-Durchgang ueberschreibt sie (CopyDepthStencil); Present stellt
++        // den Tiefenpuffer daraus wieder her, Unterwasser-Effekte lesen sie
++        if ( !g_CoopSV.depthSave || g_CoopSV.depthSaveSize.x != res.x || g_CoopSV.depthSaveSize.y != res.y ) {
++            g_CoopSV.depthSave = std::make_unique<RenderToTextureBuffer>( GetDevice().Get(), res.x, res.y, DXGI_FORMAT_R32_TYPELESS,
++                nullptr, DXGI_FORMAT_R32_FLOAT, DXGI_FORMAT_R32_FLOAT );
++            g_CoopSV.depthSaveSize = res;
++        }
++        GetContext()->CopyResource( g_CoopSV.depthSave->GetTexture().Get(), DepthStencilBufferCopy->GetTexture().Get() );
++        std::swap( ShadowMaps, g_CoopSV.shadow );
++
++        g_CoopSecondViewPass = true;
++        if ( s.DrawSky )
++            DrawSky();
++        Engine::GAPI->DrawWorldMeshNaive();
++        {
++            D3D11ENGINE_RENDER_STAGE oldStage = RenderingStage;
++            SetRenderingStage( DES_GHOST );
++            Engine::GAPI->DrawTransparencyVobs();   // leert die Liste - sonst zeichnete das naechste Hauptbild sie mit
++            SetRenderingStage( oldStage );
++        }
++        g_CoopSecondViewPass = false;
++
++        // coop4: Schattenkarten des Hauptbilds zurueck, Tiefe wie nach dem Hauptbild (Kopie = Welt, Puffer geleert fuer die UI)
++        std::swap( ShadowMaps, g_CoopSV.shadow );
++        GetContext()->CopyResource( DepthStencilBufferCopy->GetTexture().Get(), g_CoopSV.depthSave->GetTexture().Get() );
++        GetContext()->ClearDepthStencilView( DepthStencilBuffer->GetDepthStencilView().Get(), D3D11_CLEAR_DEPTH, 0, 0 );
++
++        // Listen dieses Durchgangs nicht ins naechste Hauptbild mitnehmen
++        FrameWaterSurfaces.clear();
++        FrameTransparencyMeshes.clear();
++        FrameTransparencyMeshesPortal.clear();
++        FrameTransparencyMeshesWaterfall.clear();
++
++        // Kamera und Einstellungen zurueck
++        *trafo = savedTrafo;
++        cam->Activate();
++        Engine::GAPI->SetViewTransform( cam->GetTransformDX( zCCamera::ETransformType::TT_VIEW ), false );
++        s.EnablePointlightShadows = savedPls;
++        s.HbaoSettings.Enabled = savedHbao;
++        s.DrawParticleEffects = savedParticles;
++        s.EnableOcclusionCulling = savedOcclusion;
++
++        SetDefaultStates();
++        PfxRenderer->CopyTextureToRTV( HDRBackBuffer->GetShaderResView(), g_CoopSV.tex->GetRenderTargetView(), size );
++        g_CoopSV.texValid = true;
++    }
++
++    // Rahmen + Bild in den Backbuffer
++    const float frameColor[4] = { 0.80f, 0.70f, 0.40f, 1.0f };
++    D3D11_RECT r = { pos.x - 2, pos.y - 2, pos.x + size.x + 2, pos.y + size.y + 2 };
++    GetContext()->ClearView( Backbuffer->GetRenderTargetView().Get(), frameColor, &r, 1 );
++    SetDefaultStates();
++    PfxRenderer->CopyTextureToRTV( g_CoopSV.tex->GetShaderResView(), Backbuffer->GetRenderTargetView(), size, false, pos );
++}
++
+ void D3D11GraphicsEngine::SetupVS_ExMeshDrawCall() {
+     UpdateRenderStates();
+ 
+@@ -4869,7 +5060,7 @@ XRESULT D3D11GraphicsEngine::DrawVOBsInstanced() {
+             }
+         }
+ 
+-        if ( Engine::GAPI->GetRendererState().RendererSettings.AnimateStaticVobs ) {
++        if ( Engine::GAPI->GetRendererState().RendererSettings.AnimateStaticVobs && !g_CoopSecondViewPass ) {   // GothicCoop: nicht doppelt je Bild
+             UpdateMorphMeshVisual();
+         }
+ 
+diff --git a/D3D11Engine/D3D11GraphicsEngine.h b/D3D11Engine/D3D11GraphicsEngine.h
+index 8fb04d0..a4741c5 100644
+--- a/D3D11Engine/D3D11GraphicsEngine.h
++++ b/D3D11Engine/D3D11GraphicsEngine.h
+@@ -263,6 +263,9 @@ public:
+     /** Called when we started to render the world */
+     virtual XRESULT OnStartWorldRendering();
+ 
++    /** GothicCoop: Zweitbild (Fenster oben rechts) aus einer zweiten Kamera - nach dem Hauptbild, vor der Oberflaeche */
++    void RenderCoopSecondView();
++
+     /** Draws the sky using the GSky-Object */
+     virtual XRESULT DrawSky();
+ 
+diff --git a/D3D11Engine/D3D11ShadowMap.cpp b/D3D11Engine/D3D11ShadowMap.cpp
+index 3060f8c..15a7a5c 100644
+--- a/D3D11Engine/D3D11ShadowMap.cpp
++++ b/D3D11Engine/D3D11ShadowMap.cpp
+@@ -160,7 +160,7 @@ static void CalculateCascadeMatrices(
+     FXMVECTOR lightPos,
+     FXMVECTOR lookAt,
+     FXMVECTOR upDir,
+-    GXMVECTOR shadowCameraPos,
++    const XMVECTOR& shadowCameraPos,   // GothicCoop coop5: war GXMVECTOR (siehe Aufruf in DrawLighting)
+     UINT shadowMapSize )
+ {
+     // Cascade-spezifische Größe basierend auf Split-Verhältnis
+@@ -215,6 +215,10 @@ static void CalculateCascadeMatrices(
+     XMStoreFloat3( &outCR.LookAtReplacement, lookAt );
+ }
+ 
++// GothicCoop: Zweitbild-Durchgang (D3D11GraphicsEngine::RenderCoopSecondView) - dann eigener bilduebergreifender
++// Kaskaden-Zustand (coop4) und keine Regen-Schattenkarte.
++extern bool g_CoopSecondViewPass;
++
+ XRESULT D3D11ShadowMap::DrawLighting( std::vector<VobLightInfo*>& lights ) {
+     auto graphicsEngine = reinterpret_cast<D3D11GraphicsEngine*>(Engine::GraphicsEngine);
+     auto _ = graphicsEngine->RecordGraphicsEvent( L"DrawLighting" );
+@@ -361,6 +365,12 @@ XRESULT D3D11ShadowMap::DrawLighting( std::vector<VobLightInfo*>& lights ) {
+     auto splits = ComputeCascadeSplits( nearPlane, farPlane, numCascades, lambdaBiasTable[numCascades].lambda, lambdaBiasTable[numCascades].bias );
+     splits[numCascades] = baseFarPlane; // Let the last cascade reach the full far plane
+ 
++    // GothicCoop coop4: bilduebergreifender Kaskaden-Zustand je Durchgang getrennt - [0] Hauptbild, [1] Zweitbild. Das Zweitbild
++    // rechnet eigene Kaskaden um die Zweitkamera in eine eigene D3D11ShadowMap (RenderCoopSecondView tauscht ShadowMaps). Die
++    // Zustaende unten waren nur statisch und damit geteilt: coop1 verstellte so die Schatten des Hauptbilds, coop2/coop3 nahmen
++    // dafuer die Kaskaden des Hauptbilds - die decken nur dessen Sicht (Vob-Schatten nur von dort sichtbaren Vobs, Kanten).
++    const int coopSlot = g_CoopSecondViewPass ? 1 : 0;
++
+     // Get current light direction from atmosphere
+     XMVECTOR currentDir = XMLoadFloat3( Engine::GAPI->GetSky()->GetAtmosphereCB().AC_LightPos.toXMFLOAT3() );
+     currentDir = XMVector3Normalize( currentDir );
+@@ -374,16 +384,20 @@ XRESULT D3D11ShadowMap::DrawLighting( std::vector<VobLightInfo*>& lights ) {
+         XMVECTOR LightDir;
+         XMVECTOR Position;
+         bool initialized;
+-    } lastCascadeData = {};
++    } lastCascadeDataSlots[2] = {};   // GothicCoop coop4: je Durchgang
++    auto& lastCascadeData = lastCascadeDataSlots[coopSlot];
+ 
+     static struct {
+         size_t frameCount;
+         std::array<CameraReplacement, MAX_CSM_CASCADES> PreviousCascadeCRs;
+-    } perFrameCascadeData = {};
++    } perFrameCascadeDataSlots[2] = {};   // GothicCoop coop4: je Durchgang
++    auto& perFrameCascadeData = perFrameCascadeDataSlots[coopSlot];
++
++    static XMVECTOR s_previousLightDirSlots[2] = { currentDir, currentDir };   // GothicCoop coop4: je Durchgang
++    static bool s_lightDirInitializedSlots[2] = {};
++    XMVECTOR& s_previousLightDir = s_previousLightDirSlots[coopSlot];
++    bool& s_lightDirInitialized = s_lightDirInitializedSlots[coopSlot];
+ 
+-    static XMVECTOR s_previousLightDir = currentDir;
+-    static bool s_lightDirInitialized = false;
+-    
+     XMVECTOR dir;
+     
+     if ( Engine::GAPI->GetRendererState().RendererSettings.SmoothShadowCameraUpdate ) {
+@@ -415,7 +429,8 @@ XRESULT D3D11ShadowMap::DrawLighting( std::vector<VobLightInfo*>& lights ) {
+         lastCascadeData.LightDir,
+         500.0f);
+ 
+-    static XMVECTOR oldP = XMVectorZero();
++    static XMVECTOR oldPSlots[2] = { XMVectorZero(), XMVectorZero() };   // GothicCoop coop4: je Durchgang
++    XMVECTOR& oldP = oldPSlots[coopSlot];
+     XMVECTOR WorldShadowCP;
+     // Update position
+     // Try to update only if the camera went 200 units away from the last position
+@@ -440,7 +455,8 @@ XRESULT D3D11ShadowMap::DrawLighting( std::vector<VobLightInfo*>& lights ) {
+     }
+ 
+     // Indoor check
+-    static zTBspMode lastBspMode = zBSP_MODE_OUTDOOR;
++    static zTBspMode lastBspModeSlots[2] = { zBSP_MODE_OUTDOOR, zBSP_MODE_OUTDOOR };   // GothicCoop coop4: je Durchgang
++    zTBspMode& lastBspMode = lastBspModeSlots[coopSlot];
+ 
+     // Array für alle Cascade-Matrizen
+     std::array<CameraReplacement, MAX_CSM_CASCADES> cascadeCRs = {};
+@@ -505,6 +521,12 @@ XRESULT D3D11ShadowMap::DrawLighting( std::vector<VobLightInfo*>& lights ) {
+             }
+ 
+             if ( shouldUpdateCascade ) {
++                // GothicCoop coop5: der 4. Vektor war GXMVECTOR (x86: Wertuebergabe) in einer Funktion ohne XM_CALLCONV. VS2019
++                // (v142, Release_G1_AVX2) legte hier den Wert auf den Stapel, CalculateCascadeMatrices las dort einen Zeiger -
++                // die x-Koordinate als Adresse: zufaellige Schattenkamera-Lage (Schatten flackerten in coop0-coop4) und
++                // Zugriffsfehler, wenn die Adresse unbelegt war (Test coop4: Absturz auf beiden PCs). Der GitHub-Build (VS2022)
++                // uebergibt einen Zeiger auf eine Kopie. Jetzt ausdruecklich Referenz auf eine benannte Variable.
++                const XMVECTOR shadowCameraPos = isLastCascade ? lastCascadeData.Position : WorldShadowCP;
+                 CalculateCascadeMatrices(
+                     cascadeCRs[cascadeIdx],
+                     splits,
+@@ -514,7 +536,7 @@ XRESULT D3D11ShadowMap::DrawLighting( std::vector<VobLightInfo*>& lights ) {
+                     isLastCascade ? lastCascadeP : p,
+                     isLastCascade ? lastCascadeLookAt : lookAt,
+                     c_XM_Up,
+-                    isLastCascade ? lastCascadeData.Position : WorldShadowCP,
++                    shadowCameraPos,
+                     GetSizeX() );
+ 
+                 // Store the current cascade matrix for future frames when we skip updates
+@@ -551,7 +573,7 @@ XRESULT D3D11ShadowMap::DrawLighting( std::vector<VobLightInfo*>& lights ) {
+     Engine::GAPI->SetCameraReplacementPtr( nullptr );
+ 
+     // Draw rainmap, if raining
+-    if ( Engine::GAPI->GetSceneWetness() > 0.00001f ) {
++    if ( Engine::GAPI->GetSceneWetness() > 0.00001f && !g_CoopSecondViewPass ) {
+         auto _ = graphicsEngine->RecordGraphicsEvent( L"Rain Shadowmap" );
+         graphicsEngine->Effects->DrawRainShadowmap();
+     }
+@@ -630,8 +652,9 @@ XRESULT D3D11ShadowMap::DrawLighting( std::vector<VobLightInfo*>& lights ) {
+             }
+         }
+ 
+-        // Animate the light
+-        vob->DoAnimation();
++        // Animate the light (GothicCoop coop4: nur im Hauptbild - sonst liefe die Licht-Animation doppelt so schnell)
++        if ( !g_CoopSecondViewPass )
++            vob->DoAnimation();
+ 
+         plcb.PL_Color = float4( vob->GetLightColor() );
+         plcb.PL_Range = vob->GetLightRange();
+diff --git a/D3D11Engine/GothicAPI.cpp b/D3D11Engine/GothicAPI.cpp
+index 1b969ce..dcc665f 100644
+--- a/D3D11Engine/GothicAPI.cpp
++++ b/D3D11Engine/GothicAPI.cpp
+@@ -1297,7 +1297,12 @@ void GothicAPI::CalcPolyStripMeshes() {
+         //////////////////////////////
+ 
+         zCPolyStripInstance* pStripInst = pStrip->GetInstanceData();
+-        zCMaterial* mat = pStripInst->material;
++        zCMaterial* mat = pStripInst ? pStripInst->material : nullptr;
++        if ( !mat ) {
++            // GothicCoop coop2: Polystrip ohne Material (Othello, Test 19.10.2026: Zugriffsfehler in zCMaterial::GetAniTexture
++            // auf this = NULL, aus CalcPolyStripMeshes) - auslassen statt abstuerzen
++            continue;
++        }
+         zCTexture* tx = mat->GetAniTexture();
+         if ( !tx ) {
+             tx = mat->GetTextureSingle();
+@@ -1412,7 +1417,12 @@ void GothicAPI::CalcFlashMeshes() {
+         pStrip->Render( pStrip );
+ 
+         zCPolyStripInstance* pStripInst = pStrip->GetInstanceData();
+-        zCMaterial* mat = pStripInst->material;
++        zCMaterial* mat = pStripInst ? pStripInst->material : nullptr;
++        if ( !mat ) {
++            // GothicCoop coop2: Polystrip ohne Material (Othello, Test 19.10.2026: Zugriffsfehler in zCMaterial::GetAniTexture
++            // auf this = NULL, aus CalcPolyStripMeshes) - auslassen statt abstuerzen
++            continue;
++        }
+         zCTexture* tx = mat->GetAniTexture();
+         if ( !tx ) {
+             tx = mat->GetTextureSingle();
+diff --git a/D3D11Engine/IkarusBindings.cpp b/D3D11Engine/IkarusBindings.cpp
+index 11adab0..603af7b 100644
+--- a/D3D11Engine/IkarusBindings.cpp
++++ b/D3D11Engine/IkarusBindings.cpp
+@@ -9,6 +9,9 @@
+ #include "zSTRING.h"
+ #include "zCParser.h"
+ 
++// GothicCoop: Zweitbild - in D3D11GraphicsEngine.cpp
++void D3D11GraphicsEngine_CoopSecondViewSet( int enabled, const float* camToWorld, float x, float y, float w, int everyNth );
++
+ extern "C"
+ {
+     /** Draws a red cross at the given location in the current frame
+@@ -183,4 +186,19 @@ extern "C"
+         Engine::GAPI->SaveRendererWorldSettings( Engine::GAPI->GetRendererState().RendererSettings );
+         Engine::GAPI->SaveMenuSettings( MENU_SETTINGS_FILE );
+     }
++
++    /** GothicCoop (Othello-Coop, 19.10.2026): Zweitbild (Fenster) aus einer zweiten Kamera, z. B. beim Mitspieler.
++        - enabled: 0 = aus
++        - camToWorld: 16 floats, Lage/Ausrichtung der Kamera wie zCVob::trafoObjToWorld (zMAT4, Zeile fuer Zeile)
++        - x, y, w: Fenster in Bildanteilen (links, oben, Breite); die Hoehe folgt dem Seitenverhaeltnis des Bildes
++        - everyNth: Szene nur jedes n-te Bild neu zeichnen (1 = jedes Bild), dazwischen bleibt das letzte Bild stehen
++        Jedes Bild neu aufrufen, solange die Kamera sich bewegt. Siehe D3D11GraphicsEngine::RenderCoopSecondView. */
++    __declspec(dllexport) void __cdecl GDX_CoopSecondView( int enabled, const float* camToWorld, float x, float y, float w, int everyNth ) {
++        D3D11GraphicsEngine_CoopSecondViewSet( enabled, camToWorld, x, y, w, everyNth );
++    }
++
++    /** GothicCoop: Fassung der Zweitbild-Schnittstelle (1 = GDX_CoopSecondView wie oben) */
++    __declspec(dllexport) int __cdecl GDX_CoopSecondViewVersion( void ) {
++        return 1;
++    }
+ };

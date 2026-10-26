@@ -1,0 +1,23 @@
+GothicCoop {f} - Gothic 1 mit Othello (Gothic-I-II-Universal-Coop, Othello-Profil)
+
+Voraussetzung: Gothic 1 (Fassung 1.08k) mit Othello 4.x - Othello bringt Union 1.0m und zParserExtender mit.
+Beide PCs brauchen dieselbe GothicCoop-Fassung ({f}).
+
+Dateien (vom Installer geschrieben bzw. in dieser ZIP; die ZIP in den Gothic-Ordner entpacken, in dem "system" liegt):
+  system\Autorun\Gothic1Coop.dll        GothicCoop-DLL (erkennt Othello selbst und schaltet die Othello-Anpassungen ein)
+  system\Autorun\COOP_MENU.D            COOP-Menue fuer Othellos Menues
+  system\Autorun\COOP_ITEMS.D           Coop-Gegenstaende (Teleport-Rune zum Mitspieler)
+  system\Autorun\PC_MULTIPLAYER_HERO.D  Coop-Figur
+  system\GothicCoopConfig.json          Vorgaben (der Installer nur, wenn es sie noch nicht gab)
+  system\steam_api.dll, steam_appid.txt Coop ueber Steam (Steam muss laufen)
+  system\GD3D11\...                     Coop-Renderer (der Installer bringt GD3D11 v17.9.7 mit, falls es fehlt)
+
+Spielen: Hauptmenue > COOP > Figur waehlen > "Weiter: Verbinden" > "Spiel hosten" bzw. "Ueber IP beitreten"
+(Port 9955). Protokoll: system\GothicCoopOthello.log.
+
+Hinweis: das Othello-Profil wurde zuletzt mit dem Othello-Coop v106 im Spiel getestet; seitdem sind die Aenderungen fuer das
+allgemeine Coop dazugekommen (u1-{f}).
+
+Rueckgaengig (Installer): den Installer noch einmal starten, Spielordner waehlen, "Letzte Installation rueckgaengig". Ersetzte
+Dateien liegen in CoopBackup\<Zeit>\, das Protokoll in CoopLogs\Installer\.
+Quelltext: https://github.com/corshaegar/Gothic-I-II-Universal-Coop
