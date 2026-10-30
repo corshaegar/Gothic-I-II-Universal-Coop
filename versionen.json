@@ -1,9 +1,9 @@
 {
  "_hinweis": "u62 (Nutzer: \"mach für jede Mod einzeln eine Version sowas wie u56 etc. und für das Gesamt projekt eine version zb 0.1.1\"): projekt = Version der Veröffentlichung (GitHub-Release), je Spiel/Mod die Coop-Fassung, mit der es zuletzt geändert wurde (sie zählt nur, wenn sich am Coop für dieses Spiel etwas ändert)",
- "projekt": "0.3.0",
+ "projekt": "0.3.1",
  "mods": {
-  "Gothic I": "u106",
-  "Gothic II": "u106",
-  "Othello": "u106"
+  "Gothic I": "u134",
+  "Gothic II": "u134",
+  "Othello": "u134"
  }
 }

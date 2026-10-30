@@ -753,12 +753,15 @@ namespace GOTHIC_ENGINE {
     // ENTER_OLDWORLD_/ENTER_ADDONWORLD_FIRSTTIME_TRIGGER_ONETIME) gehoeren zum Weltstand dieses PCs - sie schuetzen, was beim ersten
     // Betreten in DIESER Welt geschieht (B_KillNpc, B_RemoveNpc, Tagesablaeufe). Abgeglichen liefen die Skripte beim Partner nie, der
     // seine eigene Kopie der Welt erst spaeter betritt (seit u29 getrennte Welten).
+    // u134 (P130, G1/Othello; Welten-Testlauf G1: "ENTEREDFREEMINE: hier 0, Partner 1"): dasselbe in Gothic 1 - STARTUP_OLDMINE und
+    // STARTUP_FREEMINE setzen EnteredOldMine/EnteredFreeMine, wenn dieser PC die Mine zum ersten Mal laedt.
     static bool DlgWorldEntryVar(const char* nm) {
         static const char* const prefixes[] = { "ENTEROW_KAPITEL", "ENTERNW_KAPITEL", "ENTERADW_KAPITEL", "ENTERDI_KAPITEL" };
         for (const char* p : prefixes)
             if (!strncmp(nm, p, strlen(p)))
                 return true;
-        return !strcmp(nm, "ENTER_OLDWORLD_FIRSTTIME_TRIGGER_ONETIME") || !strcmp(nm, "ENTER_ADDONWORLD_FIRSTTIME_TRIGGER_ONETIME");
+        return !strcmp(nm, "ENTER_OLDWORLD_FIRSTTIME_TRIGGER_ONETIME") || !strcmp(nm, "ENTER_ADDONWORLD_FIRSTTIME_TRIGGER_ONETIME") ||
+            !strcmp(nm, "ENTEREDOLDMINE") || !strcmp(nm, "ENTEREDFREEMINE");
     }
 
     // u97: COOP_TRUHE_OEFFNEN - Merker "Coop-Truhe benutzt" (COOP_ITEMS.D) gilt nur auf diesem PC

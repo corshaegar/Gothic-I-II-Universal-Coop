@@ -52,7 +52,7 @@ Ab u85: Gilden gelten je Held - Gilden-Dialoge teilen nur Helden derselben Gilde
 bekommt einer einen, hat ihn der Partner auch; gibt einer ihn ab, verliert ihn der Partner (Name "... (gemeinsam)"). Ab u97:
 Coop-Inventar - eine gemeinsame Truhe; die Taste (Vorgabe I, Einstellungen > COOP) oeffnet sie ohne Bewegung, beide koennen sie
 gleichzeitig offen haben, der Inhalt liegt beim Host und im Spielstand, Gegenstaende daraus zaehlen bei Quests. Ab u105: Auto-Sicherung
-auch alle 3 Minuten. Diese Neuerungen sind in Gothic 1 mitgebaut und geprueft, aber noch nicht im Spiel getestet.
+auch alle 3 Minuten. Diese Neuerungen sind in Gothic 1 automatisch geprueft (ab u134), aber noch nicht von Hand gespielt.
 """
 
 

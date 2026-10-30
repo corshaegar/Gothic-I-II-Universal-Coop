@@ -4379,14 +4379,13 @@ namespace GOTHIC_ENGINE {
         return ok;
     }
 
-    // zweite Hauptwelt der Engine (G2: Khorinis <-> Minental, G1: Kolonie <-> Freie Mine); Othello: keine bekannt
+    // zweite Hauptwelt der Engine (G2: Khorinis <-> Minental, G1: Kolonie <-> Freie Mine). u134: auch Othello 4.x hat FREEMINE.ZEN
+    // (WorldsOthello4.0.vdf) - bis dahin fielen dort alle 43 Schritte ueber Welten als "keine zweite Welt bekannt" aus
     static std::string CTSecondWorld(const std::string& mine) {
         const std::string b = CoopWcBase(mine);
 #if ENGINE >= Engine_G2
         return b == "NEWWORLD.ZEN" ? "OLDWORLD\\OLDWORLD.ZEN" : "NEWWORLD\\NEWWORLD.ZEN";
 #else
-        if (CoopProfileIsOthello())
-            return std::string();
         return b == "WORLD.ZEN" ? "FREEMINE.ZEN" : "WORLD.ZEN";
 #endif
     }

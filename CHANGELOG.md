@@ -4,7 +4,15 @@ Projektversion (Veröffentlichung) und je Spiel/Mod die Coop-Fassung `uNN`. Vorg
 (github.com/corshaegar/Othello-Coop, 0.1.0–0.1.2, nur Othello). Die Fassungen dazwischen (u1–u61) stehen im Entwicklungsverlauf;
 hier beginnt der Verlauf mit u62.
 
-## 0.3.0 – Coop-Inventar, gemeinsame Missions-Gegenstände, Gilden je Held (Gothic I u106, Gothic II u106, Othello u106)
+## 0.3.1 – Gothic 1 und Othello automatisch geprüft, Korrekturen am Weltprozess (Gothic I u134, Gothic II u134, Othello u134)
+
+Erstmals läuft der automatische Testlauf (Host und Client auf einem PC) auch in Gothic 1 und Othello: Ergebnisse im [README](README.md#teststand). Was er dabei gefunden hat:
+
+- **Weltprozess** (allgemein, u134): Stand der Partner in der anderen Welt still, bekam der Weltprozess des Hosts keinen Auftrag, und das Zuschau-Fenster blieb leer. Schon eine kurze Paketpause setzte die Wartezeit zurück.
+- **Othello** (u134): Weltprozess und Testinstanz legen den Spielstand im selben Ordner ab wie das Hauptspiel (`SAVES_OTHELLOZ`, bisher fest `Saves`). Der Testlauf prüft getrennte Welten jetzt auch unter Othello.
+- **Gothic 1, Othello** (u134): Der Merker „Mine schon betreten“ gehört zum Weltstand des PCs und wird nicht mehr abgeglichen.
+
+## 0.3.0 – Coop-Inventar, gemeinsame Missions-Gegenstände, Gilden je Held (Gothic I u106, Gothic II u106, Othello u106; nur Tag `v0.3.0`, kein eigenes Release)
 
 **Neu**
 

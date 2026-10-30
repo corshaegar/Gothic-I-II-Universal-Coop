@@ -127,7 +127,7 @@ namespace GOTHIC_ENGINE {
         WritePrivateProfileStringA("GOTHICCOOP", "coopPort", std::to_string(ConnectionPort).c_str(), ini.c_str());
         // Slot des Hosts in den Testordner (vorige Kopie dort vorher leeren - eigener Ordner)
         const std::string src = CoopSlotDir(CA.slot);
-        const std::string dst = c + "\\Saves\\" + std::string(TSaveLoadGameInfo::GetSaveSlotName(CA.slot).ToChar()) + "\\";
+        const std::string dst = c + "\\" + CoopSavesLeaf() + "\\" + std::string(TSaveLoadGameInfo::GetSaveSlotName(CA.slot).ToChar()) + "\\";   // u134 (P129)
         CreateDirectoryA(dst.c_str(), NULL);
         int copied = 0, failed = 0;
         WpForEachFile(dst, [&](const std::string& n) { DeleteFileA((dst + n).c_str()); });

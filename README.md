@@ -16,13 +16,13 @@ abgeglichen. Ein Union-Plugin auf Grundlage von [GothicCoop / Gothic Together](h
 
 ## Versionen
 
-Projektversion **0.3.0** – je Spiel/Mod die Coop-Fassung (sie zählt nur hoch, wenn sich an diesem Spiel etwas ändert):
+Projektversion **0.3.1** – je Spiel/Mod die Coop-Fassung (sie zählt nur hoch, wenn sich an diesem Spiel etwas ändert):
 
 | Spiel / Mod | Coop-Fassung |
 |---|---|
-| Gothic I | u106 |
-| Gothic II | u106 |
-| Othello | u106 |
+| Gothic I | u134 |
+| Gothic II | u134 |
+| Othello | u134 |
 
 **Beide PCs brauchen dieselbe Coop-Fassung** – beim Verbinden wird sie verglichen. Sie steht im Hauptmenü unten
 („GothicCoop uNN“). Änderungen je Version: [`CHANGELOG.md`](CHANGELOG.md).
@@ -76,9 +76,9 @@ Projektversion **0.3.0** – je Spiel/Mod die Coop-Fassung (sie zählt nur hoch,
 
 | | Stand |
 |---|---|
-| **Gothic 2 Die Nacht des Raben** (2.6) | Hauptspiel der Entwicklung. Automatischer Testlauf auf einem PC (Host und Client) für Gilden, Coop-Inventar und Truhen: 28/28 auf beiden Seiten. Lange automatische Läufe mit Prüfrunden (Vergleich beider Seiten) – meist ohne Abweichung, gelegentlich einzelne Abweichungen. Das Coop-Inventar ist vor allem automatisch geprüft; ein Spieltest mit zwei Personen über das echte Netz steht noch aus. |
-| **Gothic 1** (1.08k, Steam/GOG) | Zuletzt mit u44 im Spiel eingesetzt; die späteren Änderungen sind fast alle allgemein (für beide Spiele) und werden für Gothic 1 mitgebaut und geprüft (Übersetzung, Engine-Adressen), aber noch nicht erneut im Spiel getestet – auch nicht Coop-Inventar und gemeinsame Missions-Gegenstände. |
-| **Othello** 4.x (Gothic 1) | Im Spiel zuletzt mit dem Othello-Coop v106 (= Othello-Coop 0.1.2) geprüft; seitdem sind die allgemeinen Änderungen dazugekommen. |
+| **Gothic 2 Die Nacht des Raben** (2.6) | Hauptspiel der Entwicklung. Automatischer Testlauf auf einem PC (Host und Client): Gilden, Coop-Inventar und Truhen 28/28 auf beiden Seiten; getrennte Welten und Weltprozess Host 48/48, Client 45 OK, 0 Fehler (3 Schritte nur am Host). Lange automatische Läufe mit Prüfrunden (Vergleich beider Seiten) – meist ohne Abweichung, gelegentlich einzelne Abweichungen. Das Coop-Inventar ist vor allem automatisch geprüft; ein Spieltest mit zwei Personen über das echte Netz steht noch aus. |
+| **Gothic 1** (1.08k, Steam/GOG) | Derselbe automatische Testlauf: Gilden und Coop-Inventar je 23 OK, 0 Fehler (5 Truhen-Schritte übersprungen, am Test-Spielstand steht keine Truhe); getrennte Welten und Weltprozess Host 48/48, Client 45 OK, 0 Fehler. Von Hand zuletzt mit u44 gespielt; die Neuerungen seitdem (Coop-Inventar, gemeinsame Missions-Gegenstände) noch nicht von Hand und nicht über das echte Netz. |
+| **Othello** 4.x (Gothic 1) | Derselbe automatische Testlauf: Gilden, Coop-Inventar und Truhen 28/28; getrennte Welten und Weltprozess Host 48/48, Client 45 OK, 0 Fehler. Von Hand zuletzt mit dem Othello-Coop v106 (= Othello-Coop 0.1.2) gespielt; seitdem sind die allgemeinen Änderungen dazugekommen. |
 | **Mods** | Gothic 1/2 mit anderen Mods lassen sich installieren (der Installer erlaubt es), sind aber nicht gezielt geprüft. |
 
 Bekannte Grenzen:
@@ -94,7 +94,7 @@ mit Patch 2.6) oder Gothic 1 mit Othello 4.x. Union 1.0m bringen Installer und Z
 
 ### Mit dem Installer (empfohlen)
 
-1. Unter [Releases](../../releases) `Gothic-I-II-Universal-Coop-0.3.0-Setup.exe` laden und starten.
+1. Unter [Releases](../../releases) `Gothic-I-II-Universal-Coop-0.3.1-Setup.exe` laden und starten.
 2. Spiel wählen (Gothic 1, Gothic 2, Othello) und den **Spielordner** (den Ordner, in dem `system` liegt; Steam- und GOG-Ordner
    werden gesucht). Der Installer prüft am Inhalt, dass es wirklich dieses Spiel ist, und installiert in einen falschen Ordner nichts.
 3. „Installieren“. Er schreibt den Coop, bringt GD3D11 v17.9.7 mit (falls es fehlt) und legt den Coop-Renderer darüber
@@ -167,7 +167,7 @@ Uhrzeit, Tagebuch und legt eine Sicherung an) · **Shift+F12** Weltprozess aus/a
 ## Was noch kommt
 
 - Coop-Inventar und gemeinsame Missions-Gegenstände im Spieltest mit zwei Personen über das echte Netz prüfen.
-- Gothic 1 und Othello wieder regelmäßig im Spiel prüfen (automatischer Testlauf wie bei Gothic 2).
+- Gothic 1 und Othello von Hand und über das echte Netz prüfen (der automatische Testlauf läuft dort jetzt).
 - Erkennung einzelner Mods mit eigenen Anpassungen (bisher: Gothic 1/2 mit Mods installierbar, aber nicht gezielt unterstützt).
 - Union für Gothic 1 vollständig mitliefern (Unions Setup schreibt dort zusätzlich `binkw32.dll`/`Mss32.dll`).
 - Weitere Abgleich-Feinheiten aus den langen Testläufen (z. B. fallen gelassene Waffen getöteter Gegner).

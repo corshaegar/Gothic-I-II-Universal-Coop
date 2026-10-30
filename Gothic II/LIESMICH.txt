@@ -1,7 +1,7 @@
-GothicCoop u106 - Gothic 2 Die Nacht des Raben ohne Mod (Union-Coop, erste Fassung fuer Gothic 2)
+GothicCoop u134 - Gothic 2 Die Nacht des Raben ohne Mod (Union-Coop, erste Fassung fuer Gothic 2)
 
 Voraussetzung: Gothic 2 Die Nacht des Raben (Fassung 2.6). Union 1.0m (mit zParserExtender) liegt bei.
-Beide PCs brauchen dieselbe GothicCoop-Fassung (u106).
+Beide PCs brauchen dieselbe GothicCoop-Fassung (u134).
 
 Installation: den Inhalt dieser ZIP in den Gothic-2-Ordner entpacken (den Ordner, in dem "system" liegt) und
 vorhandene Dateien ersetzen. War Union noch nicht installiert: danach system\dinput.dll entfernen (der Lader von

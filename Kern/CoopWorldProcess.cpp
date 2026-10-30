@@ -725,8 +725,9 @@ namespace GOTHIC_ENGINE {
                 WpJunctionDirs(s, c + "\\system\\" + o, {}, n);
         }
         WpHidePlugins(c, "vor dem Start");   // Reste eines abgebrochenen Laufs
-        CreateDirectoryA((c + "\\Saves").c_str(), NULL);
-        CreateDirectoryA((c + "\\Saves\\current").c_str(), NULL);
+        const std::string saves = c + "\\" + CoopSavesLeaf();   // u134 (P129): unter Othello SAVES_OTHELLOZ
+        CreateDirectoryA(saves.c_str(), NULL);
+        CreateDirectoryA((saves + "\\current").c_str(), NULL);
         // Gothic.ini der Kopie: Fenster, ohne Ton/Musik, ohne Logo-Videos (das Hauptspiel behaelt seine Einstellungen)
         const std::string ini = c + "\\system\\Gothic.ini";
         bool iniOk = GetFileAttributesA(ini.c_str()) != INVALID_FILE_ATTRIBUTES;
@@ -1018,7 +1019,9 @@ namespace GOTHIC_ENGINE {
         return true;
     }
 
-    // Mitspieler in einer anderen Welt. fresh: er sendet gerade (laedt er, kommt nichts - z. B. beim gemeinsamen Weltwechsel)
+    // Mitspieler in einer anderen Welt. fresh: er sendet gerade (laedt er, kommt nichts - z. B. beim gemeinsamen Weltwechsel).
+    // u134 (P131, allgemein; Welten-Testlauf G1: beim Host "startet gleich" und "ruht" im Wechsel, nie ein Auftrag): ein Held, der still
+    // steht, sendet nur bei Aenderungen - schon eine Pause ueber 4 s setzte die Wartezeit auf den Auftrag (bis 20 s) wieder zurueck. Jetzt 30 s
     static bool WpHostPickPartner(std::string& id, std::string& file, std::string& nick, int& key, bool fresh) {
         const int mine = CoopWorldKey();
         const std::string me = MyselfId.ToChar();
@@ -1027,7 +1030,7 @@ namespace GOTHIC_ENGINE {
         for (auto& kv : CoopPeerWorlds) {
             if (kv.first == me || !kv.second.key || kv.second.key == mine || kv.second.file.empty())
                 continue;
-            if (fresh && CurrentMs - kv.second.lastMs > 4000)
+            if (fresh && CurrentMs - kv.second.lastMs > 30000)
                 continue;
             id = kv.first;
             file = kv.second.file;
@@ -1058,7 +1061,7 @@ namespace GOTHIC_ENGINE {
     // der Zielwelt aus Saves\current, wenn sie neuer sind als die im Slot (der Host war seit dem Speichern dort)
     static bool WpHostPrepareSaves(int slot, const std::string& world, std::string& why, std::string& note) {
         const std::string src = CoopSlotDir(slot);
-        const std::string root = WpCopyRoot() + "\\Saves\\";
+        const std::string root = WpCopyRoot() + "\\" + CoopSavesLeaf() + "\\";   // u134 (P129)
         const std::string dst = root + std::string(TSaveLoadGameInfo::GetSaveSlotName(slot).ToChar()) + "\\";
         CreateDirectoryA(root.c_str(), NULL);
         CreateDirectoryA((root + "current").c_str(), NULL);

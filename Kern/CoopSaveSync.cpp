@@ -425,6 +425,17 @@ namespace GOTHIC_ENGINE {
         return CoopSavesDir() + std::string(TSaveLoadGameInfo::GetSaveSlotName(slot).ToChar()) + "\\";
     }
 
+    // u134 (P129): Spielstandordner ohne Pfad - "Saves", unter Othello (-game:othelloz.ini) "SAVES_OTHELLOZ". Test- und Weltordner brauchen
+    // denselben Namen wie das Hauptspiel; mit festem "Saves" fand das zweite Gothic unter Othello seinen Slot nicht
+    static std::string CoopSavesLeaf() {
+        std::string s = CoopSavesDir();
+        if (!s.empty())
+            s.erase(s.size() - 1);
+        const size_t p = s.find_last_of("\\/");
+        s = p == std::string::npos ? s : s.substr(p + 1);
+        return s.empty() ? std::string("Saves") : s;
+    }
+
     static std::string CoopArchiveRoot() {
         const std::string a = CoopSavesDir() + "coop_archiv\\";
         CreateDirectoryA(a.c_str(), NULL);
