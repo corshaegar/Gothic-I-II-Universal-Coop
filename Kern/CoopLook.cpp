@@ -242,6 +242,7 @@ namespace GOTHIC_ENGINE {
     // Einmal je Start: fehlende Eintraege aus der json vorbelegen (das Menue zeigt sonst leere Felder bzw. die erste Wahl).
     void CoopCamDefaults();   // CoopCamera.cpp (v66): Kamera-Eintraege vorbelegen, damit das Menue sie schon im Hauptmenue zeigt
     void CoopDiffDefaults();  // CoopDifficulty.cpp (v67): Schwierigkeitsgrad ebenso
+    void CoopTruheDefaults(); // CoopTruhe.cpp (u101): Taste des Coop-Inventars ebenso
 
     static void CoopSettingsDefaults() {
         static bool done = false;
@@ -266,6 +267,7 @@ namespace GOTHIC_ENGINE {
         if (!IniHas("coopSkin")) { IniSetInt("coopSkin", DefaultBodyTexColorNr); written++; }
         CoopCamDefaults();
         CoopDiffDefaults();
+        CoopTruheDefaults();
         if (written)
             LookLog("%d Coop-Eintraege in Gothic.ini [GOTHICCOOP] aus GothicCoopConfig.json vorbelegt", written);
     }

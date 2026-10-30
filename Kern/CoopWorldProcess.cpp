@@ -1297,6 +1297,8 @@ namespace GOTHIC_ENGINE {
         j["d"] = d;
         j["h"] = hh;
         j["m"] = mm;
+        if (oCWorldTimer* t = ogame->GetWorldTimer())
+            j["t"] = t->worldTime;   // u83: genaue Spielzeit (Helpers.cpp CoopApplyHostTime)
         WpHostSend(j);
     }
 
@@ -1965,7 +1967,7 @@ namespace GOTHIC_ENGINE {
             else
                 WpCandidate.clear();
         }
-        if (CurrentMs > WpHost.timeMs + 5000)   // Uhrzeit wie an die Clients (SYNC_TIME: Stunde, Minute)
+        if (CurrentMs > WpHost.timeMs + 1000)   // Uhrzeit wie an die Clients (SYNC_TIME; u83: jede Sekunde genau, bis u82 alle 5 s)
             WpHostSendTime();
         if (screen && WpHost.active && !(WpHost.phase == "bereit" && WpHost.fig)) {   // Zeile unter der Fassung, solange er vorbereitet
             char b[200];
@@ -2249,15 +2251,19 @@ namespace GOTHIC_ENGINE {
             else if (op == "time") {
                 if (inGame && WpW.phase == 4 && ogame) {
                     const int dd = WpInt(j, "d", -1), hh = WpInt(j, "h", -1), mm = WpInt(j, "m", -1);
+                    // u83: mit der genauen Spielzeit "t" jedes Mal uebernehmen (bis u82 erst ab 2 Spielminuten Abstand)
+                    const float tt = j.contains("t") && j["t"].is_number() ? j["t"].get<float>() : -1.f;
                     int d0 = 0, h0 = 0, m0 = 0;
                     ogame->GetTime(d0, h0, m0);
                     const int diff = abs((hh * 60 + mm) - (h0 * 60 + m0));
                     const bool dayDiff = dd >= 0 && dd != d0;   // u51: Spieltag (WpHostSendTime schickt ihn seit u38 mit)
-                    if (hh >= 0 && mm >= 0 && (dayDiff || (diff > 2 && diff < 24 * 60 - 2))) {
-                        CoopApplyHostTime(dd, hh, mm, "Weltprozess");
-                        if (!WpW.timeSet || (diff > 30 && diff < 24 * 60 - 30))
+                    const bool apart = dayDiff || (diff > 2 && diff < 24 * 60 - 2);   // nicht "far" - Makro der Windows-Header
+                    if (hh >= 0 && mm >= 0 && (tt >= 0.f || apart)) {
+                        CoopApplyHostTime(dd, hh, mm, "Weltprozess", tt);   // u83: ueber 30 Spielminuten startet sie die Tagesablaeufe neu
+                        if (!WpW.timeSet)
                             rtnMan->RestartRoutines();   // Tagesablaeufe zur neuen Zeit
-                        WpLog("Uhrzeit vom Host Tag %d %02d:%02d (hier Tag %d %02d:%02d)", dd, hh, mm, d0, h0, m0);
+                        if (apart)
+                            WpLog("Uhrzeit vom Host Tag %d %02d:%02d (hier Tag %d %02d:%02d)", dd, hh, mm, d0, h0, m0);
                     }
                     WpW.timeSet = true;
                 }

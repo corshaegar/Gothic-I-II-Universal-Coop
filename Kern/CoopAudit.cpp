@@ -391,7 +391,7 @@ namespace GOTHIC_ENGINE {
         AuditHooksActive = AuditHooksTotal = 0;
         const void* gtModule = ModuleOf((const void*)&AuditScan);
         for (auto& h : CoopFnNames) {
-            if (!h.hook)
+            if (!h.hook || CoopHookOffForProfile(h.a))   // u64 (B9): unter Othello absichtlich aus
                 continue;
             AuditHooksTotal++;
             int hops = 0;
@@ -563,7 +563,8 @@ namespace GOTHIC_ENGINE {
             char line[512];
             if (memcmp(m, f, 16) == 0) {
                 nSame++;
-                _snprintf(line, sizeof(line), "%08X %s unveraendert%s", t, fname, isHook ? "  (GT-Hook NICHT aktiv?)" : "");
+                _snprintf(line, sizeof(line), "%08X %s unveraendert%s", t, fname,
+                    isHook ? (CoopHookOffForProfile(t) ? "  (GT-Hook unter Othello absichtlich aus, B9)" : "  (GT-Hook NICHT aktiv?)") : "");
             }
             else if (m[0] == 0xE9 || (m[0] == 0x68 && m[5] == 0xC3) || (m[0] == 0xFF && m[1] == 0x25)) {
                 int hops = 0;

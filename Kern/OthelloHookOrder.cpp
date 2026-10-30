@@ -66,7 +66,7 @@ namespace GOTHIC_ENGINE {
         const void* gt = ModuleOf((const void*)&CanUse_Front);
         int foreign = 0, total = 0;
         for (auto& h : CoopFnNames) {
-            if (!h.hook)
+            if (!h.hook || CoopHookOffForProfile(h.a))   // u64 (B9): unter Othello absichtlich aus
                 continue;
             total++;
             const size_t target = EntryJumpTarget(h.a);

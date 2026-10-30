@@ -231,12 +231,14 @@ namespace GOTHIC_ENGINE {
         const size_t n = ev.packet->dataLength;
         for (size_t i = 0; i + 7 <= n; i++)   // u55: Story-Video ("vidskip<Nummer>") - immer
             if (memcmp(d + i, "vidskip", 7) == 0) {
-                LONG no = 0;
-                for (size_t k = i + 7; k < n && d[k] >= '0' && d[k] <= '9' && no < 100000000; k++)
+                // u87 (Gilden-Testlauf u86: Video 1326503426 des Hosts lief beim Client ganz durch): bis u86 las die Schleife hoechstens
+                // 9 Ziffern, die Nummern haben aber bis zu 10 (u55-u86 bis 0x5FFFFFFF) - dann galt das Ueberspringen beim Partner nie
+                long long no = 0;
+                for (size_t k = i + 7; k < n && d[k] >= '0' && d[k] <= '9' && no <= 0x7FFFFFFF; k++)
                     no = no * 10 + (d[k] - '0');
-                if (no > 0 && !StoryRemoteSkipped(no)) {
+                if (no > 0 && no <= 0x7FFFFFFF && !StoryRemoteSkipped((LONG)no)) {
                     const LONG pos = InterlockedIncrement(&StoryRemoteSkipPos) & 7;
-                    InterlockedExchange(&StoryRemoteSkip[pos], no);
+                    InterlockedExchange(&StoryRemoteSkip[pos], (LONG)no);
                 }
                 return;
             }
@@ -260,7 +262,9 @@ namespace GOTHIC_ENGINE {
     // u55: gemeinsames Story-Video (CoopDialogSync.cpp) - Nummer fuer ein neues Video, Beginn/Ende um das Original
     long CoopStoryVideoNewNo() {
         static LONG last = 0;
-        LONG no = (LONG)((GetTickCount() ^ ((DWORD)GetCurrentProcessId() << 20)) & 0x5FFFFFFF);
+        // u87: hoechstens 9 Stellen (bis u86 & 0x5FFFFFFF - mit Bit 30, das bei unter 12 Tagen Laufzeit des PCs Bit 10 der
+        // Prozesskennung ist, hatte jede zweite Spielsitzung nur 10-stellige Nummern; Partner bis u86 lesen 9 Ziffern)
+        LONG no = (LONG)((GetTickCount() ^ ((DWORD)GetCurrentProcessId() << 20)) & 0x1FFFFFFF);
         if (no == 0 || no == last)
             no = last + 1;
         last = no;

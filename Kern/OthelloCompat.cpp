@@ -28,6 +28,16 @@ namespace GOTHIC_ENGINE {
     // u1: Fassung, Sprache, Spielordner, Log-Archiv und Protokoll stehen jetzt in CoopCore.cpp (engine-neutral).
     // Der Absturzbericht unten gilt fuer jede Engine (ohne Othello fehlt die Datei, dann tut er nichts).
 
+    // u64 (Othello-Coop v113, COOP-FIXES B9, nur Othello): GT-Haken, die unter Othello absichtlich aus bleiben. Die Menue-Haken
+    // (u22-u24: markierter Eintrag gruen, Themenzeilen gruen, "<" ">" an Auswahlfeldern) tun unter Othello nichts - Othellos Menues
+    // bleiben, wie sie sind -, und zCMenuItem::UpdateFX (G1 0x004D4AB0) hakt OTHELLO_ABI schon am Eingang ein (jmp OTHELLO_ABI+0x9CDF0,
+    // Speicherabbild); DrawFront der Auswahlfelder und Listen ruft zUtilities im Rumpf um. Unter Othello haengt GT sie darum gar nicht
+    // erst ein (CoopMenuMouse.cpp); Selbstpruefung und Haken-Bericht zaehlen sie dann nicht als fehlend. Ohne Othello unveraendert.
+    static bool CoopHookOffForProfile(DWORD a) {
+        return CoopProfileIsOthello() && a &&
+            (a == CoopAddr::zCMenuItem_UpdateFX || a == CoopAddr::zCMenuItemList_DrawFront || a == CoopAddr::zCMenuItemChoice_DrawFront);
+    }
+
     // v46: Othellos Absturzbericht (system\Othello_Crash_Reports.txt, bei jedem Absturz ueberschrieben) einmal je neuem Bericht ins
     // GT-Log schreiben - das Log geht per Log-Versand zum Partner, so liegt auch der Bericht des anderen PCs beim Host vor
     // (Test v45: der Client stuerzte ab, sein Bericht lag nur auf seinem PC). Merker: system\GothicCoopCrashSeen.txt (Dateizeit).

@@ -127,6 +127,7 @@ namespace GOTHIC_ENGINE {
         bool startedApart = false;    // u39: beim Start in verschiedenen Welten (am Ende schickt der Test ihn dorthin zurueck)
         bool worldsOnly = false;      // u44: Welten-Testlauf (Shift+F11; voller Lauf mit Strg) - Schritte 1-3 und Bereich 9
         bool checksOnly = false;      // u50: Pruefrunde (lange Laeufe) - nur Vergleiche, keine Handlungen
+        bool guildsOnly = false;      // u86: Gilden-Testlauf (tools\cooptest_lauf.py --gilden) - Schritte 1-4, Regeln, Gilden je Held
         // u30: Bereich "Speichern und Laden"
         int saveSlot = -1;            // Slot der Testsicherung
         std::string saveSid;          // ihre Kennung (gesetzt, wenn der Partner mitgespeichert hat)
@@ -167,6 +168,7 @@ namespace GOTHIC_ENGINE {
         bool repSet = false;
         int guildOld1 = -1, guildOld2 = -1, guildNew = -1;
         bool guildSet = false;
+        int gldValue = 0;             // u86 (P110): Wert der Testvariable im letzten Gilden-Schritt
         std::string wpName, molName, bugName;
         zVEC3 wpPos;                  // u40: Lage des Spawn-Wegpunkts (gezaehlt und gesucht wird dort, nicht um mich)
         bool haveWp = false;
@@ -869,8 +871,105 @@ namespace GOTHIC_ENGINE {
         return n;
     }
 
+    // u86 (P110): Gilden je Held - Testgilde des Partners (harmlos: Bauer) und eine andere fuer "fremde" Gilden-Quests
+    static int CTTestGuild() { return CTGuildConst("GIL_BAU", 8); }
+    static int CTOtherGuild() {
+        const int g = CTGuildConst("GIL_PAL", 1);
+        return g != CTTestGuild() && g != 0 ? g : CTTestGuild() + 1;
+    }
+
+    static int CTInvCount(const char* inst) {
+        if (!player || !parser)
+            return -1;
+        const int idx = parser->GetIndex(zSTRING(inst));
+        int n = 0;
+        player->inventory2.UnpackAllItems();
+#if ENGINE >= Engine_G2
+        for (zCListSort<oCItem>* l = player->inventory2.inventory.next; l; l = l->next)
+            if (l->data && l->data->GetInstance() == idx)
+                n += l->data->amount;
+#else
+        for (int c = 0; c < INV_MAX; c++)
+            for (zCListSort<oCItem>* l = player->inventory2.inventory[c].next; l; l = l->next)
+                if (l->data && l->data->GetInstance() == idx)
+                    n += l->data->amount;
+#endif
+        return n;
+    }
+
+    // eigene Gilde vor dem Setzen auf die Testgilde (-1000 = nicht gesetzt); zurueck mit "back" oder am Ende des Laufs des Partners
+    static int CTGldOrig = -1000;
+
+    static void CTGldRestore(const char* why) {
+        if (CTGldOrig != -1000 && player) {
+            player->guild = CTGldOrig;
+            CTLog("Gilden je Held: eigene Gilde wieder %d (%s)", CTGldOrig, why);
+        }
+        CTGldOrig = -1000;
+        if (zCPar_Symbol* s = parser ? parser->GetSymbol(zSTRING(CT_VAR)) : NULL)
+            DlgGuildVars.erase(s);   // wieder ein Story-Wert wie vor den Gilden-Schritten
+    }
+
     static json CoopTestObserve(const json& q, const std::string& from) {
         json o = json::object();
+        if (q.contains("gld")) {   // u86 (P110): eigene Gilde (auf Wunsch des Testenden gesetzt bzw. zurueck), Testvariable, Aepfel, Thema
+            const json& g = q["gld"];
+            if (player && g.contains("set") && g["set"].is_number_integer()) {
+                if (CTGldOrig == -1000)
+                    CTGldOrig = player->guild;
+                player->guild = g["set"].get<int>();
+            }
+            if (player && g.contains("back"))
+                CTGldRestore("Testender: zurueck");
+            json x;
+            x["g"] = player ? player->guild : -1;
+            int v = 0;
+            if (zCPar_Symbol* s = parser->GetSymbol(zSTRING(CT_VAR)))
+                s->GetValue(v, 0);
+            x["var"] = v;
+            x["apples"] = CTInvCount(CTApple());
+            oCLogTopic* tp = DialogFindTopic("Coop-Test Gilde");
+            x["tex"] = tp ? 1 : 0;
+            x["tst"] = tp ? (int)tp->m_enuStatus : -1;
+            o["gld"] = x;
+        }
+        if (q.contains("mi") && q["mi"].is_string() && !q["mi"].get<std::string>().empty()) {   // u96 (P118): Missions-Gegenstand
+            json x;
+            x["n"] = CTInvCount(q["mi"].get<std::string>().c_str());
+            x["mark"] = CoopMissionTestMark(q["mi"].get<std::string>().c_str());   // u104 (P126): Kennzeichnung
+            o["mi"] = x;
+        }
+        if (q.contains("truhe") && q["truhe"].is_string()) {   // u97 (P119), u99 (P121): Coop-Truhe
+            // auf Wunsch des Testenden erst handeln (Halten und Nehmen je Kennung einmal - die Frage kommt mehrmals), dann melden:
+            // Menge der Instanz in der Kopie hier, wer sie offen hat (laut Host), eigenes Fenster, Rueckgaben, Menge im Inventar
+            const std::string inst = q["truhe"].get<std::string>();
+            static std::string haltId, nimmId;
+            if (q.contains("truheHalten") && q["truheHalten"].is_string() && q["truheHalten"].get<std::string>() != haltId) {
+                haltId = q["truheHalten"].get<std::string>();
+                CoopTruheTestHalten(true);
+            }
+            const json* nimm = q.contains("truheNimm") ? &q["truheNimm"] : NULL;
+            if (nimm && nimm->is_array() && nimm->size() >= 3 && (*nimm)[0].is_string() && (*nimm)[1].is_number_integer() &&
+                (*nimm)[2].is_number_integer() && (*nimm)[0].get<std::string>() != nimmId) {
+                nimmId = (*nimm)[0].get<std::string>();
+                CoopTruheTestNimm(inst.c_str(), (*nimm)[1].get<int>(), (*nimm)[2].get<int>() != 0);
+                CoopTruheTestHalten(false);
+            }
+            if (q.contains("truheFenster") && q["truheFenster"].is_number_integer())
+                CoopTruheTestFenster(q["truheFenster"].get<int>());
+            if (q.contains("truheZu"))
+                CoopTruheTestZu();
+            json x;
+            int n = 0;
+            std::string offen;
+            CoopTruheTestStand(n, offen, inst.c_str());
+            x["n"] = n;
+            x["offen"] = offen;
+            x["auf"] = CoopTruheTestOffenHier() ? 1 : 0;
+            x["rueck"] = CoopTruheTestRueckgaben();
+            x["inv"] = CTInvCount(inst.c_str());
+            o["truhe"] = x;
+        }
         if (q.contains("base")) {
             json x;
             int day = 0, h = 0, m = 0;
@@ -884,6 +983,7 @@ namespace GOTHIC_ENGINE {
             x["loads"] = CoopWorldLoads;           // u30: Ladevorgaenge (Speichern und Laden)
             x["day"] = day;
             x["min"] = h * 60 + m;
+            x["talk"] = IsPlayerTalkingWithAnybody() ? 1 : 0;   // u74: im Gespraech uebernimmt der Client die Uhr des Hosts nicht
             x["run"] = CoopSaveSyncCurrentRun();
             std::string why;
 #if COOP_READY_Save   // u12: Modul je Engine
@@ -935,6 +1035,33 @@ namespace GOTHIC_ENGINE {
             x["apples"] = apples;
             x["w"] = CoopWorldName();
             o["markchk"] = x;
+        }
+        if (q.contains("auto") && q["auto"].is_object()) {   // u105 (P127): Auto-Sicherung alle 3 min
+            // Host auf Wunsch des testenden Clients (je Kennung einmal): 3 min, letzte Sicherung vor 2:58 min. Dann melden: Regel,
+            // Auto-Sicherungen, Slot der letzten und Kennung (im erfragten Slot), ms vom Umstellen bis faellig, Sicherung frei
+            const json& a = q["auto"];
+            static std::string autoId;
+            static long long autoLosMs = 0;
+            const std::string id = a.value("id", std::string());
+            if (ServerThread && a.contains("los") && !id.empty() && id != autoId) {
+                autoId = id;
+                CoopRuleAutoSaveTest(3, 40000);
+                CoopSaveSyncTestAutoAgo(3 * 60000 - 2000);
+                autoLosMs = CurrentMs;
+            }
+            int zahl = 0, slot = -1;
+            long long faellig = 0;
+            bool frei = true;
+            CoopSaveSyncTestAutoInfo(zahl, slot, faellig, frei);
+            const int frage = a.contains("slot") && a["slot"].is_number_integer() ? a["slot"].get<int>() : slot;
+            json x;
+            x["min"] = CoopRuleAutoSaveMinutes();
+            x["zahl"] = zahl;
+            x["slot"] = slot;
+            x["sid"] = frage >= 0 ? CoopSaveSyncSlotSid(frage) : std::string();
+            x["nach"] = autoLosMs && faellig >= autoLosMs ? (int)(faellig - autoLosMs) : -1;
+            x["frei"] = frei ? 1 : 0;
+            o["auto"] = x;
         }
         if (q.contains("save")) {   // u30: Speichern und Laden - Kennung im Slot, eigener Held dazu, Welt, Werte des Helden
             json x;
@@ -1191,7 +1318,7 @@ namespace GOTHIC_ENGINE {
             x["idx"] = idx;
             x["has"] = it ? 1 : 0;
             x["st"] = TpLookState;
-            x["look"] = (it && TpLookState == 1 && TpLookVisual && it->GetVisual() == TpLookVisual) ? 1 : 0;
+            x["look"] = TpRuneHasOwnLook(it) ? 1 : 0;   // u89: ueber den Modellnamen (P113)
 #else
             x["idx"] = -1;
             x["has"] = 0;
@@ -1231,6 +1358,9 @@ namespace GOTHIC_ENGINE {
     static json QTopic() { json q; q["topic"] = "Coop-Test"; q["tag"] = CTStoryTag(); q["tag2"] = "Story-Takt " + CTStoryTag(); return q; }
     static json QExp() { json q; q["exp"] = 1; return q; }
     static json QGuild() { json q; q["guild"] = 1; return q; }
+    static json QGldSet() { json q; q["gld"] = json{ { "set", CTTestGuild() } }; return q; }   // u86
+    static json QGld() { json q; q["gld"] = json::object(); return q; }
+    static json QGldBack() { json q; q["gld"] = json{ { "back", 1 } }; return q; }
     static json QVarTest() { json q; q["var"] = json::array({ CT_VAR }); return q; }
     static json QVarHero() { json q; q["var"] = json::array({ CT.heroVar }); return q; }
     static json QVarRep() { json q; q["var"] = json::array({ "REPUTATIONOC" }); return q; }
@@ -1350,10 +1480,18 @@ namespace GOTHIC_ENGINE {
         ogame->GetTime(day, h, m);
         const int pd = CTInt(post, "base", "day"), pm = CTInt(post, "base", "min");
         d = CTFmt("Partner Tag %d %02d:%02d, hier Tag %d %02d:%02d", pd, pm / 60, pm % 60, day, h, m);
-        return pd == day && pm >= 0 && CTMinDiff(pm, h * 60 + m) <= 5;
+        const bool same = pd == day && pm >= 0 && CTMinDiff(pm, h * 60 + m) <= 5;
+        // u74 (Dauerlauf u73: beim Host zweimal FEHLER, der Client 30 bzw. 69 min vor - beide Male war er im Gespraech): im Gespraech
+        // uebernimmt der Client die Uhr des Hosts nicht (PacketProcessor.cpp), danach mit dem naechsten Paket (alle 10 s). Bei Spielzeit
+        // x4 laufen die Uhren dazwischen auseinander: die Engine rechnet je Bild hoechstens 100 ms Spielzeit, der Host (weniger Bilder
+        // je Sekunde) kam so nur auf x2,5. Dann nicht bewertbar
+        const bool clientTalks = ServerThread ? CTInt(post, "base", "talk") == 1 : IsPlayerTalkingWithAnybody();
+        if (!same && clientTalks)
+            d = "-- Client im Gespraech, uebernimmt die Uhr des Hosts erst danach: " + d;
+        return same;
     }
 
-    // Uhrzeit +30 min (nur Host; GT schickt sonst alle 60 s)
+    // Uhrzeit +30 min (nur Host; GT schickt sonst alle 10 s - bis u68 alle 60 s)
     static bool ATime(std::string&) {
         int day = 0, h = 0, m = 0;
         ogame->GetTime(day, h, m);
@@ -2410,6 +2548,545 @@ namespace GOTHIC_ENGINE {
     static bool JGuild(const json&, const json& post, std::string& d) { return CTJudgeGuild(post, d) && CTGuild(CTG1(), CTG2()) == CT.guildNew; }
     static bool JGuildBack(const json&, const json& post, std::string& d) { return CTJudgeGuild(post, d) && CTGuild(CTG1(), CTG2()) == CT.guildOld1; }
 
+    // --- u86 (P110): Gilden je Held (Variante C) ----------------------------------------------------------------------
+    // Nutzer: "mach außerdem dann den Test für die Gilden quests simuliere ein paar belohnungen, erfülllte quests, beitritt etc.".
+    // Der Partner steht fuer die Schritte in einer Testgilde (Bauer, auf Wunsch per Frage "gld"); jeder Schritt schickt einen
+    // Fortschritt wie aus einem Dialog - Testvariable, drei Aepfel als Belohnung, Tagebuch-Thema erfuellt - mit vorgegebenen
+    // abgefragten Gilden (DlgSendDiff giTest) bzw. als Aufnahme (eigene Gilde waehrend des Infos geaendert). Am Ende ist alles
+    // zurueck (Gilde, Testvariable 0, sie ist wieder ein Story-Wert) - die Vergleiche danach ("Alle Skript-Variablen gleich",
+    // "Ganzes Tagebuch gleich") muessen weiter stimmen.
+    // u96 (P118): Missions-Gegenstaende spiegeln - eine alte Muenze (G2A ITMI_OLDCOIN, G1 ITMI_STUFF_OLDCOIN_02, beide mit ITEM_MISSION)
+    // bekommen bzw. wieder abgeben; der Partner hat sie danach auch bzw. nicht mehr (CoopDialogSync.cpp, "mi")
+    static const char* CTMissionItem() {
+        static const char* found = NULL;
+        static bool done = false;
+        if (done || !parser)
+            return found;
+        done = true;
+        for (const char* c : { "ITMI_OLDCOIN", "ITMI_STUFF_OLDCOIN_02" }) {
+            const int idx = parser->GetIndex(zSTRING(c));
+            oCItem* it = idx >= 0 ? CreateCoopItem(idx) : NULL;
+            if (!it)
+                continue;
+            const bool mi = it->HasFlag(ITM_FLAG_MI) != 0;
+            it->Release();
+            if (mi) {
+                found = c;
+                break;
+            }
+        }
+        return found;
+    }
+
+    static bool PMi(std::string& why) {
+        if (!player || !CTMissionItem()) {
+            why = "kein Missions-Gegenstand zum Testen in den Skripten";
+            return false;
+        }
+        if (!CoopRuleQuests()) {
+            why = "Abgleich \"Quests\" aus";
+            return false;
+        }
+        return true;
+    }
+
+    static json QMi() { json q; q["mi"] = CTMissionItem() ? CTMissionItem() : ""; return q; }
+
+    static bool AMiGive(std::string& why) {
+        const int idx = parser->GetIndex(zSTRING(CTMissionItem()));
+        oCItem* it = idx >= 0 ? CreateCoopItem(idx) : NULL;
+        if (!it) {
+            why = "Gegenstand nicht erzeugt";
+            return false;
+        }
+        it->amount = 1;
+        player->PutInInv(it);   // wie ein erhaltener Gegenstand - nicht unter WorldSyncApplying
+        return true;
+    }
+
+    static bool JMiGive(const json& pre, const json& post, std::string& d) {
+        const int a = CTInt(pre, "mi", "n"), b = CTInt(post, "mi", "n");
+        d = CTFmt("%s beim Partner %d -> %d (soll +1)", CTMissionItem(), a, b);
+        return a >= 0 && b - a == 1;
+    }
+
+    // u104 (P126): die gespiegelte Muenze traegt hier und beim Partner die Kennzeichnung (Name, Beschreibung, Infozeile), ein Apfel nie
+    static bool PMiMark(std::string& why) {
+        if (!PMi(why))
+            return false;
+        if (CTInvCount(CTMissionItem()) < 1) {
+            why = "keine Muenze im eigenen Inventar (Schritt davor)";
+            return false;
+        }
+        return true;
+    }
+
+    static bool JMiMark(const json&, const json& post, std::string& d) {
+        const int hier = CoopMissionTestMark(CTMissionItem()), dort = CTInt(post, "mi", "mark");
+        const int apfel = CTApple() ? CoopMissionTestMark(CTApple()) : -1;
+        d = CTFmt("%s gekennzeichnet hier %d, beim Partner %d (soll je 1); Apfel %d (soll nicht 1)", CTMissionItem(), hier, dort, apfel);
+        return hier == 1 && dort == 1 && apfel != 1;
+    }
+
+    static bool AMiTake(std::string& why) {
+        const std::string inst = CTMissionItem();
+        player->inventory2.UnpackAllItems();
+        oCItem* have = NULL;
+#if ENGINE >= Engine_G2
+        for (zCListSort<oCItem>* n = player->inventory2.inventory.next; n && !have; n = n->next)
+            if (n->data && inst == n->data->GetInstanceName().ToChar())
+                have = n->data;
+#else
+        for (int c = 0; c < INV_MAX && !have; c++)
+            for (zCListSort<oCItem>* n = player->inventory2.inventory[c].next; n && !have; n = n->next)
+                if (n->data && inst == n->data->GetInstanceName().ToChar())
+                    have = n->data;
+#endif
+        if (!have) {
+            why = "keine Muenze im eigenen Inventar";
+            return false;
+        }
+        oCItem* r = player->RemoveFromInv(have, 1);   // wie abgegeben
+        if (r)
+            ogame->GetGameWorld()->RemoveVob(r);
+        return true;
+    }
+
+    static bool JMiTake(const json& pre, const json& post, std::string& d) {
+        const int a = CTInt(pre, "mi", "n"), b = CTInt(post, "mi", "n");
+        d = CTFmt("%s beim Partner %d -> %d (soll -1)", CTMissionItem(), a, b);
+        return a >= 1 && b - a == -1;
+    }
+
+    // u97 (P119): gemeinsame Coop-Truhe (CoopTruhe.cpp) - zwei Aepfel hinein wie beim Rueberziehen, das Fenster ueber den
+    // Gegenstand oeffnen (EV_USEITEM wie aus dem Inventar; GT schliesst es nach 1 s selbst). u99 (P121, beide gleichzeitig offen):
+    // beide Fenster offen - ein Apfel hinein erscheint beim Partner im offenen Fenster; beide nehmen zugleich alle Aepfel - der Host
+    // zuerst, der Client danach aus seiner veralteten Kopie (er haelt dazu die Staende des Hosts zurueck): der Client gibt sie zurueck
+    // ("undo"), beide Truhen sind leer, sein Inventar wie vorher; zuletzt beide Fenster zu, gleicher Inhalt.
+    static int CTTruheAuf0 = 0;
+    static int CTTruheRunde = 0;        // je Gleichstand-Schritt eine Kennung - der Partner handelt je Kennung einmal
+    static bool CTTruheNachA = false;   // Abfrage vor bzw. nach der Handlung
+    static int CTTruheMenge = 0, CTTruheInv0 = 0, CTTruheRueck0 = 0;
+
+    static bool PTruhe(std::string& why) {
+        int n = 0;
+        std::string offen;
+        CoopTruheTestStand(n, offen, CTApple() ? CTApple() : "");
+        if (n < 0) {
+            why = "Coop-Truhe in dieser Engine aus";
+            return false;
+        }
+        if (!player || !parser || parser->GetIndex(zSTRING("ITMI_COOP_TRUHE")) < 0) {
+            why = "ITMI_COOP_TRUHE fehlt im Skript (COOP_ITEMS.D zu alt)";
+            return false;
+        }
+        if (!CTApple() || parser->GetIndex(zSTRING(CTApple())) < 0) {
+            why = "kein Apfel in den Skripten";
+            return false;
+        }
+        return true;
+    }
+
+    static json QTruhe() { json q; q["truhe"] = CTApple() ? CTApple() : ""; return q; }
+
+    static bool ATruheRein(std::string& why) {
+        if (!CoopTruheTestAendern(CTApple(), 2)) {
+            why = "zwei Aepfel nicht hineingelegt";
+            return false;
+        }
+        return true;
+    }
+
+    static bool JTruheRein(const json& pre, const json& post, std::string& d) {
+        const int a = CTInt(pre, "truhe", "n"), b = CTInt(post, "truhe", "n");
+        const std::string offen = CTStr(post, "truhe", "offen");
+        d = CTFmt("%s in der Truhe beim Partner %d -> %d (soll +2), offen bei: %s", CTApple(), a, b, offen.empty() ? "niemandem" : offen.c_str());
+        return a >= 0 && b - a == 2 && offen.empty();
+    }
+
+    static bool PTruheAuf(std::string& why) {
+        if (!PTruhe(why))
+            return false;
+        if (player->GetWeaponMode() != NPC_WEAPON_NONE) {
+            why = "Waffe gezogen - Benutzen geht nicht";
+            return false;
+        }
+        if (!player->IsInInv(parser->GetIndex(zSTRING("ITMI_COOP_TRUHE")), 1)) {
+            why = "Coop-Truhe nicht im Inventar (GT legt sie nach dem Laden ein)";
+            return false;
+        }
+        return true;
+    }
+
+    static int CTTruheDirekt0 = 0, CTTruheGegeben0 = 0;
+
+    static bool ATruheAuf(std::string& why) {
+        CTTruheAuf0 = CoopTruheTestOeffnungen();
+        CTTruheDirekt0 = CoopTruheTestDirekt();
+        CTTruheGegeben0 = CoopTruheTestGegeben();
+        if (!CoopTruheTestBenutzen(1000)) {
+            why = "Benutzen nicht moeglich (Fenster offen bzw. Anfrage laeuft)";
+            return false;
+        }
+        return true;
+    }
+
+    // u101: direkt ueber den Haken (ohne Bewegung) und nicht verbraucht - kein neuer Gegenstand noetig
+    static bool JTruheAuf(const json&, const json& post, std::string& d) {
+        const int auf = CoopTruheTestOeffnungen() - CTTruheAuf0;
+        const int direkt = CoopTruheTestDirekt() - CTTruheDirekt0, neu = CoopTruheTestGegeben() - CTTruheGegeben0;
+        const std::string offen = CTStr(post, "truhe", "offen");
+        const int item = CTInvCount("ITMI_COOP_TRUHE");
+        // u102: Titel des Fensters (G2; G1 hat keinen)
+        const std::string titel = CoopTruheTestTitel();
+#if ENGINE >= Engine_G2
+        const bool titelOk = titel == CoopTr("Coop-Inventar", "Coop inventory");
+#else
+        const bool titelOk = true;
+#endif
+        d = CTFmt("hier ueber den Gegenstand geoeffnet und wieder zu: %d (soll 1), direkt ohne Bewegung: %d (soll 1), neu eingelegt: %d "
+            "(soll 0), Titel '%s', offen laut Partner bei: %s, Coop-Truhe im Inventar: %d (soll 1)", auf, direkt, neu, titel.c_str(),
+            offen.empty() ? "niemandem" : offen.c_str(), item);
+        return auf == 1 && direkt == 1 && neu == 0 && titelOk && offen.empty() && item == 1;
+    }
+
+    // u99: der Partner oeffnet sein Fenster schon bei der Frage vorher, ich danach meins und lege einen Apfel hinein
+    static json QTruheBeide() { json q = QTruhe(); q["truheFenster"] = 30000; return q; }
+
+    static bool ATruheBeide(std::string& why) {
+        if (!CoopTruheTestFenster(30000)) {
+            why = "Fenster hier nicht offen";
+            return false;
+        }
+        if (!CoopTruheTestAendern(CTApple(), 1)) {
+            why = "Apfel nicht hineingelegt";
+            return false;
+        }
+        return true;
+    }
+
+    static bool JTruheBeide(const json& pre, const json& post, std::string& d) {
+        const int a = CTInt(pre, "truhe", "n"), b = CTInt(post, "truhe", "n"), auf = CTInt(post, "truhe", "auf");
+        const std::string offen = CTStr(post, "truhe", "offen");
+        const bool hier = CoopTruheTestOffenHier();
+        d = CTFmt("%s beim Partner %d -> %d (soll +1), sein Fenster %s, meins %s, offen laut Host bei: %s", CTApple(), a, b,
+            auf == 1 ? "offen" : "zu", hier ? "offen" : "zu", offen.empty() ? "niemandem" : offen.c_str());
+        return a >= 0 && b - a == 1 && auf == 1 && hier && offen.find(MyselfId.ToChar()) != std::string::npos;
+    }
+
+    // u99: Gleichstand - nur ein Client kann eine veraltete Kopie haben: der Host nimmt zuerst, der Client danach aus der Kopie
+    static std::string CTTruheKennung() {
+        return CTFmt("%s-%d", CT.tag.c_str(), CTTruheRunde);
+    }
+
+    static bool PTruheGleich(std::string& why) {
+        if (!PTruhe(why))
+            return false;
+        int n = 0;
+        std::string offen;
+        CoopTruheTestStand(n, offen, CTApple());
+        if (n <= 0) {
+            why = "keine Aepfel in der Truhe (Schritte davor)";
+            return false;
+        }
+        CTTruheMenge = n;
+        CTTruheNachA = false;
+        CTTruheRunde++;
+        CTTruheInv0 = CTInvCount(CTApple());
+        CTTruheRueck0 = CoopTruheTestRueckgaben();
+        if (!ServerThread)
+            CoopTruheTestHalten(true);   // Client testet: Staende des Hosts ab jetzt zurueckhalten - die Kopie hier veraltet
+        return true;
+    }
+
+    static json QTruheGleich() {
+        json q = QTruhe();
+        if (ServerThread) {   // Host testet: der Client haelt vorher zurueck und nimmt nachher aus seiner veralteten Kopie
+            if (!CTTruheNachA)
+                q["truheHalten"] = CTTruheKennung();
+            else
+                q["truheNimm"] = json::array({ CTTruheKennung(), CTTruheMenge, 1 });
+        }
+        else if (!CTTruheNachA)   // Client testet: der Host nimmt vorher (verbraucht), ich danach aus der Kopie
+            q["truheNimm"] = json::array({ CTTruheKennung(), CTTruheMenge, 0 });
+        return q;
+    }
+
+    static bool ATruheGleich(std::string& why) {
+        CTTruheNachA = true;
+        if (ServerThread) {
+            const int r = CoopTruheTestNimm(CTApple(), CTTruheMenge, false);
+            if (r != CTTruheMenge) {
+                why = CTFmt("Host nahm %d von %d", r, CTTruheMenge);
+                return false;
+            }
+            return true;
+        }
+        const int r = CoopTruheTestNimm(CTApple(), CTTruheMenge, true);   // aus der veralteten Kopie ins Inventar
+        CoopTruheTestHalten(false);
+        if (r != CTTruheMenge) {
+            why = CTFmt("aus der Kopie nur %d von %d genommen (Kopie nicht veraltet?)", r, CTTruheMenge);
+            return false;
+        }
+        return true;
+    }
+
+    static bool JTruheGleich(const json& pre, const json& post, std::string& d) {
+        int hier = 0;
+        std::string offen;
+        CoopTruheTestStand(hier, offen, CTApple());
+        const int dort = CTInt(post, "truhe", "n");
+        if (ServerThread) {
+            const int r0 = CTInt(pre, "truhe", "rueck"), r1 = CTInt(post, "truhe", "rueck");
+            const int i0 = CTInt(pre, "truhe", "inv"), i1 = CTInt(post, "truhe", "inv");
+            d = CTFmt("ich (Host) nahm %d %s zuerst; der Client danach aus seiner Kopie: zurueckgegeben %d -> %d (soll +1), %s im "
+                "Inventar %d -> %d (soll gleich); Truhe hier %d, beim Client %d (soll 0)", CTTruheMenge, CTApple(), r0, r1, CTApple(), i0, i1,
+                hier, dort);
+            return r0 >= 0 && r1 - r0 == 1 && i1 == i0 && hier == 0 && dort == 0;
+        }
+        const int rueck = CoopTruheTestRueckgaben() - CTTruheRueck0, inv = CTInvCount(CTApple());
+        d = CTFmt("der Host nahm %d %s zuerst, ich danach aus der veralteten Kopie: zurueckgegeben %d (soll 1), %s im Inventar %d -> %d "
+            "(soll gleich); Truhe hier %d, beim Host %d (soll 0)", CTTruheMenge, CTApple(), rueck, CTApple(), CTTruheInv0, inv, hier, dort);
+        return rueck == 1 && inv == CTTruheInv0 && hier == 0 && dort == 0;
+    }
+
+    // u99: beide Fenster zu - der Partner schon bei der Frage vorher; danach gleicher Inhalt, bei niemandem offen
+    static json QTruheZu() { json q = QTruhe(); q["truheZu"] = 1; return q; }
+
+    static bool ATruheZu(std::string&) {
+        CoopTruheTestZu();
+        return true;
+    }
+
+    static bool JTruheZu(const json&, const json& post, std::string& d) {
+        int hier = 0;
+        std::string offen;
+        CoopTruheTestStand(hier, offen, CTApple());
+        const int dort = CTInt(post, "truhe", "n"), auf = CTInt(post, "truhe", "auf");
+        const std::string dortOffen = CTStr(post, "truhe", "offen");
+        d = CTFmt("Fenster beim Partner %s, hier %s; offen laut Partner bei: %s; %s hier %d, beim Partner %d (soll gleich)",
+            auf == 0 ? "zu" : "offen", CoopTruheTestOffenHier() ? "offen" : "zu", dortOffen.empty() ? "niemandem" : dortOffen.c_str(),
+            CTApple(), hier, dort);
+        return auf == 0 && !CoopTruheTestOffenHier() && dortOffen.empty() && hier == dort;
+    }
+
+    // u103 (P125): Gegenstaende im Coop-Inventar zaehlen bei Quests (CoopTruhe.cpp) - vier Aepfel ins Coop-Inventar, dann die
+    // Skript-Funktionen fuer den eigenen Helden wie aus einem Dialog: Npc_HasItems zaehlt eigene plus Coop-Inventar,
+    // Npc_RemoveInvItems (eigene + 2, wie B_GiveInvItems) nimmt erst alle eigenen, dann 2 aus dem Coop-Inventar, Npc_RemoveInvItem
+    // ohne eigene einen aus dem Coop-Inventar. Beim Partner kommt +1 an; die eigenen Aepfel bekommt der Held danach zurueck.
+    static void CTGiveApples(int n);
+    static int CTQuestEigen0 = 0, CTQuestCoop0 = 0, CTQuestHat = 0, CTQuestRetN = 0, CTQuestEigen1 = 0, CTQuestCoop1 = 0;
+    static int CTQuestRet1 = 0, CTQuestCoop2 = 0, CTQuestEigen2 = 0, CTQuestGenommen0 = 0, CTQuestGenommen = 0;
+
+    // External wie aus einem Skript fuer HERO: Instanz als Symbolnummer (PUSHINST), int-Parameter [Wert, 0x40]; Rueckgabe vom Stapel
+    static int CTHeroExt(const char* ext, int a, int b, int n) {
+        CoopParserExternal f = DialogExternal(ext);
+        const int hero = parser ? parser->GetIndex(zSTRING("HERO")) : -1;
+        if (!f || hero < 0 || zCParser::GetParser() != parser)
+            return -1000;
+        parser->datastack.Push(hero);
+        DialogPushInt(a);
+        if (n > 1)
+            DialogPushInt(b);
+        f();
+        int r = 0;
+        parser->GetParameter(r);
+        return r;
+    }
+
+    static bool PTruheQuest(std::string& why) {
+        if (!PTruhe(why))
+            return false;
+        if (!CoopTruheTestQuestBereit()) {
+            why = "Npc_HasItems/Npc_RemoveInvItems nicht umgeleitet";
+            return false;
+        }
+        if (parser->GetIndex(zSTRING("HERO")) < 0 || zCParser::GetParser() != parser) {
+            why = "HERO fehlt bzw. anderer Parser aktiv";
+            return false;
+        }
+        return true;
+    }
+
+    static bool ATruheQuest(std::string& why) {
+        const int apple = parser->GetIndex(zSTRING(CTApple()));
+        std::string offen;
+        CTQuestEigen0 = CTInvCount(CTApple());
+        CoopTruheTestStand(CTQuestCoop0, offen, CTApple());
+        CTQuestGenommen0 = CoopTruheTestQuestGenommen();
+        if (!CoopTruheTestAendern(CTApple(), 4)) {
+            why = "vier Aepfel nicht ins Coop-Inventar gelegt";
+            return false;
+        }
+        CTQuestHat = CTHeroExt("NPC_HASITEMS", apple, 0, 1);
+        CTQuestRetN = CTHeroExt("NPC_REMOVEINVITEMS", apple, CTQuestEigen0 + 2, 2);
+        CTQuestEigen1 = CTInvCount(CTApple());
+        CoopTruheTestStand(CTQuestCoop1, offen, CTApple());
+        CTQuestRet1 = CTHeroExt("NPC_REMOVEINVITEM", apple, 0, 1);
+        CoopTruheTestStand(CTQuestCoop2, offen, CTApple());
+        CTQuestGenommen = CoopTruheTestQuestGenommen() - CTQuestGenommen0;
+        CTGiveApples(CTQuestEigen0 - CTInvCount(CTApple()));   // die eigenen zurueck
+        CTQuestEigen2 = CTInvCount(CTApple());
+        return true;
+    }
+
+    static bool JTruheQuest(const json& pre, const json& post, std::string& d) {
+        const int a = CTInt(pre, "truhe", "n"), b = CTInt(post, "truhe", "n");
+        const int c0 = CTQuestCoop0;
+        d = CTFmt("Npc_HasItems(Held, %s) = %d (soll %d eigene + %d im Coop-Inventar); Npc_RemoveInvItems(%d) -> %d, eigene %d (soll 0), "
+            "Coop-Inventar %d (soll %d); Npc_RemoveInvItem -> %d, Coop-Inventar %d (soll %d); genommen %d (soll 3); eigene zurueck %d "
+            "(soll %d); beim Partner %d -> %d (soll +1)", CTApple(), CTQuestHat, CTQuestEigen0, c0 + 4, CTQuestEigen0 + 2, CTQuestRetN,
+            CTQuestEigen1, CTQuestCoop1, c0 + 2, CTQuestRet1, CTQuestCoop2, c0 + 1, CTQuestGenommen, CTQuestEigen2, CTQuestEigen0, a, b);
+        return CTQuestHat == CTQuestEigen0 + c0 + 4 && CTQuestRetN == 1 && CTQuestEigen1 == 0 && CTQuestCoop1 == c0 + 2 &&
+            CTQuestRet1 == 1 && CTQuestCoop2 == c0 + 1 && CTQuestGenommen == 3 && CTQuestEigen2 == CTQuestEigen0 && a >= 0 && b - a == 1;
+    }
+
+    static bool PGld(std::string& why) {
+        if (!PVar(why) || !PDiary(why))
+            return false;
+        if (!parser || parser->GetIndex(zSTRING(CTApple())) < 0) {
+            why = "kein Apfel in den Skripten";
+            return false;
+        }
+        return true;
+    }
+
+    static void CTGiveApples(int n) {
+        const int idx = parser ? parser->GetIndex(zSTRING(CTApple())) : -1;
+        while (idx >= 0 && n > 0) {
+            oCItem* it = CreateCoopItem(idx);
+            if (!it)
+                return;
+            const bool multi = (it->flags & ITM_FLAG_MULTI) != 0;
+            it->amount = multi ? n : 1;
+            n -= it->amount;
+            player->PutInInv(it);
+        }
+    }
+
+    // Fortschritt wie aus einem Gilden-Info: Testvariable = value, Aepfel als Belohnung, ggf. Thema erfuellt; joinGuild >= 0: die
+    // eigene Gilde steht waehrend des "Infos" darauf (Aufnahme), danach wieder wie vorher
+    static bool CTGldSend(int value, int apples, const std::vector<int>* gi, bool topicDone, int joinGuild, std::string& why) {
+        zCPar_Symbol* s = CTVarSym();
+        if (!s || !player) {
+            why = "COOP_TEST_VAR fehlt";
+            return false;
+        }
+        CoopDlgSnap a, b;
+        DlgSnapshot(a);
+        CT.gldValue = value;
+        s->SetValue(value, 0);
+        if (apples > 0)
+            CTGiveApples(apples);
+        if (topicDone) {
+            zSTRING topic("Coop-Test Gilde");
+            CoopParserExternal create = DialogExternal("LOG_CREATETOPIC");
+            CoopParserExternal status = DialogExternal("LOG_SETTOPICSTATUS");
+            if (!create || !status) {
+                why = "LOG_CREATETOPIC fehlt";
+                return false;
+            }
+            if (!DialogFindTopic("Coop-Test Gilde")) {
+                DialogPushString(&topic);
+                DialogPushInt(0);   // LOG_MISSION
+                create();
+            }
+            DialogPushString(&topic);
+            DialogPushInt(2);   // LOG_SUCCESS - erfuellte Quest
+            status();
+        }
+        const int g0 = player->guild;
+        if (joinGuild >= 0)
+            player->guild = joinGuild;
+        DlgSnapshot(b);
+        if (joinGuild >= 0)
+            player->guild = g0;
+        DlgSendDiff(a, b, std::string(), "Coop-Test Gilde", NULL, gi);
+        StoryAbsorb(a, b);
+        return true;
+    }
+
+    static bool JGldSet(const json&, const json& post, std::string& d) {
+        const int g = CTInt(post, "gld", "g");
+        d = CTFmt("Gilde des Partners %d (Testgilde %d)", g, CTTestGuild());
+        return g == CTTestGuild();
+    }
+
+    static bool AGldSame(std::string& why) {
+        const std::vector<int> gi = { CTTestGuild() };
+        return CTGldSend(7000 + (int)((GetCurrentMs() / 1000) % 900), 3, &gi, true, -1, why);
+    }
+
+    static bool JGldSame(const json& pre, const json& post, std::string& d) {
+        const int v = CTInt(post, "gld", "var"), a0 = CTInt(pre, "gld", "apples"), a1 = CTInt(post, "gld", "apples");
+        const int tex = CTInt(post, "gld", "tex"), tst = CTInt(post, "gld", "tst");
+        d = CTFmt("Partner in derselben Gilde: Variable %d (soll %d), Aepfel %d -> %d (soll +3), Thema %s, Status %d (soll 2 = erfuellt)", v,
+            CT.gldValue, a0, a1, tex == 1 ? "da" : "fehlt", tst);
+        return v == CT.gldValue && a0 >= 0 && a1 - a0 == 3 && tex == 1 && tst == 2;
+    }
+
+    static bool AGldOther(std::string& why) {
+        const std::vector<int> gi = { CTOtherGuild() };
+        return CTGldSend(CT.gldValue + 1, 3, &gi, false, -1, why);
+    }
+
+    // Variable und Aepfel bleiben beim Partner, wie sie waren
+    static bool CTJudgeGldKept(const json& pre, const json& post, const char* what, std::string& d) {
+        const int v0 = CTInt(pre, "gld", "var"), v = CTInt(post, "gld", "var"), a0 = CTInt(pre, "gld", "apples"), a1 = CTInt(post, "gld", "apples");
+        d = CTFmt("%s: Variable %d (soll unveraendert %d, nicht %d), Aepfel %d -> %d (soll gleich)", what, v, v0, CT.gldValue, a0, a1);
+        return v0 != -999 && v == v0 && v != CT.gldValue && a1 == a0;
+    }
+
+    static bool JGldOther(const json& pre, const json& post, std::string& d) {
+        return CTJudgeGldKept(pre, post, "Partner in anderer Gilde (eigener Fortschritt)", d);
+    }
+
+    static bool AGldJoin(std::string& why) {
+        return CTGldSend(CT.gldValue + 1, 3, NULL, false, CTOtherGuild(), why);
+    }
+
+    static bool JGldJoin(const json& pre, const json& post, std::string& d) {
+        return CTJudgeGldKept(pre, post, "Aufnahme des Testenden (Partner tritt selbst bei)", d);
+    }
+
+    static bool AGldTick(std::string& why) {
+        zCPar_Symbol* s = CTVarSym();
+        if (!s) {
+            why = "COOP_TEST_VAR fehlt";
+            return false;
+        }
+        CT.gldValue++;
+        s->SetValue(CT.gldValue, 0);   // ausserhalb eines Dialogs - Werte aus Gilden-Infos schickt der Story-Takt nicht
+        return true;
+    }
+
+    static bool JGldTick(const json& pre, const json& post, std::string& d) {
+        return CTJudgeGldKept(pre, post, "Story-Takt nach Gilden-Infos", d);
+    }
+
+    static bool AGldBack(std::string& why) {
+        zCPar_Symbol* s = CTVarSym();
+        if (!s) {
+            why = "COOP_TEST_VAR fehlt";
+            return false;
+        }
+        DlgGuildVars.erase(s);   // wieder ein Story-Wert (der Partner hat seinen mit der Frage "back" geloescht)
+        CoopDlgSnap a, b;
+        DlgSnapshot(a);
+        CT.gldValue = 0;
+        s->SetValue(0, 0);
+        DlgSnapshot(b);
+        DlgSendDiff(a, b, std::string(), "Coop-Test Gilde");
+        StoryAbsorb(a, b);
+        return true;
+    }
+
+    static bool JGldBack(const json&, const json& post, std::string& d) {
+        const int g = CTInt(post, "gld", "g"), v = CTInt(post, "gld", "var");
+        d = CTFmt("Partner: Gilde %d (Testgilde %d zurueckgenommen), Variable %d (soll 0)", g, CTTestGuild(), v);
+        return g != -999 && g != CTTestGuild() && v == 0;
+    }
+
     static bool JChapter(const json&, const json& post, std::string& d) {
         zCPar_Symbol* s = parser->GetSymbol(zSTRING("KAPITEL"));
         if (!s) {
@@ -3155,13 +3832,19 @@ namespace GOTHIC_ENGINE {
         return true;
     }
 
+    // Herausnehmen ueber oCMobContainer::Remove wie Quickloot/Skripte - die GT-Haken sollen es sehen. u98 (P120): Remove legt den
+    // Gegenstand in die Listen der Welt; ein echter Aufrufer legt ihn danach ins Inventar, hier niemand - darum gleich aus der Welt
+    // (RemoveVob, wie nach RemoveFromInv). Remove(item, n) nicht: es haengt laut Disassembly (G2A 0x00726080, G1 0x00683F40) den
+    // ganzen Gegenstand aus und liefert 0 - beim groesseren Stapel darum ganz heraus und den Rest neu hinein.
     static bool CTChestRemove(int n, std::string& why) {
         for (zCListSort<oCItem>* l = CT.chest->containList.next; l; l = l->next)
             if (l->data && CoopItemInst(l->data) == CTApple() && CoopItemAmount(l->data) >= n) {
-                if (CoopItemAmount(l->data) > n)
-                    CT.chest->Remove(l->data, n);
-                else
-                    CT.chest->Remove(l->data);
+                oCItem* it = l->data;
+                const int rest = CoopItemAmount(it) - n;
+                CT.chest->Remove(it);
+                ogame->GetGameWorld()->RemoveVob(it);
+                if (rest > 0 && !CTChestInsert(rest, why))
+                    return false;
                 return true;
             }
         why = CTFmt("keine %d Aepfel in der Truhe", n);
@@ -3277,7 +3960,7 @@ namespace GOTHIC_ENGINE {
 #else
         const int st = CTInt(post, "rune", "st"), look = CTInt(post, "rune", "look");
         oCItem* it = TpRune() >= 0 ? player->IsInInv(TpRuneIdx, 1) : NULL;
-        const bool mine = it && TpLookState == 1 && TpLookVisual && it->GetVisual() == TpLookVisual;
+        const bool mine = TpRuneHasOwnLook(it);   // u89 (P113)
         d = CTFmt("eigenes Aussehen: Partner %s (Zustand %d), hier %s (Zustand %d)", look == 1 ? "ja" : "NEIN", st, mine ? "ja" : "NEIN", TpLookState);
         return look == 1 && mine;
 #endif
@@ -3420,6 +4103,92 @@ namespace GOTHIC_ENGINE {
         CT.repSet = false;
         CT.guildSet = false;
         CT.talOld = -1;
+    }
+
+    // u105 (P127): Auto-Sicherung "alle 3 min" (CoopDifficulty.cpp, CoopSaveSync.cpp) - der Host stellt sie fuer den Test auf 3 min
+    // (ohne Gothic.ini, laeuft nach 40 s ab) und setzt die letzte Sicherung auf 2:58 min zurueck: nach rund 2 s - genau bei 3:00 -
+    // sichert er gemeinsam, der Partner speichert mit (gleiche Kennung im selben Slot); beide sehen die Regel 3 min. Testet der
+    // Client, stellt der Host das auf seine Frage vorher um. Danach gilt wieder die Einstellung aus dem Menue.
+    static int CTAutoRunde = 0, CTAutoZahl0 = 0;
+    static long long CTAutoLosMs = 0;
+
+    static bool PAuto(std::string& why) {
+        if (!CoopRuleSaves()) {
+            why = "Spielstaende getrennt (Einstellungen > COOP > Abgleich)";
+            return false;
+        }
+        if (ServerThread && CoopSaveSyncPeers() <= 0) {
+            why = "kein Mitspieler verbunden";
+            return false;
+        }
+        CTAutoRunde++;
+        CTAutoLosMs = 0;
+        return true;
+    }
+
+    static json QAuto() {
+        json a;
+        a["id"] = CTFmt("%s-%d", CT.tag.c_str(), CTAutoRunde);
+        if (!ServerThread)
+            a["los"] = 1;   // Client testet: der Host stellt bei der ersten Frage um
+        else {
+            int zahl = 0, slot = -1;
+            long long f = 0;
+            bool frei = true;
+            CoopSaveSyncTestAutoInfo(zahl, slot, f, frei);
+            if (CTAutoLosMs && zahl > CTAutoZahl0)
+                a["slot"] = slot;   // Host testet: Kennung des Partners in diesem Slot
+        }
+        json q;
+        q["auto"] = a;
+        return q;
+    }
+
+    static bool AAuto(std::string&) {
+        if (!ServerThread)
+            return true;   // der Host hat schon auf die Frage vorher umgestellt
+        int slot = -1;
+        long long f = 0;
+        bool frei = true;
+        CoopSaveSyncTestAutoInfo(CTAutoZahl0, slot, f, frei);
+        CoopRuleAutoSaveTest(3, 40000);
+        CoopSaveSyncTestAutoAgo(3 * 60000 - 2000);
+        CTAutoLosMs = CurrentMs;
+        return true;
+    }
+
+    static bool JAuto(const json& pre, const json& post, std::string& d) {
+        int zahl = 0, slot = -1;
+        long long f = 0;
+        bool frei = true;
+        CoopSaveSyncTestAutoInfo(zahl, slot, f, frei);
+        const int hier = CoopRuleAutoSaveMinutes(), dort = CTInt(post, "auto", "min");
+        const bool freiDort = CTInt(post, "auto", "frei") == 1;
+        int neu, nach, s;
+        std::string kHost, kClient;
+        if (ServerThread) {
+            neu = zahl - CTAutoZahl0;
+            nach = CTAutoLosMs && f >= CTAutoLosMs ? (int)(f - CTAutoLosMs) : -1;
+            s = neu > 0 ? slot : -1;
+            kHost = s >= 0 ? CoopSaveSyncSlotSid(s) : std::string();
+            kClient = CTStr(post, "auto", "sid");
+        }
+        else {
+            neu = CTInt(post, "auto", "zahl") - CTInt(pre, "auto", "zahl");
+            nach = CTInt(post, "auto", "nach");
+            s = neu > 0 ? CTInt(post, "auto", "slot") : -1;
+            kHost = CTStr(post, "auto", "sid");
+            kClient = s >= 0 ? CoopSaveSyncSlotSid(s) : std::string();
+        }
+        d = CTFmt("Regel hier %d min, beim Partner %d min (soll je 3); Auto-Sicherungen des Hosts +%d (soll 1), faellig %d ms nach dem "
+            "Umstellen (soll 1500-6000: bei 3:00), Slot %d: Kennung Host %s, Client %s; frei hier %d, dort %d", hier, dort, neu, nach, s,
+            kHost.empty() ? "-" : kHost.c_str(), kClient.empty() ? "-" : kClient.c_str(), frei ? 1 : 0, freiDort ? 1 : 0);
+        return hier == 3 && dort == 3 && neu == 1 && nach >= 1500 && nach <= 6000 && !kHost.empty() && kHost == kClient && frei && freiDort;
+    }
+
+    static void CAuto() {
+        if (ServerThread)
+            CoopRuleAutoSaveTest(0, 0);   // wieder wie im Menue (testet der Client, laeuft es beim Host nach 40 s ab)
     }
 
     static json QSave() {
@@ -4107,7 +4876,7 @@ namespace GOTHIC_ENGINE {
         { "Welt gleich",                         "E4",      100, 0,           NULL,        QBase,      ANone,       JWorld,      NULL },
         { "Weltschluessel beim Partner",         "P65",     100, 0,           NULL,        QBase,      ANone,       JWorldKey,   NULL },   // u29
         { "Wer fuehrt die NPCs des Clients",     "P66",     100, 0,           NULL,        QBase,      ANone,       JWhoLeads,   NULL },
-        { "Spieltag und Uhrzeit gleich",         "GT",      100, 0,           NULL,        QBase,      ANone,       JDayTime,    NULL },
+        { "Spieltag und Uhrzeit gleich",         "GT",      100, CTF_LONG,    NULL,        QBase,      ANone,       JDayTime,    NULL },   // u74: bis 20 s (Uhr alle 10 s)
         { "Uhrzeit +30 min",                     "GT",     2000, CTF_HOST,    NULL,        QBase,      ATime,       JTime,       NULL },
         { "Abgleich-Regeln gleich",              "H21",     100, 0,           NULL,        QBase,      ANone,       JRules,      NULL },
         { "Schwierigkeitsgrad gleich",           "H16",     100, 0,           NULL,        QBase,      ANone,       JDiff,       NULL },
@@ -4163,6 +4932,26 @@ namespace GOTHIC_ENGINE {
         { "Ruf zurueck",                         "D17",    2500, CTF_OTHELLO, PRepBack,    QVarRep,    ARepBack,    JRepBack,    NULL },
         { "Gildenhaltung Troll/Golem",           "D9",     2500, 0,           PGuild,      QGuild,     AGuild,      JGuild,      NULL },
         { "Gildenhaltung zurueck",               "D9",     2500, 0,           PGuildBack,  QGuild,     AGuildBack,  JGuildBack,  NULL },
+        // u86 (P110): Gilden je Held (Variante C) - Beitritt, Gilden-Quest mit Belohnung und erfuelltem Thema, fremde Gilde
+        { "Gilden: Partner in Testgilde",        "P110",   1500, 0,           PGld,        QGldSet,    ANone,       JGldSet,     NULL },
+        { "Gilden: Quest gleicher Gilde",        "P110",   2500, 0,           PGld,        QGld,       AGldSame,    JGldSame,    NULL },
+        { "Gilden: Quest anderer Gilde",         "P110",   2500, CTF_ONCE,    PGld,        QGld,       AGldOther,   JGldOther,   NULL },
+        { "Gilden: Aufnahme bleibt beim Helden", "P110",   2500, CTF_ONCE,    PGld,        QGld,       AGldJoin,    JGldJoin,    NULL },
+        { "Gilden: kein Story-Takt danach",      "P110",   3000, CTF_ONCE,    PGld,        QGld,       AGldTick,    JGldTick,    NULL },
+        { "Gilden: zurueck",                     "P110",   2500, 0,           PGld,        QGldBack,   AGldBack,    JGldBack,    NULL },
+        // u96 (P118): Missions-Gegenstaende spiegeln
+        { "Missions-Gegenstand gespiegelt",      "P118",   2500, 0,           PMi,         QMi,        AMiGive,     JMiGive,     NULL },
+        { "Missions-Gegenstand gekennzeichnet",  "P126",    800, 0,           PMiMark,     QMi,        ANone,       JMiMark,     NULL },   // u104
+        { "Missions-Gegenstand abgegeben",       "P118",   2500, 0,           PMi,         QMi,        AMiTake,     JMiTake,     NULL },
+        // u97 (P119): gemeinsame Coop-Truhe im Inventar
+        { "Coop-Truhe: Inhalt beim Partner",     "P119",   2500, 0,           PTruhe,      QTruhe,     ATruheRein,  JTruheRein,  NULL },
+        { "Coop-Truhe: benutzen oeffnet sie",    "P119",   3500, CTF_LONG,    PTruheAuf,   QTruhe,     ATruheAuf,   JTruheAuf,   NULL },
+        // u99 (P121): fuer beide gleichzeitig offen
+        { "Coop-Truhe: beide offen",             "P121",   2500, CTF_LONG,    PTruhe,      QTruheBeide, ATruheBeide, JTruheBeide, NULL },
+        // u103 (P125): zaehlt bei Quests (Npc_HasItems/Npc_RemoveInvItems fuer den eigenen Helden)
+        { "Coop-Truhe: zaehlt bei Quests",       "P125",   2500, CTF_LONG,    PTruheQuest, QTruhe,     ATruheQuest, JTruheQuest, NULL },
+        { "Coop-Truhe: beide nehmen zugleich",   "P121",   3500, CTF_LONG,    PTruheGleich, QTruheGleich, ATruheGleich, JTruheGleich, NULL },
+        { "Coop-Truhe: beide zu, gleicher Inhalt", "P121", 2500, CTF_LONG,    PTruhe,      QTruheZu,   ATruheZu,    JTruheZu,    NULL },
         { "Kapitel gleich",                      "D16",     100, 0,           NULL,        QVarChapter, ANone,      JChapter,    NULL },
         { "Alle Skript-Variablen gleich",        "D7",      300, CTF_ONCE,           PStory,      QDigVars,   ANone,       JDigVars,    NULL },
         { "Ganzes Tagebuch gleich",              "D4/D7",   300, CTF_ONCE,           PDiary,      QDigLog,    ANone,       JDigLog,     NULL },
@@ -4211,6 +5000,7 @@ namespace GOTHIC_ENGINE {
         { "Zuschau-Fenster an",                  "K2",     1500, 0,           PWin,        QBase,      AWin,        JWin,        NULL },
         { "Zuschau-Fenster aus",                 "K2",     1000, 0,           PWinOff,     QBase,      AWinOff,     JWinOff,     NULL },
         // 8 Speichern und Laden (u30) - am Ende: das Laden baut die Welt neu auf
+        { "Auto-Sicherung alle 3 min",           "P127",   3000, CTF_LONG,    PAuto,       QAuto,      AAuto,       JAuto,       CAuto },   // u105
         { "Gemeinsam speichern",                 "P69",    4000, CTF_LONG,    PSave,       QSave,      ASave,       JSave,       NULL },
         { "Gemeinsam laden",                     "P69",    8000, CTF_LOAD,    PLoad,       QLoad,      ALoad,       JLoad,       CLoad },
         { "Nach dem Laden: Held erhalten",       "P69",     300, CTF_LONG,    PAfterLoad,  QSave,      ANone,       JHeroKept,   NULL },
@@ -4276,7 +5066,7 @@ namespace GOTHIC_ENGINE {
         { "Verfolgungspunkt beim Partner",       "NPCs um mich" },
         { "Truhe: Apfel hinein",                 "Gegenstaende und Truhen" },
         { "Teleport-Rune beim Partner",          "Coop-Funktionen" },
-        { "Gemeinsam speichern",                 "Speichern und Laden" },   // u30
+        { "Auto-Sicherung alle 3 min",           "Speichern und Laden" },   // u30; u105 mit der Auto-Sicherung vorn
         { "Partner in eine andere Welt schicken", "Getrennte Welten und Weltprozess" },   // u39
     };
     static const int CoopTestBlockCount = sizeof(CoopTestBlocks) / sizeof(CoopTestBlocks[0]);
@@ -4311,9 +5101,15 @@ namespace GOTHIC_ENGINE {
         "Tagebuch: Thema + Eintrag (Dialog)", "Themenstatus erfolgreich", "Themenstatus laufend", "Eintrag ausserhalb eines Dialogs",
         "Quest-EP +10 (Dialog)", "Skript-Variable (Story-Takt)", "Skript-Variable (Dialog)", "Skript-Variable zurueck",
         "Heldenvariable bleibt lokal", "Ruf +1 mit Meldung", "Ruf zurueck", "Gildenhaltung Troll/Golem", "Gildenhaltung zurueck",
+        "Gilden: Partner in Testgilde", "Gilden: Quest gleicher Gilde", "Gilden: Quest anderer Gilde",   // u86 (P110)
+        "Gilden: Aufnahme bleibt beim Helden", "Gilden: kein Story-Takt danach", "Gilden: zurueck",
+        "Missions-Gegenstand gespiegelt", "Missions-Gegenstand gekennzeichnet", "Missions-Gegenstand abgegeben",   // u96 (P118), u104
+        "Coop-Truhe: Inhalt beim Partner", "Coop-Truhe: benutzen oeffnet sie", "Coop-Truhe: beide offen",   // u97/u99: ohne Welt
+        "Coop-Truhe: zaehlt bei Quests", "Coop-Truhe: beide nehmen zugleich", "Coop-Truhe: beide zu, gleicher Inhalt",   // u103
         "Kapitel gleich", "Alle Skript-Variablen gleich", "Ganzes Tagebuch gleich", "Gildentabelle gleich",
         "Teleport-Rune beim Partner", "Rune mit eigenem Aussehen",
         // Speichern und Laden: gerade bei getrennten Welten wichtig - danach sind beide in der Welt des Hosts
+        "Auto-Sicherung alle 3 min",   // u105
         "Gemeinsam speichern", "Gemeinsam laden", "Nach dem Laden: Held erhalten", "Nach dem Laden: Figuren wie beim Speichern",
         "Nach dem Laden: Welten wie beim Speichern",
         // u39: Welten fuer den Test wechseln
@@ -4376,6 +5172,7 @@ namespace GOTHIC_ENGINE {
         { "Teleport-Rune beim Partner",          COOP_READY_Teleport != 0,   "Teleport-Rune" },
         { "Rune mit eigenem Aussehen",           COOP_READY_Teleport != 0 && (ENGINE == Engine_G1 || ENGINE == Engine_G2A), "Rune-Modell" },   // u17 nur G1, u21 auch G2A
         { "Mitspieler-Markierung zeigt mich",    COOP_READY_Marker != 0,     "Markierung" },
+        { "Auto-Sicherung alle 3 min",           COOP_READY_Save != 0 && COOP_READY_Difficulty != 0, "Speichern/Laden" },   // u105
         { "Gemeinsam speichern",                 COOP_READY_Save != 0,       "Speichern/Laden" },   // u30
         { "Gemeinsam laden",                     COOP_READY_Save != 0,       "Speichern/Laden" },
         { "Nach dem Laden: Held erhalten",       COOP_READY_Save != 0,       "Speichern/Laden" },
@@ -4450,7 +5247,7 @@ namespace GOTHIC_ENGINE {
     static bool CTInRun(size_t i) {
         if (CT.checksOnly)
             return CTIsCheckStep(i);
-        if (!CT.worldsOnly)
+        if (!CT.worldsOnly && !CT.guildsOnly)
             return true;
         static size_t fetch = CoopTestCount;
         if (fetch == CoopTestCount)
@@ -4459,6 +5256,12 @@ namespace GOTHIC_ENGINE {
                     fetch = j;
                     break;
                 }
+        if (CT.guildsOnly)   // u86: bis zum Herholen, Regeln gleich, die Gilden-Schritte, am Ende die Ausgangslage
+            return i <= fetch || !strcmp(CoopTests[i].name, "Abgleich-Regeln gleich") || !strncmp(CoopTests[i].name, "Gilden: ", 8) ||
+                !strncmp(CoopTests[i].name, "Missions-Gegenstand", 19) || !strncmp(CoopTests[i].name, "Coop-Truhe", 10) ||
+                !strncmp(CoopTests[i].name, "Truhe: ", 7) || !strcmp(CoopTests[i].name, "Alle Truhen der Welt gleich") ||
+                !strcmp(CoopTests[i].name, "Auto-Sicherung alle 3 min") ||   // u105 (P127)
+                i + 1 == CoopTestCount;   // u96 (P118), u97 (P119), u98 (P120: Welt-Truhen - der Partner nimmt ohne Remove heraus) mit
         return i <= fetch || i >= CTBlockFirst(CoopTestBlockCount - 1);
     }
 
@@ -4518,10 +5321,11 @@ namespace GOTHIC_ENGINE {
         const char* oth = (t.flags & CTF_OTHELLO) ? ", nur Othello" : "";
         const std::string again = CT.retries ? CTFmt(" [%d. Nachfrage, %.1f s nach der Handlung]", CT.retries, (CurrentMs - CT.actMs) / 1000.f) : std::string();
         // u45: Welten-Testlauf zaehlt 1..39 (Log zusaetzlich mit der festen Schrittnummer)
-        const unsigned pos = CT.worldsOnly ? CTRunPos(CT.idx) : (unsigned)(CT.idx + 1);
-        const unsigned total = CT.worldsOnly ? CTRunTotal() : (unsigned)CoopTestCount;
-        const char* label = CT.worldsOnly ? "Welten-Test" : "Coop-Test";
-        const std::string fixed = CT.worldsOnly ? CTFmt(" [Schritt %u]", (unsigned)(CT.idx + 1)) : std::string();
+        const bool part = CT.worldsOnly || CT.guildsOnly;   // u86: auch der Gilden-Testlauf
+        const unsigned pos = part ? CTRunPos(CT.idx) : (unsigned)(CT.idx + 1);
+        const unsigned total = part ? CTRunTotal() : (unsigned)CoopTestCount;
+        const char* label = CT.guildsOnly ? "Gilden-Test" : CT.worldsOnly ? "Welten-Test" : "Coop-Test";
+        const std::string fixed = part ? CTFmt(" [Schritt %u]", (unsigned)(CT.idx + 1)) : std::string();
         CTLog("%02u/%u %s  %s (%s%s): %s%s%s", pos, total, what, t.name, t.ref, oth, d.c_str(), again.c_str(), fixed.c_str());
         // Chat: OK kurz, alles andere mit Begruendung (100 Zeilen - die Einzelheiten stehen im Log)
         char buf[400];
@@ -4563,6 +5367,13 @@ namespace GOTHIC_ENGINE {
             if (zCPar_Symbol* s = CTVarSym())
                 s->SetValue(0, 0);
             CT.varSet = false;
+        }
+        if (CT.gldValue) {   // u86: Abbruch mitten in den Gilden-Schritten
+            if (zCPar_Symbol* s = CTVarSym()) {
+                DlgGuildVars.erase(s);
+                s->SetValue(0, 0);
+            }
+            CT.gldValue = 0;
         }
         CHeroVar();
         if (CT.repSet) {
@@ -4614,7 +5425,7 @@ namespace GOTHIC_ENGINE {
             "andere kommt mit), Bild des Weltprozesses im Zuschau-Fenster ansehen (P80)");
     }
 
-    static void CTStart(bool worldsOnly, bool checksOnly);
+    static void CTStart(bool worldsOnly, bool checksOnly, bool guildsOnly = false);
 
     void CoopSelfTestToggle(bool worldsOnly) {
         if (CT.on) {
@@ -4622,6 +5433,12 @@ namespace GOTHIC_ENGINE {
             return;
         }
         CTStart(worldsOnly, false);
+    }
+
+    // u86 (P110): Gilden-Testlauf (CoopAutoTest.cpp, -cooptest:host:<Slot>:gilden)
+    void CoopSelfTestGuildRun() {
+        if (!CT.on)
+            CTStart(false, false, true);
     }
 
     // u50: Pruefrunde fuer lange Laeufe - true = laeuft
@@ -4639,7 +5456,7 @@ namespace GOTHIC_ENGINE {
         return CT.on;
     }
 
-    static void CTStart(bool worldsOnly, bool checksOnly) {
+    static void CTStart(bool worldsOnly, bool checksOnly, bool guildsOnly) {
         if (!parser || zCParser::GetParser() != parser || !player || !ogame) {
             CTSay("Coop-Test: Spiel nicht bereit");
             return;
@@ -4678,6 +5495,7 @@ namespace GOTHIC_ENGINE {
         CT.startedApart = otherWorld;   // u39
         CT.worldsOnly = worldsOnly;     // u43
         CT.checksOnly = checksOnly;     // u50
+        CT.guildsOnly = guildsOnly;     // u86
         CTHomeKept = false;
         if (otherWorld)
             CT.otherText = away[0];
@@ -4689,12 +5507,19 @@ namespace GOTHIC_ENGINE {
                 ms += CoopTests[i].waitMs + 600;
                 steps++;
             }
-        ms += (otherWorld ? 4 : 3) * 25000 + 40000;   // u39: Weltwechsel des Partners (je etwa 25 s), Weltprozess laden
+        if (guildsOnly)   // u86: nur Herholen und Zurueckschicken
+            ms += otherWorld ? 2 * 25000 : 0;
+        else
+            ms += (otherWorld ? 4 : 3) * 25000 + 40000;   // u39: Weltwechsel des Partners (je etwa 25 s), Weltprozess laden
         if (checksOnly) {
             CTSay("Pruefrunde %s: %u Vergleiche mit dem Partner (%s)", CT.tag.c_str(), steps, otherWorld ? "getrennte Welten" : "gleiche Welt");
             return;
         }
-        if (worldsOnly)
+        if (guildsOnly)
+            CTSay("Gilden-Testlauf %s startet: %u Schritte (Verbindung, Partner herholen, dann Gilden je Held P110: Belohnung und erfuellte "
+                "Quest gleicher Gilde, Quest anderer Gilde, Aufnahme, Story-Takt), etwa %d min - Shift+F11 bricht ab (nur Test-Spielstand!)",
+                CT.tag.c_str(), steps, (ms + 30000) / 60000);
+        else if (worldsOnly)
             CTSay("Welten-Testlauf %s startet: %u Schritte (Verbindung, Partner herholen, dann Bereich 9: getrennte Welten, Abgleich ueber "
                 "Welten, Weltprozess, Speichern/Laden, Teleport), etwa %d min - Shift+F11 bricht ab, Strg+Shift+F11 = alle 144 Schritte "
                 "(nur Test-Spielstand!)", CT.tag.c_str(), steps, (ms + 30000) / 60000);
@@ -4876,20 +5701,29 @@ namespace GOTHIC_ENGINE {
             switch (CT.phase) {
             case CT_START:
             {
-                while (CT.idx < CoopTestCount && !CTInRun(CT.idx))   // u43: Welten-Testlauf ueberspringt Bereiche 1 (Rest) bis 8
+                // u86: nach uebersprungenen Schritten erst im naechsten Bild weiter - t ist oben gebunden; bis u85 galten fuer den
+                // ersten Schritt danach Vorbereitung und Merkmale des ersten uebersprungenen (allgemein)
+                bool skipped = false;
+                while (CT.idx < CoopTestCount && !CTInRun(CT.idx)) {   // u43: Welten-Testlauf ueberspringt Bereiche 1 (Rest) bis 8
                     CT.idx++;
+                    skipped = true;
+                }
                 if (CT.idx >= CoopTestCount) {
                     CTFinish(false);
                     return;
                 }
+                if (skipped)
+                    break;
                 for (int b = 0; b < CoopTestBlockCount; b++) {
                     if (CTBlockFirst(b) != CT.idx)
                         continue;
-                    if (CT.worldsOnly)   // u45: Welten-Testlauf - zwei Teile statt "Bereich 1/9", "Bereich 9/9"
+                    if (CT.worldsOnly || CT.guildsOnly)   // u45: Welten-Testlauf - zwei Teile statt "Bereich 1/9", "Bereich 9/9"
                         CTSay("-- Teil %d/2: %s --", b == 0 ? 1 : 2, CoopTestBlocks[b].title);
                     else
                         CTSay("-- Bereich %d/%d: %s --", b + 1, CoopTestBlockCount, CoopTestBlocks[b].title);
                 }
+                if (CT.guildsOnly && !strncmp(t.name, "Gilden: ", 8) && CT.idx > 0 && strncmp(CoopTests[CT.idx - 1].name, "Gilden: ", 8))
+                    CTSay("-- Teil 2/2: Gilden je Held (P110) --");
                 std::string why;
                 const char* off = CTModuleOff(t);   // u12: Modul in dieser Engine noch aus
                 const std::string offText = off ? std::string("Modul ") + off + " in dieser Engine noch aus" : std::string();
@@ -5044,6 +5878,7 @@ namespace GOTHIC_ENGINE {
                 CTPartnerEndMs = GetCurrentMs();
                 CTPartnerEndText = e.value("t", std::string());
                 CTLog("Testlauf von %s zu Ende: %s", from.c_str(), CTPartnerEndText.c_str());
+                CTGldRestore("Lauf des Partners zu Ende");   // u86: auch nach einem Abbruch nicht in der Testgilde bleiben
             }
             else if (f == "go") {   // u39: Weltwechsel bzw. Teleport fuer den Testlauf des Partners
                 if (e.value("to", std::string()) != DialogMe())
@@ -5092,6 +5927,7 @@ namespace GOTHIC_ENGINE {
 
 #else   // Modul in dieser Engine nicht freigegeben (CoopModulesReport)
     void CoopSelfTestToggle(bool) {}
+    void CoopSelfTestGuildRun() {}   // u86
     bool CoopSelfTestCheckRun() { return false; }   // u50
     bool CoopSelfTestPartnerSettled() { return false; }
     bool CoopSelfTestRunning() { return false; }

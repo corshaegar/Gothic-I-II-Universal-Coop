@@ -1,5 +1,5 @@
-// Generiert von tools\hooktable.py - nicht von Hand aendern (Quellen, G2-Addon-SDK, GT-Build g2a_pre_u32.dll).
-// 8600 Funktionsanfaenge, 52 GT-Haken, 321 von GT aufgerufene Engine-Funktionen.
+// Generiert von tools\hooktable.py - nicht von Hand aendern (Quellen, G2-Addon-SDK, GT-Build Gothic2Coop-u63.dll).
+// 8600 Funktionsanfaenge, 53 GT-Haken, 373 von GT aufgerufene Engine-Funktionen.
 static const DWORD CoopFnStarts[] = {
     0x004010C0, 0x00401160, 0x00401550, 0x00401600, 0x00401D60, 0x00401EC0, 0x00401ED0, 0x00401EE0,
     0x00401F20, 0x00401F30, 0x00401F40, 0x00401F50, 0x00401F60, 0x00401F70, 0x00401F80, 0x00401F90,
@@ -1129,6 +1129,7 @@ static const CoopFnName CoopFnNames[] = {
     { 0x004627E0, 0, "zCOption::ReadString" },
     { 0x00462950, 0, "zCOption::EntryExists" },
     { 0x004639D0, 0, "zSTRING::ToChar" },
+    { 0x00465250, 0, "zCOption::GetDir" },
     { 0x00465260, 0, "zCOption::GetDirString" },
     { 0x0046AB00, 0, "zSTRING::Upper" },
     { 0x00472F50, 0, "zCModel::GetAniFromAniID" },
@@ -1145,7 +1146,9 @@ static const CoopFnName CoopFnNames[] = {
     { 0x004850D0, 1, "oCSpell::Invest" },   // Ivk_oCSpell_Invest_Coop
     { 0x00485700, 0, "oCSpell::Kill" },
     { 0x004864B0, 1, "oCSpell::GetName" },   // Ivk_oCSpell_GetName_Coop
+    { 0x0049FD20, 0, "zCAICamera::GetCurrent" },
     { 0x004A0D40, 0, "zCAICamera::GetMode" },
+    { 0x004A1120, 0, "zCAICamera::SetTarget" },
     { 0x004C88C0, 1, "Ivk_zCExceptionHandlerUnhandledExceptionFilter" },   // Ivk_zCExceptionHandlerUnhandledExceptionFilter
     { 0x004CFAF0, 0, "zSTRING::=" },
     { 0x004D5370, 1, "zCInput_Win32::GetKey" },   // Ivk_zCInput_Win32_GetKey_Coop
@@ -1167,6 +1170,7 @@ static const CoopFnName CoopFnNames[] = {
     { 0x0052DCB0, 0, "zCVob::GetAtVectorWorld" },
     { 0x00531110, 0, "zCBspBase::CollectVobsInBBox3D" },
     { 0x00540E50, 0, "zTBBox3D_OnInit" },
+    { 0x00551100, 0, "zCCollObjectCharacter::MarkSpatialStateAsUninited" },
     { 0x00565F50, 0, "?" },
     { 0x00566680, 0, "zCMemPoolBase::Free" },
     { 0x005792A0, 0, "zCModel::SetNodeVisual" },
@@ -1204,8 +1208,11 @@ static const CoopFnName CoopFnNames[] = {
     { 0x0061BB70, 0, "zCVob::SetPositionWorld" },
     { 0x0061C000, 0, "zCVob::ResetRotationsWorld" },
     { 0x0061CBC0, 0, "zCVob::SetHeadingAtWorld" },
+    { 0x0061D190, 0, "zCVob::SetPhysicsEnabled" },
     { 0x0061DA80, 0, "zCVob::BeginMovement" },
+    { 0x0061E650, 0, "zCVob::GetCollisionObject" },
     { 0x00621FA0, 0, "zCWorld::TraceRayNearestHit" },
+    { 0x006370B0, 0, "zCTimer::SetMotionFactor" },
     { 0x0065F790, 0, "oCInformationManager::GetInformationManager" },
     { 0x00661240, 0, "oCInformationManager::Exit" },
     { 0x00662290, 1, "oCInformationManager::OnInfo" },   // Ivk_oCInformationManager_OnInfo_Coop
@@ -1214,6 +1221,7 @@ static const CoopFnName CoopFnNames[] = {
     { 0x006660E0, 1, "oCNpc::OnDamage" },   // Ivk_oCNpc_OnDamage_Coop
     { 0x00666610, 1, "oCNpc::OnDamage_Hit" },   // Ivk_oCNpc_OnDamage_Hit
     { 0x00674210, 0, "zSTRING::IsEmpty" },
+    { 0x00674290, 0, "zCEventMessage::GetSubType" },
     { 0x006742A0, 0, "zCVob::GetHomeWorld" },
     { 0x0067A7B0, 0, "zSTRING::+=" },
     { 0x0067A8A0, 1, "oCNpc::OnDamage_Sound" },   // Ivk_oCNpc_OnDamage_Sound
@@ -1232,14 +1240,22 @@ static const CoopFnName CoopFnNames[] = {
     { 0x0068DF60, 0, "zCViewBase::GetCode" },
     { 0x0068DF70, 0, "zCViewBase::~zCViewBase" },
     { 0x0068DF80, 0, "zCViewBase::FillZBuffer" },
+    { 0x0068F440, 0, "zCViewDialogChoice::Select" },
+    { 0x0068F550, 0, "zCViewDialogChoice::GetSelectedText" },
     { 0x00698EA0, 1, "oCAIHuman::StandActions" },   // Ivk_oCAIHuman_StandActions
     { 0x006A4010, 0, "oCAniCtrl_Human::InitAnimations" },
+    { 0x006A4D20, 0, "oCAniCtrl_Human::SearchStandAni" },
+    { 0x006ADEE0, 0, "oCAniCtrl_Human::IsStanding" },
+    { 0x006B1350, 0, "oCAniCtrl_Human::IsInPreHit" },
+    { 0x006B1430, 0, "oCAniCtrl_Human::IsInCombo" },
     { 0x006B15B0, 0, "oCAniCtrl_Human::CanParade" },
+    { 0x006B7490, 0, "oCAniCtrl_Human::_Stand" },
     { 0x006BCF60, 0, "oCNpc::GetTalkingWith" },
     { 0x006BCF90, 0, "oCNpc::StopTalkingWith" },
     { 0x006C2C80, 0, "oCGame::GetWorldTimer" },
     { 0x006C2C90, 0, "oCGame::GetInfoManager" },
     { 0x006C2CD0, 0, "oCGame::GetGuilds" },
+    { 0x006C7290, 1, "oCGame::ChangeLevel" },   // Ivk_oCGame_ChangeLevel_Coop
     { 0x006C7AF0, 1, "oCGame::TriggerChangeLevel" },   // Ivk_oCGame_TriggerChangeLevel_Coop
     { 0x006CABB0, 1, "oCGame::CheckObjectRoutines" },   // Ivk_oCGame_CheckObjectRoutines_Coop
     { 0x006D0000, 0, "zCVob::SetCollDet" },
@@ -1251,6 +1267,7 @@ static const CoopFnName CoopFnNames[] = {
     { 0x0070CE20, 1, "oCNpcInventory::Remove" },   // Ivk_oCNpcInventory_RemoveN_Coop
     { 0x00710030, 0, "oCNpcInventory::UnpackAllItems" },
     { 0x007126D0, 0, "oCItem::HasFlag" },
+    { 0x00712880, 0, "oCItem::GetName" },
     { 0x00723CC0, 1, "oCMobLockable::CanInteractWith" },   // Ivk_oCMobLockable_CanInteractWith_Coop
     { 0x00725FC0, 1, "oCMobContainer::Insert" },   // Ivk_oCMobContainer_Insert_Coop
     { 0x00725FF0, 1, "oCMobContainer::Remove" },   // Ivk_oCMobContainer_Remove_Coop
@@ -1259,6 +1276,7 @@ static const CoopFnName CoopFnNames[] = {
     { 0x00726640, 1, "oCMobContainer::Close" },   // Ivk_oCMobContainer_Close_Coop
     { 0x0072D2C0, 0, "oCNpc::ApplyOverlay" },
     { 0x0072D5C0, 0, "oCNpc::RemoveOverlay" },
+    { 0x0072F820, 0, "oCNpc::GetName" },
     { 0x0072FAB0, 0, "oCNpc::GetAttitude" },
     { 0x0072FB30, 0, "oCNpc::GetPermAttitude" },
     { 0x0072FB80, 0, "oCNpc::SetAttitude" },
@@ -1282,6 +1300,7 @@ static const CoopFnName CoopFnNames[] = {
     { 0x007319B0, 1, "oCNpc::CanUse" },   // Ivk_oCNpc_CanUse
     { 0x007323C0, 0, "oCNpc::EquipItem" },
     { 0x007326C0, 0, "oCNpc::UnequipItem" },
+    { 0x00732B60, 0, "oCNpc::SetFocusVob" },
     { 0x00732BB0, 0, "oCNpc::GetFocusVob" },
     { 0x00732BC0, 0, "oCNpc::ClearFocusVob" },
     { 0x00732BF0, 0, "oCNpc::GetFocusNpc" },
@@ -1328,6 +1347,7 @@ static const CoopFnName CoopFnNames[] = {
     { 0x0075F040, 0, "oCNpc::MakeSpellBook" },
     { 0x0075F4D0, 0, "oCNpc::UseStandAI" },
     { 0x00762970, 1, "oCNpc::OpenDeadNpc" },   // Ivk_oCNpc_OpenDeadNpc
+    { 0x00762B40, 0, "oCNpc::CloseDeadNpc" },
     { 0x007630F0, 0, "oCNpcMessage::_GetClassDef" },
     { 0x00763100, 0, "oCNpcMessage::Delete" },
     { 0x00763110, 0, "oCNpcMessage::SetInUse" },
@@ -1340,12 +1360,19 @@ static const CoopFnName CoopFnNames[] = {
     { 0x007631A0, 0, "oCNpcMessage::IsDeleteable" },
     { 0x007631B0, 0, "oCNpcMessage::IsHighPriority" },
     { 0x00763B50, 0, "oCMsgMovement::_GetClassDef" },
+    { 0x00763E40, 0, "oCMsgAttack::_GetClassDef" },
+    { 0x00763E50, 0, "oCMsgAttack::IsNetRelevant" },
+    { 0x00763E60, 0, "oCMsgAttack::IsOverlay" },
+    { 0x00764780, 0, "oCMsgManipulate::_GetClassDef" },
+    { 0x00764790, 0, "oCMsgManipulate::IsNetRelevant" },
     { 0x00764AB0, 0, "oCMsgConversation::_GetClassDef" },
     { 0x00764DC0, 0, "oCNpcMessage::oCNpcMessage_OnInit" },
     { 0x00764EA0, 0, "oCNpcMessage::~oCNpcMessage" },
     { 0x00764F00, 0, "oCNpcMessage::Archive" },
     { 0x00764F70, 0, "oCNpcMessage::Unarchive" },
+    { 0x00765750, 0, "oCMsgMovement::oCMsgMovement_OnInit" },
     { 0x00765930, 0, "oCMsgMovement::oCMsgMovement_OnInit" },
+    { 0x00765A30, 0, "oCMsgMovement::oCMsgMovement_OnInit" },
     { 0x00765CE0, 0, "oCMsgMovement::~oCMsgMovement" },
     { 0x00765E00, 0, "oCMsgMovement::Archive" },
     { 0x00765F20, 0, "oCMsgMovement::Unarchive" },
@@ -1357,6 +1384,29 @@ static const CoopFnName CoopFnNames[] = {
     { 0x007666B0, 0, "oCMsgMovement::Delete" },
     { 0x007666C0, 0, "oCMsgMovement::MD_GetTimeBehavior" },
     { 0x00766700, 0, "oCMsgMovement::MD_GetMinTime" },
+    { 0x00767000, 0, "oCMsgAttack::~oCMsgAttack" },
+    { 0x00767060, 0, "oCMsgAttack::oCMsgAttack_OnInit" },
+    { 0x00767130, 0, "oCMsgAttack::oCMsgAttack_OnInit" },
+    { 0x00767210, 0, "oCMsgAttack::Archive" },
+    { 0x007672B0, 0, "oCMsgAttack::Unarchive" },
+    { 0x007673A0, 0, "oCMsgAttack::Pack" },
+    { 0x00767530, 0, "oCMsgAttack::Unpack" },
+    { 0x007676A0, 0, "oCMsgAttack::MD_GetNumOfSubTypes" },
+    { 0x007676B0, 0, "oCMsgAttack::MD_GetSubTypeString" },
+    { 0x00768940, 0, "oCMsgManipulate::oCMsgManipulate_OnInit" },
+    { 0x00768AE0, 0, "oCMsgManipulate::oCMsgManipulate_OnInit" },
+    { 0x00768F80, 0, "oCMsgManipulate::~oCMsgManipulate" },
+    { 0x00769040, 0, "oCMsgManipulate::Archive" },
+    { 0x00769120, 0, "oCMsgManipulate::Unarchive" },
+    { 0x00769240, 0, "oCMsgManipulate::Pack" },
+    { 0x00769330, 0, "oCMsgManipulate::Unpack" },
+    { 0x00769540, 0, "oCMsgManipulate::MD_GetNumOfSubTypes" },
+    { 0x00769550, 0, "oCMsgManipulate::MD_GetSubTypeString" },
+    { 0x007699B0, 0, "oCMsgManipulate::MD_GetTimeBehavior" },
+    { 0x007699F0, 0, "oCMsgManipulate::MD_GetMinTime" },
+    { 0x00769A00, 0, "oCMsgManipulate::MD_GetVobRefName" },
+    { 0x00769AB0, 0, "oCMsgManipulate::MD_SetVobRefName" },
+    { 0x00769BF0, 0, "oCMsgManipulate::MD_SetVobParam" },
     { 0x00769DE0, 0, "oCMsgConversation::oCMsgConversation_OnInit" },
     { 0x0076A1E0, 0, "oCMsgConversation::oCMsgConversation_OnInit" },
     { 0x0076A4A0, 0, "oCMsgConversation::~oCMsgConversation" },
@@ -1390,6 +1440,7 @@ static const CoopFnName CoopFnNames[] = {
     { 0x0077C860, 0, "oCVob::SearchNpcPosition" },
     { 0x007800C0, 1, "oCWorld::RemoveVob" },   // Ivk_oCWorld_RemoveVob
     { 0x00780DD0, 0, "oCWorldTimer::GetDay" },
+    { 0x00780DE0, 0, "oCWorldTimer::SetDay" },
     { 0x00780E40, 0, "oCWorldTimer::SetTime" },
     { 0x00786320, 0, "zCEventManager::KillMessages" },
     { 0x007894F0, 0, "zCFont::GetFontX" },

@@ -1052,7 +1052,7 @@ instance MENUITEM_OPT_COOP(C_MENU_ITEM_DEF)
 {
 	backpic = MENU_ITEM_BACK_PIC;
 	text[0] = "COOP";
-	text[1] = "Coop-Kamera, Schwierigkeitsgrad, Abgleich (Quests, Tagebuch, Gegenstände, Spielstände), Steam, Sprache.";
+	text[1] = "Coop-Kamera, Schwierigkeitsgrad, Abgleich (Quests, Tagebuch, Gegenstände, Spielstände), Steam, Sprache, Taste fürs Coop-Inventar.";
 	posx = 0;
 	posy = MENU_OPT_START_Y + MENU_OPT_DY * 6;
 	dimx = 8192;
@@ -1060,7 +1060,7 @@ instance MENUITEM_OPT_COOP(C_MENU_ITEM_DEF)
 	onselaction[0] = SEL_ACTION_STARTMENU;
 	onselaction_s[0] = "MENU_OPT_COOP";
 	flags = flags | IT_TXT_CENTER;
-	userString[2] = "COOP"; userString[3] = "Coop camera, difficulty, sync (quests, diary, items, saves), Steam, language.";
+	userString[2] = "COOP"; userString[3] = "Coop camera, difficulty, sync (quests, diary, items, saves), Steam, language, coop inventory key.";
 };
 
 instance MENU_OPT_COOP(C_MENU_DEF)
@@ -1073,8 +1073,10 @@ instance MENU_OPT_COOP(C_MENU_DEF)
 	items[4] = "MENUITEM_OPTCOOP_STEAM";
 	items[5] = "MENUITEM_OPTCOOP_LANG";
 	items[6] = "MENUITEM_OPTCOOP_LANG_CHOICE";
-	items[7] = "MENUITEM_OPTCOOP_BACK";
-	items[8] = "MENUITEM_OPTCOOP_VERSION";
+	items[7] = "MENUITEM_OPTCOOP_INVKEY";
+	items[8] = "MENUITEM_OPTCOOP_INVKEY_CHOICE";
+	items[9] = "MENUITEM_OPTCOOP_BACK";
+	items[10] = "MENUITEM_OPTCOOP_VERSION";
 	defaultoutgame = 1;
 	defaultingame = 1;
 	flags = flags | MENU_SHOW_INFO;
@@ -1183,6 +1185,39 @@ instance MENUITEM_OPTCOOP_LANG_CHOICE(C_MENU_ITEM_DEF)
 	flags = flags & ~IT_SELECTABLE;
 	flags = flags | IT_TXT_CENTER;
 	
+};
+
+// u101: Taste fuers Coop-Inventar - Gothic.ini [GOTHICCOOP] coopInvKey 0-7 (GothicCoop belegt 1 = I vor)
+instance MENUITEM_OPTCOOP_INVKEY(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_ITEM_BACK_PIC;
+	text[0] = "Coop-Inventar";
+	text[1] = "Taste, die das gemeinsame Coop-Inventar direkt öffnet bzw. schließt - auch ohne den Gegenstand.";
+	fontname = MENU_FONT_SMALL;
+	posx = 1000;
+	posy = MENU_OPT_START_Y + MENU_OPT_DY * 5 + 250;
+	dimx = 3800;
+	dimy = 400;
+	onselaction[0] = SEL_ACTION_UNDEF;
+	flags = flags | IT_EFFECTS_NEXT;
+	userString[2] = "Coop inventory"; userString[3] = "Key that opens or closes the shared coop inventory directly - also without the item.";
+};
+
+instance MENUITEM_OPTCOOP_INVKEY_CHOICE(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_CHOICE_BACK_PIC;
+	type = MENU_ITEM_CHOICEBOX;
+	text[0] = "aus|I|J|K|U|G|T|V";
+	fontname = MENU_FONT_SMALL;
+	posx = 5000;
+	posy = MENU_OPT_START_Y + MENU_OPT_DY * 5 + 250 + 25;
+	dimx = MENU_SLIDER_DX;
+	dimy = MENU_CHOICE_DY;
+	onchgsetoption = "coopInvKey";
+	onchgsetoptionsection = "GOTHICCOOP";
+	flags = flags & ~IT_SELECTABLE;
+	flags = flags | IT_TXT_CENTER;
+	userString[2] = "off|I|J|K|U|G|T|V";
 };
 
 instance MENUITEM_OPTCOOP_BACK(C_MENU_ITEM_DEF)
@@ -1763,7 +1798,9 @@ instance MENUITEM_COOPNG_VERSION(C_MENU_ITEM_DEF)
 };
 
 // v75: Abgleich - Gothic.ini [GOTHICCOOP] coopSyncQuests/coopSyncLog/coopSyncWorld 0 an 1 aus, coopSyncSaves 0 gemeinsam
-// 1 getrennt, coopAutoSave 0 aus 1-5 = 5/10/15/20/30 min, coopConnectTake 0 Host-Stand 1 eigener Stand (GothicCoop belegt vor).
+// 1 getrennt, coopAutoSaveEvery 0 aus 1-6 = 3/5/10/15/20/30 min, coopConnectTake 0 Host-Stand 1 eigener Stand (GothicCoop belegt vor).
+// u105: Auto-Sicherung auch alle 3 min - eigener Eintrag coopAutoSaveEvery (bis u104 coopAutoSave ohne 3 min, GothicCoop übernimmt
+// ihn einmal).
 // u32: coopWorldChange 0 gemeinsam 1 getrennt - Weltwechsel (gemeinsam: wer durch einen Weltübergang geht, bestätigt, die
 // anderen kommen mit).
 instance MENU_OPT_COOP_SYNC(C_MENU_DEF)
@@ -1946,17 +1983,17 @@ instance MENUITEM_OPTSYNC_AUTOSAVE_CHOICE(C_MENU_ITEM_DEF)
 {
 	backpic = MENU_CHOICE_BACK_PIC;
 	type = MENU_ITEM_CHOICEBOX;
-	text[0] = "aus|5 min|10 min|15 min|20 min|30 min";
+	text[0] = "aus|3 min|5 min|10 min|15 min|20 min|30 min";
 	fontname = MENU_FONT_SMALL;
 	posx = 5000;
 	posy = MENU_OPT_START_Y + MENU_OPT_DY * 4 + MENU_CHOICE_YPLUS;
 	dimx = MENU_SLIDER_DX;
 	dimy = MENU_CHOICE_DY;
-	onchgsetoption = "coopAutoSave";
+	onchgsetoption = "coopAutoSaveEvery";
 	onchgsetoptionsection = "GOTHICCOOP";
 	flags = flags & ~IT_SELECTABLE;
 	flags = flags | IT_TXT_CENTER;
-	userString[2] = "off|5 min|10 min|15 min|20 min|30 min";
+	userString[2] = "off|3 min|5 min|10 min|15 min|20 min|30 min";
 };
 
 instance MENUITEM_COOPSYNC_CONNECT(C_MENU_ITEM_DEF)

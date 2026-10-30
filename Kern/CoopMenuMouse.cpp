@@ -246,8 +246,9 @@ namespace GOTHIC_ENGINE {
     }
 
     void __fastcall zCMenuItem_UpdateFX_Coop(zCMenuItem* _this, void* edx);
+    // u64 (B9, nur Othello): unter Othello nicht einhaken - OTHELLO_ABI hakt UpdateFX schon ein, Gruen gilt nur ohne Othello
     CInvoke<void(__thiscall*)(zCMenuItem*)> Ivk_zCMenuItem_UpdateFX_Coop(CoopAddr::zCMenuItem_UpdateFX, &zCMenuItem_UpdateFX_Coop,
-        COOP_IVK(Mouse));
+        CoopHookOffForProfile(CoopAddr::zCMenuItem_UpdateFX) ? IVK_DISABLED : COOP_IVK(Mouse));
     void __fastcall zCMenuItem_UpdateFX_Coop(zCMenuItem* _this, void* edx) {
         Ivk_zCMenuItem_UpdateFX_Coop(_this);
         if (!_this || !_this->active || !_this->m_bVisible || !_this->m_pInnerWindow || !MouseGreenWanted())
@@ -259,7 +260,7 @@ namespace GOTHIC_ENGINE {
 
     void __fastcall zCMenuItemList_DrawFront_Coop(zCMenuItemList* _this, void* edx);
     CInvoke<void(__thiscall*)(zCMenuItemList*)> Ivk_zCMenuItemList_DrawFront_Coop(CoopAddr::zCMenuItemList_DrawFront,
-        &zCMenuItemList_DrawFront_Coop, COOP_IVK(Mouse));
+        &zCMenuItemList_DrawFront_Coop, CoopHookOffForProfile(CoopAddr::zCMenuItemList_DrawFront) ? IVK_DISABLED : COOP_IVK(Mouse));   // u64 (B9)
     void __fastcall zCMenuItemList_DrawFront_Coop(zCMenuItemList* _this, void* edx) {
         Ivk_zCMenuItemList_DrawFront_Coop(_this);
         if (!_this || !_this->m_pInnerWindow || !_this->m_pFontHi || !_this->m_pFont || !MouseGreenWanted())
@@ -317,7 +318,7 @@ namespace GOTHIC_ENGINE {
 
     void __fastcall zCMenuItemChoice_DrawFront_Coop(zCMenuItemChoice* _this, void* edx);
     CInvoke<void(__thiscall*)(zCMenuItemChoice*)> Ivk_zCMenuItemChoice_DrawFront_Coop(CoopAddr::zCMenuItemChoice_DrawFront,
-        &zCMenuItemChoice_DrawFront_Coop, COOP_IVK(Mouse));
+        &zCMenuItemChoice_DrawFront_Coop, CoopHookOffForProfile(CoopAddr::zCMenuItemChoice_DrawFront) ? IVK_DISABLED : COOP_IVK(Mouse));   // u64 (B9)
     void __fastcall zCMenuItemChoice_DrawFront_Coop(zCMenuItemChoice* _this, void* edx) {
         Ivk_zCMenuItemChoice_DrawFront_Coop(_this);
         zCView* w = _this ? _this->m_pInnerWindow : NULL;

@@ -353,6 +353,8 @@ namespace GOTHIC_ENGINE {
         std::vector<CoopDlgTopic> log;
         std::vector<CoopDlgNpc> npcs;
         long long exp = 0;   // v31: Erfahrung des eigenen Helden (Quest-EP fuer beide)
+        std::map<std::string, int> inv;   // u85: Inventar des eigenen Helden (Instanz -> Menge) - Belohnung aus Gilden-Quests
+        int guild = 0;                    // u85: Gilde des eigenen Helden (Aufnahme waehrend des Infos)
     };
 
     struct CoopDlgIntSlot {
@@ -550,6 +552,157 @@ namespace GOTHIC_ENGINE {
         return s && StoryHeroVars.count(s) != 0;
     }
 
+    // --- u85 (P110): Gilden je Held - Variante C (docs\GILDEN-KONZEPT.md) --------------------------------------------------
+    //
+    // Nutzer: "Ok mache C": jeder tritt selbst einer Gilde bei; Gilden-Quests teilen nur Helden derselben Gilde (samt den
+    // Gegenstaenden daraus), bei verschiedenen Gilden behaelt jeder seinen eigenen Fortschritt. Bis u84 gingen auch diese Infos an
+    // alle - trat einer bei, galt die Aufnahme beim Partner als erzaehlt, und er kam nicht mehr in die Gilde.
+    // - Gilden-Info: die Bedingung vergleicht die Gilde des Helden (other/hero.guild oder Npc_GetTrueGuild(other/hero)) mit einer
+    //   Gilde ausser GIL_NONE (kleine Auswertung des Bytecodes wie bei den Heldenwerten: Werte auf einem Mini-Stapel, beim
+    //   Vergleich == / != zaehlt die Konstante). Nur "keine Gilde" (GIL_NONE) ist keine Gilden-Info - das sind die Wege dorthin, die
+    //   bleiben gemeinsam.
+    // - Aufnahme: waehrend des Infos aenderte sich die Gilde des Sprechers - beim Partner gilt das Info nie als erzaehlt, er tritt
+    //   selbst bei (seine Rüstung bekommt er dann selbst).
+    // - Variablen aus solchen Infos gelten danach als Werte je Held: kein Story-Abgleich mehr, nur noch ueber die Infos nach dieser
+    //   Regel. Allgemein (G1/G2).
+    static std::map<int, std::vector<int>> DlgGuildOfCond;   // Bedingungsfunktion -> verglichene Gilden (leer = keine Gilden-Info)
+    static std::set<zCPar_Symbol*> DlgGuildVars;
+    static std::vector<int> DlgFuncStarts;                   // Code-Anfaenge aller Funktionen/Instanzen (Ende einer Bedingung)
+
+    static std::vector<int> DlgGuildCheck(int cond) {
+        auto known = DlgGuildOfCond.find(cond);
+        if (known != DlgGuildOfCond.end())
+            return known->second;
+        std::vector<int>& out = DlgGuildOfCond[cond];
+        const unsigned char* code = parser ? parser->stack.stack : NULL;
+        const int size = parser ? parser->stack.stacksize : 0;
+        const int cnt = parser ? parser->symtab.table.GetNum() : 0;
+        zCPar_Symbol* cs = cond >= 0 && cond < cnt ? parser->symtab.table[cond] : NULL;
+        if (!code || size <= 0 || !cs || cs->type != zPAR_TYPE_FUNC)
+            return out;
+        if (DlgFuncStarts.empty()) {
+            for (int i = 0; i < cnt; i++) {
+                zCPar_Symbol* s = parser->symtab.table[i];
+                if (s && !(s->flags & (zPAR_FLAG_EXTERNAL | zPAR_FLAG_CLASSVAR)) &&
+                    (s->type == zPAR_TYPE_FUNC || s->type == zPAR_TYPE_PROTOTYPE || s->type == zPAR_TYPE_INSTANCE) &&
+                    s->single_intdata >= 0 && s->single_intdata < size)
+                    DlgFuncStarts.push_back(s->single_intdata);
+            }
+            std::sort(DlgFuncStarts.begin(), DlgFuncStarts.end());
+        }
+        const int start = cs->single_intdata;
+        if (start < 0 || start >= size)
+            return out;
+        auto nx = std::upper_bound(DlgFuncStarts.begin(), DlgFuncStarts.end(), start);
+        const int end = nx == DlgFuncStarts.end() ? size : *nx;
+        static int symOther = -2, symHero, symGuild, symTrueGuild;
+        if (symOther == -2) {
+            symOther = parser->GetIndex(zSTRING("OTHER"));
+            symHero = parser->GetIndex(zSTRING("HERO"));
+            symGuild = parser->GetIndex(zSTRING("C_NPC.GUILD"));
+            symTrueGuild = parser->GetIndex(zSTRING("NPC_GETTRUEGUILD"));
+        }
+        // Mini-Stapel: 1 = Gilde des Helden, 2 = Konstante (Wert), 3 = Instanz Held, 0 = anderes
+        std::vector<std::pair<int, int>> st;
+        int inst = -1;
+        std::set<int> found;
+        for (int q = start; q < end;) {
+            const unsigned char op = code[q];
+            int arg = 0, len = 1;
+            if (op == 61 || op == 62 || op == 64 || op == 65 || op == 67 || op == 75 || op == 76 || op == 80) {
+                if (q + 5 > end)
+                    break;
+                arg = *(const int*)(code + q + 1);
+                len = 5;
+            }
+            else if (op == 245) {
+                if (q + 6 > end)
+                    break;
+                arg = *(const int*)(code + q + 1);
+                len = 6;
+            }
+            q += len;
+            if (op == 80)   // SETINSTANCE
+                inst = arg;
+            else if (op == 64)   // PUSHINT
+                st.push_back({ 2, arg });
+            else if (op == 65) {   // PUSHVAR
+                zCPar_Symbol* s = arg >= 0 && arg < cnt ? parser->symtab.table[arg] : NULL;
+                int v = 0;
+                if (arg == symGuild && (inst == symOther || inst == symHero))
+                    st.push_back({ 1, 0 });
+                else if (s && (s->flags & zPAR_FLAG_CONST) && s->type == zPAR_TYPE_INT && (s->GetValue(v, 0), true))
+                    st.push_back({ 2, v });
+                else
+                    st.push_back({ 0, 0 });
+            }
+            else if (op == 67)   // PUSHINST
+                st.push_back({ (arg == symOther || arg == symHero) ? 3 : 0, 0 });
+            else if (op == 62 && arg == symTrueGuild && !st.empty() && st.back().first == 3) {   // Npc_GetTrueGuild(Held)
+                st.pop_back();
+                st.push_back({ 1, 0 });
+            }
+            else if (op <= 8 || (op >= 11 && op <= 18)) {   // zweistellige Operatoren mit Ergebnis (9, 19-22 sind Zuweisungen)
+                if (st.size() >= 2) {
+                    const auto b = st.back();
+                    st.pop_back();
+                    const auto a = st.back();
+                    st.pop_back();
+                    if ((op == 16 || op == 17) && ((a.first == 1 && b.first == 2) || (a.first == 2 && b.first == 1)))
+                        found.insert(a.first == 2 ? a.second : b.second);
+                }
+                else
+                    st.clear();
+                st.push_back({ 0, 0 });
+            }
+            else if (op >= 30 && op <= 33) {   // einstellige
+                if (!st.empty())
+                    st.pop_back();
+                st.push_back({ 0, 0 });
+            }
+            else   // Aufruf, Sprung, Zuweisung, Rueckgabe - neu anfangen
+                st.clear();
+        }
+        found.erase(0);   // GIL_NONE allein: Weg in eine Gilde, gemeinsam
+        out.assign(found.begin(), found.end());
+        return out;
+    }
+
+    static std::vector<int> DlgGuildOfInfo(oCInfo* info) {
+        return info ? DlgGuildCheck(info->pd.conditions) : std::vector<int>();
+    }
+
+    static std::string DlgGuildText(const std::vector<int>& g) {
+        std::string s;
+        for (int x : g)
+            s += (s.empty() ? "" : "/") + std::to_string(x);
+        return s.empty() ? "-" : s;
+    }
+
+    // einmal je Skriptstand: wie viele Infos zaehlen als Gilden-Infos (Pruefung der Erkennung im Log)
+    static void DlgGuildSurvey() {
+        static bool done = false;
+        if (done || !ogame || !ogame->GetInfoManager() || !parser)
+            return;
+        done = true;
+        int all = 0, guild = 0;
+        std::string sample;
+        for (auto* l = ogame->GetInfoManager()->infoList.GetNextInList(); l; l = l->GetNextInList()) {
+            oCInfo* info = l->GetData();
+            if (!info)
+                continue;
+            all++;
+            const std::vector<int> g = DlgGuildOfInfo(info);
+            if (g.empty())
+                continue;
+            guild++;
+            if (sample.size() < 400)
+                sample += (sample.empty() ? "" : ", ") + std::string(info->name.ToChar()) + " (" + DlgGuildText(g) + ")";
+        }
+        DialogLog("Gilden je Held (u85): %d von %d Infos fragen eine Gilde des Helden ab - die teilen nur Helden dieser Gilde; z. B. %s",
+            guild, all, sample.empty() ? "-" : sample.c_str());
+    }
+
     // u15 (CoopSaveSync.cpp, G2): Heldenwerte des eigenen Helden fuer COOPHERO.TXT - beim Uebernehmen eines fremden Stands kaemen
     // sonst dessen Werte (G2: PLAYER_TALENT_ALCHEMY/SMITH/RUNES/TAKEANIMALTROPHY/FOREIGNLANGUAGE/WISPDETECTOR ueber B_Teach*)
     void CoopHeroVarsCapture(std::vector<std::pair<std::string, int>>& out) {
@@ -608,9 +761,10 @@ namespace GOTHIC_ENGINE {
         return !strcmp(nm, "ENTER_OLDWORLD_FIRSTTIME_TRIGGER_ONETIME") || !strcmp(nm, "ENTER_ADDONWORLD_FIRSTTIME_TRIGGER_ONETIME");
     }
 
+    // u97: COOP_TRUHE_OEFFNEN - Merker "Coop-Truhe benutzt" (COOP_ITEMS.D) gilt nur auf diesem PC
     static bool DlgNeverSync(const char* nm) {
         return nm && (!strcmp(nm, "PLAYER_MOBSI_PRODUCTION") || !strcmp(nm, "CURRENTLEVEL") || !strcmp(nm, "HERO_HACKCHANCE")
-            || !strcmp(nm, "ZSTALKBUGFIX") || DlgWorldEntryVar(nm));
+            || !strcmp(nm, "ZSTALKBUGFIX") || !strcmp(nm, "COOP_TRUHE_OEFFNEN") || DlgWorldEntryVar(nm));
     }
 
     static void DlgBuildIntSlots() {
@@ -666,6 +820,20 @@ namespace GOTHIC_ENGINE {
         }
         DlgSnapLog(s.log);
         s.exp = player ? (long long)player->experience_points : 0;
+        s.guild = player ? player->guild : 0;
+        if (player) {   // u85
+            player->inventory2.UnpackAllItems();
+#if ENGINE >= Engine_G2
+            for (zCListSort<oCItem>* n = player->inventory2.inventory.next; n; n = n->next)
+                if (n->data)
+                    s.inv[n->data->GetInstanceName().ToChar()] += n->data->amount;
+#else
+            for (int c = 0; c < INV_MAX; c++)
+                for (zCListSort<oCItem>* n = player->inventory2.inventory[c].next; n; n = n->next)
+                    if (n->data)
+                        s.inv[n->data->GetInstanceName().ToChar()] += n->data->amount;
+#endif
+        }
         for (auto* l = CoopWorldNpcListFirst(ogame->GetGameWorld()); l; l = l->next) {
             oCNpc* npc = l->data;
             if (!npc || npc == player || IsCoopPlayer(npc->GetObjectName()) || !NpcToUniqueNameList.count(npc))
@@ -704,7 +872,24 @@ namespace GOTHIC_ENGINE {
         return changed;
     }
 
-    static void DlgSendDiff(const CoopDlgSnap& a, const CoopDlgSnap& b, const std::string& info, const char* what) {
+    static void DlgSendDiff(const CoopDlgSnap& a, const CoopDlgSnap& b, const std::string& info, const char* what, oCInfo* gInfo = NULL,
+        const std::vector<int>* giTest = NULL) {
+        // u85: Gilden-Info (Bedingung des Infos bzw. bei einer Auswahl des laufenden Infos), Aufnahme, Belohnung daraus.
+        // u86: giTest - abgefragte Gilden vorgegeben (Coop-Testlauf, Schritte "Gilden je Held")
+        const std::vector<int> gi = giTest ? *giTest : DlgGuildOfInfo(gInfo);
+        const bool join = b.guild != a.guild;
+        json items = json::array();
+        if (!gi.empty() && !(gInfo && gInfo->pd.trade))
+            for (auto& x : b.inv) {
+                auto f = a.inv.find(x.first);
+                const int got = x.second - (f == a.inv.end() ? 0 : f->second);
+                if (got > 0)
+                    items.push_back({ x.first, got });
+            }
+        if (!gi.empty() || join)   // ihre Variablen gelten je Held - nie im Story-Abgleich
+            for (size_t i = 0; i < b.ints.size() && i < a.ints.size() && i < DlgIntSlots.size(); i++)
+                if (a.ints[i] != b.ints[i])
+                    DlgGuildVars.insert(DlgIntSlots[i].sym);
         json j;
         int nv = 0, nl = 0, np = 0;
         json v = json::array();
@@ -758,7 +943,7 @@ namespace GOTHIC_ENGINE {
         }
         // v31: Quest-EP - was der eigene Held waehrend des Dialogskripts an Erfahrung bekam (Kampf-EP laufen nicht hier)
         const long long xp = b.exp > a.exp ? b.exp - a.exp : 0;
-        if (info.empty() && !nv && !nl && !np && !xp)
+        if (info.empty() && !nv && !nl && !np && !xp && items.empty() && !join)
             return;
         if (!info.empty())
             j["i"] = info;
@@ -771,9 +956,19 @@ namespace GOTHIC_ENGINE {
             j["p"] = p;
         if (xp > 0 && xp < 1000000)
             j["xp"] = (int)xp;
+        j["hg"] = b.guild;   // u85: Gilde des Sprechers
+        if (!gi.empty())
+            j["gi"] = gi;
+        if (join)
+            j["join"] = b.guild;
+        if (!items.empty())
+            j["it"] = items;
         DialogSend(j, SYNC_DIALOG_STATE);
-        DialogLog("Fortschritt (%s %s): %d Variablen, %d Tagebuch-Themen, %d NPCs, %d EP -> Partner", what,
-            info.empty() ? "-" : info.c_str(), nv, nl, np, (int)xp);
+        DialogLog("Fortschritt (%s %s): %d Variablen, %d Tagebuch-Themen, %d NPCs, %d EP%s%s%s -> Partner", what,
+            info.empty() ? "-" : info.c_str(), nv, nl, np, (int)xp,
+            gi.empty() ? "" : (" - Gilden-Info (Gilde " + DlgGuildText(gi) + ")").c_str(),
+            join ? (" - Aufnahme in Gilde " + std::to_string(b.guild) + " (beim Partner nicht erzaehlt)").c_str() : "",
+            items.empty() ? "" : (" - " + std::to_string(items.size()) + " Gegenstandsarten als Belohnung").c_str());
     }
 
     static bool StoryNpcSkip(oCNpc* npc) {
@@ -1475,9 +1670,326 @@ namespace GOTHIC_ENGINE {
         DialogLog("Story-Abgleich: Tagesablauf/Haltung aller %u NPCs an die Clients (%s)", (unsigned)p.size(), why);
     }
 
+    // --- u96: Missions-Gegenstaende spiegeln ---------------------------------------------------------------------------------
+    // Nutzer (28.10.2026, zum Quest-Inventar): "okay dann machen wir beides quest gegenstand mission gegenstaende spiegeln und Truhe
+    // als Gegenstand". Missions-Gegenstaende (Flag ITM_FLAG_MI 1<<12, in den Skripten ITEM_MISSION - G2A 236, G1 74 Instanzen) hat
+    // jeder Held gleich: bekommt einer einen (Dialog, Aufheben, Truhe, Pluendern), bekommt ihn der Partner auch; gibt einer einen ab
+    // (Dialog, Skript, Fallenlassen), verliert ihn der Partner auch. Erkannt am Bestand des eigenen Helden (alle 0,3 s, gleich woher
+    // die Aenderung kam), gemeldet als "mi" im Fortschritts-Paket (gilt auch, wenn der Partner in einer anderen Welt ist). Nicht
+    // gemeldet: Laden und Uebernahme (danach erst neu zaehlen), GTs eigene Aenderungen (WorldSyncApplying) und das Gespiegelte selbst.
+    // Nur mit Abgleich "Quests". Die Gilden-Belohnung (P110) uebergeht Missions-Gegenstaende - die kommen hierueber. Allgemein.
+    static std::map<std::string, int> MiBase;   // Instanz -> Menge beim eigenen Helden (letzter Vergleich)
+    static bool MiBaseKnown = false;
+    static long long MiCheckMs = 0, MiQuietUntilMs = 0;
+
+    // u104 (P126, Nutzer 29.10.: "danke das hat geklappt mit dem quest gegenstand. Jedoch müssen wir kennzeichnen dass diese Items
+    // gespiegelt sind, also eigentlich nur ein mal verfügbar. Mache das optimal kenntlich"): solange gespiegelt wird (Mitspieler
+    // verbunden, Abgleich "Quests" an), tragen die Missions-Gegenstaende des eigenen Helden Name und Beschreibung mit " (gespiegelt)"
+    // und im Infofeld die Zeilen "Gespiegelt: gibt es nur einmal" / "Abgeben nimmt es beiden weg" - oCItemContainer::DrawItemInfo
+    // (G2A 0x00706E40, G1 0x00667220) zeigt als Titel GetDescription (leer: GetName), darunter text[i]/count[i]; die Liste in G1
+    // zeigt GetName. Jede Spiegelung meldet der Chat auf beiden Seiten. Im Coop-Inventar gibt es ihn nur dort - ohne Kennzeichnung;
+    // ohne Spiegelung (getrennt, "Quests" aus) wieder die Skript-Texte. Gespeichert wird davon nichts: oCItem::Unarchive (G2A
+    // 0x00713EB0, G1 0x00673370) liest nur Instanz, Menge und Flags und ruft InitByScript. Allgemein (G1/G2).
+    // u106 (P128, Nutzer: "vielleicht brauchen wir es nicht als Systembenachrichtung jedes mal oben weil es sonst alles vollspammt. Wir
+    // sollten auch einen anderen Namen finden als gespiegelt und die Beschreibung dementsprechend anpassen"): keine Chat-Meldungen mehr
+    // (nur das Log), "gemeinsam" statt "gespiegelt" - wie beim Coop-Inventar ("Gemeinsames Inventar beider Helden").
+    static const char* const MiKennName[2] = { " (gemeinsam)", " (shared)" };
+    static const char* const MiKennZeile[2][2] = { { "Gemeinsamer Gegenstand beider Helden", "Nur einmal da - abgeben gilt f" "\xFC" "r beide" },
+        { "Shared item of both heroes", "Exists only once - handing in counts for both" } };
+    static bool MiKennAktiv = false;                     // gekennzeichnet - endet die Spiegelung, zurueck
+    static long long MiKennMs = 0;
+
+    // Text ohne die Kennzeichnung (beide Sprachen)
+    static std::string MiOhneKenn(const char* s) {
+        std::string t = s ? s : "";
+        for (const char* k : MiKennName) {
+            const size_t n = strlen(k);
+            if (t.size() >= n && t.compare(t.size() - n, n, k) == 0)
+                t.erase(t.size() - n);
+        }
+        return t;
+    }
+
+    static bool MiIstKennZeile(const char* s) {
+        for (int l = 0; l < 2; l++)
+            for (int i = 0; i < 2; i++)
+                if (s && !strcmp(s, MiKennZeile[l][i]))
+                    return true;
+        return false;
+    }
+
+    // wird gerade gespiegelt: Mitspieler verbunden (Host: Clients da, Client: Verbindung steht) und Abgleich "Quests" an
+    static bool MiSpiegelt() {
+        if (!CoopRuleQuests() || (MyselfId == "_player_"))
+            return false;
+        return (ServerThread && CoopSaveSyncPeers() > 0) || (ClientThread && !ServerThread && CoopClientState == 2);
+    }
+
+    // Kennzeichnung herstellen (an, in der eingestellten Sprache) bzw. entfernen. Rueckgabe: etwas geaendert
+    static bool MiKennSetzen(oCItem* it, bool an) {
+        const int L = CoopLangEn ? 1 : 0;
+        bool changed = false;
+        zSTRING* felder[2] = { &it->name, &it->description };
+        for (zSTRING* f : felder) {
+            const std::string alt = f->ToChar();
+            std::string neu = MiOhneKenn(alt.c_str());
+            if (an && !neu.empty())
+                neu += MiKennName[L];
+            if (neu != alt) {
+                *f = zSTRING(neu.c_str());
+                changed = true;
+            }
+        }
+        // Infozeilen: passen sie (beide da bzw. kein Platz fuer die zweite), bleibt alles; sonst eigene heraus und in freie Zeilen
+        int p0 = -1, p1 = -1, frei = 0;
+        bool fremd = false;
+        for (int i = 0; i < ITM_TEXT_MAX; i++) {
+            const char* t = it->text[i].ToChar();
+            if (!MiIstKennZeile(t)) {
+                if (!*t && !it->count[i])
+                    frei++;
+            }
+            else if (p0 < 0 && !strcmp(t, MiKennZeile[L][0]))
+                p0 = i;
+            else if (p1 < 0 && !strcmp(t, MiKennZeile[L][1]))
+                p1 = i;
+            else
+                fremd = true;   // andere Sprache bzw. doppelt
+        }
+        if (an ? (!fremd && p0 >= 0 && (p1 >= 0 || frei == 0)) : (p0 < 0 && p1 < 0 && !fremd))
+            return changed;
+        for (int i = 0; i < ITM_TEXT_MAX; i++)
+            if (MiIstKennZeile(it->text[i].ToChar())) {
+                it->text[i] = zSTRING("");
+                it->count[i] = 0;
+            }
+        int z = 0;
+        for (int i = 0; an && z < 2 && i < ITM_TEXT_MAX; i++)
+            if (!*it->text[i].ToChar() && !it->count[i])
+                it->text[i] = zSTRING(MiKennZeile[L][z++]);
+        return true;
+    }
+
+    static void MiCount(std::map<std::string, int>& out) {
+        out.clear();
+        if (!player)
+            return;
+        player->inventory2.UnpackAllItems();
+#if ENGINE >= Engine_G2
+        for (zCListSort<oCItem>* n = player->inventory2.inventory.next; n; n = n->next)
+            if (n->data && n->data->HasFlag(ITM_FLAG_MI))
+                out[n->data->GetInstanceName().ToChar()] += CoopItemAmount(n->data);
+#else
+        for (int c = 0; c < INV_MAX; c++)
+            for (zCListSort<oCItem>* n = player->inventory2.inventory[c].next; n; n = n->next)
+                if (n->data && n->data->HasFlag(ITM_FLAG_MI))
+                    out[n->data->GetInstanceName().ToChar()] += CoopItemAmount(n->data);
+#endif
+    }
+
+    static oCItem* MiFind(const std::string& inst) {
+        if (!player)
+            return NULL;
+#if ENGINE >= Engine_G2
+        for (zCListSort<oCItem>* n = player->inventory2.inventory.next; n; n = n->next)
+            if (n->data && n->data->HasFlag(ITM_FLAG_MI) && inst == n->data->GetInstanceName().ToChar())
+                return n->data;
+#else
+        for (int c = 0; c < INV_MAX; c++)
+            for (zCListSort<oCItem>* n = player->inventory2.inventory[c].next; n; n = n->next)
+                if (n->data && n->data->HasFlag(ITM_FLAG_MI) && inst == n->data->GetInstanceName().ToChar())
+                    return n->data;
+#endif
+        return NULL;
+    }
+
+    // u104: Kennzeichnung je 0,5 s bzw. sofort nach einer Spiegelung - Missions-Gegenstaende des eigenen Helden, solange gespiegelt
+    // wird; die im Coop-Inventar nie. Laeuft auch ohne Coop (CoopDialogSyncPulse), dann nur einmal zurueck.
+    static void MiKennPulse(bool sofort) {
+        const long long now = GetCurrentMs();
+        if ((!sofort && now < MiKennMs + 500) || !player || IsLoadingLevel)
+            return;
+        MiKennMs = now;
+        const bool an = MiSpiegelt();
+        if (!an && !MiKennAktiv)
+            return;
+        std::vector<oCItem*> its;
+        player->inventory2.UnpackAllItems();
+#if ENGINE >= Engine_G2
+        for (zCListSort<oCItem>* n = player->inventory2.inventory.next; n; n = n->next)
+            if (n->data && n->data->HasFlag(ITM_FLAG_MI))
+                its.push_back(n->data);
+#else
+        for (int c = 0; c < INV_MAX; c++)
+            for (zCListSort<oCItem>* n = player->inventory2.inventory[c].next; n; n = n->next)
+                if (n->data && n->data->HasFlag(ITM_FLAG_MI))
+                    its.push_back(n->data);
+#endif
+        int neu = 0, weg = 0;
+        for (oCItem* it : its)
+            if (MiKennSetzen(it, an))
+                (an ? neu : weg)++;
+        if (CoopTruheObj)
+            for (zCListSort<oCItem>* n = CoopTruheObj->containList.next; n; n = n->next)
+                if (n->data && n->data->HasFlag(ITM_FLAG_MI) && MiKennSetzen(n->data, false))
+                    weg++;
+        if (neu)
+            DialogLog("Missions-Gegenstaende: %d gekennzeichnet (gemeinsam)", neu);
+        if (weg)
+            DialogLog("Missions-Gegenstaende: %d ohne Kennzeichnung (%s)", weg, an ? "im Coop-Inventar" : "keine Spiegelung");
+        MiKennAktiv = an;
+    }
+
+    // nach dem Laden, einer Uebernahme bzw. eigenen Aenderungen: den Bestand erst nach quietMs neu aufnehmen (nichts melden)
+    void CoopMissionReset(int quietMs) {
+        MiBaseKnown = false;
+        MiQuietUntilMs = (std::max)(MiQuietUntilMs, GetCurrentMs() + quietMs);
+    }
+
+    // u104 (Testlauf P126): Kennzeichnung des Gegenstands inst im eigenen Inventar - 1 vollstaendig (Name, Beschreibung soweit
+    // vorhanden, erste Infozeile, eingestellte Sprache), 0 nicht bzw. nur teilweise, -1 nicht im Inventar
+    int CoopMissionTestMark(const char* inst) {
+        if (!player || !inst)
+            return -1;
+        oCItem* it = NULL;
+        player->inventory2.UnpackAllItems();
+#if ENGINE >= Engine_G2
+        for (zCListSort<oCItem>* n = player->inventory2.inventory.next; n && !it; n = n->next)
+            if (n->data && !strcmp(n->data->GetInstanceName().ToChar(), inst))
+                it = n->data;
+#else
+        for (int c = 0; c < INV_MAX && !it; c++)
+            for (zCListSort<oCItem>* n = player->inventory2.inventory[c].next; n && !it; n = n->next)
+                if (n->data && !strcmp(n->data->GetInstanceName().ToChar(), inst))
+                    it = n->data;
+#endif
+        if (!it)
+            return -1;
+        const int L = CoopLangEn ? 1 : 0;
+        auto endsWith = [](const char* s, const char* k) {
+            const size_t a = strlen(s), b = strlen(k);
+            return a >= b && !strcmp(s + a - b, k);
+        };
+        const bool name = endsWith(it->name.ToChar(), MiKennName[L]);
+        const bool desc = !*it->description.ToChar() || endsWith(it->description.ToChar(), MiKennName[L]);
+        bool zeile = false;
+        for (int i = 0; i < ITM_TEXT_MAX; i++)
+            if (!strcmp(it->text[i].ToChar(), MiKennZeile[L][0]))
+                zeile = true;
+        return name && desc && zeile ? 1 : 0;
+    }
+
+    // Game_Loop (CoopDialogSyncPulse): Bestand vergleichen, Aenderungen an den Partner
+    static void CoopMissionPulse() {
+        const long long now = GetCurrentMs();
+        if (now < MiCheckMs + 300)
+            return;
+        MiCheckMs = now;
+        if (!player || IsSavingGame || !CoopRuleQuests() || WorldSyncApplying || now < MiQuietUntilMs) {
+            MiBaseKnown = false;
+            return;
+        }
+        std::map<std::string, int> cur;
+        MiCount(cur);
+        if (!MiBaseKnown) {
+            MiBase = cur;
+            MiBaseKnown = true;
+            return;
+        }
+        json d = json::array();
+        std::string shown;
+        for (auto& kv : cur) {
+            auto b = MiBase.find(kv.first);
+            const int delta = kv.second - (b == MiBase.end() ? 0 : b->second);
+            if (delta) {
+                d.push_back(json::array({ kv.first, delta }));
+                shown += (shown.empty() ? "" : ", ") + kv.first + (delta > 0 ? " +" : " ") + std::to_string(delta);
+            }
+        }
+        for (auto& kv : MiBase)
+            if (!cur.count(kv.first) && kv.second) {
+                d.push_back(json::array({ kv.first, -kv.second }));
+                shown += (shown.empty() ? "" : ", ") + kv.first + " " + std::to_string(-kv.second);
+            }
+        MiBase = cur;
+        if (d.empty())
+            return;
+        json j;
+        j["mi"] = d;
+        DialogSend(j, SYNC_DIALOG_STATE);
+        DialogLog("Missions-Gegenstaende: %s - an den Partner gespiegelt", shown.c_str());
+        MiKennPulse(true);   // u104
+    }
+
+    // Paket "mi" des Partners: dieselbe Aenderung am eigenen Helden (nur Missions-Gegenstaende)
+    static void MiApply(const json& d, const std::string& by) {
+        if (!player || !parser || !d.is_array())
+            return;
+        std::string shown;
+        WorldSyncApplying++;
+        for (auto& x : d) {
+            if (!x.is_array() || x.size() < 2 || !x.at(0).is_string() || !x.at(1).is_number_integer())
+                continue;
+            const std::string inst = x.at(0).get<std::string>();
+            const int delta = x.at(1).get<int>();
+            const int idx = parser->GetIndex(zSTRING(inst.c_str()));
+            if (idx < 0 || !delta || delta > 1000 || delta < -1000)
+                continue;
+            int done = 0;
+            if (delta > 0) {
+                int left = delta;
+                while (left > 0) {
+                    oCItem* it = CreateCoopItem(idx);
+                    if (!it)
+                        break;
+                    if (!it->HasFlag(ITM_FLAG_MI)) {   // nur Missions-Gegenstaende
+                        it->Release();
+                        break;
+                    }
+                    const bool multi = (it->flags & ITM_FLAG_MULTI) != 0;
+                    it->amount = multi ? left : 1;
+                    left -= it->amount;
+                    done += it->amount;
+                    player->PutInInv(it);
+                }
+            }
+            else {
+                int left = -delta;
+                while (left > 0) {
+                    oCItem* have = MiFind(inst);
+                    if (!have)
+                        break;
+                    const int n = (std::min)(left, CoopItemAmount(have));
+                    oCItem* r = player->RemoveFromInv(have, n);
+                    if (r)
+                        ogame->GetGameWorld()->RemoveVob(r);
+                    left -= n;
+                    done -= n;
+                }
+            }
+            if (done) {
+                shown += (shown.empty() ? "" : ", ") + inst + (done > 0 ? " +" : " ") + std::to_string(done) +
+                    (done != delta ? " (gemeldet " + std::to_string(delta) + ")" : std::string());
+                if (MiBaseKnown)   // das Gespiegelte nicht zurueckmelden; eine eigene Aenderung im selben Moment bleibt sichtbar
+                    MiBase[inst] += done;
+            }
+        }
+        WorldSyncApplying--;
+        if (!shown.empty()) {
+            DialogLog("Missions-Gegenstaende von %s gespiegelt: %s", by.c_str(), shown.c_str());
+            MiKennPulse(true);
+        }
+    }
+
+    void CoopTruheReceive(const json& t, const std::string& by);   // u97: CoopTruhe.cpp
+
     static void DialogApplyState(json& ein, const std::string& by, bool sameWorld) {
         if (!parser)
             return;
+        if (ein.contains("truhe") && ein["truhe"].is_object()) {   // u97: gemeinsame Coop-Truhe - eigenes Paket, sonst nichts darin
+            CoopTruheReceive(ein["truhe"], by);
+            return;
+        }
         json e = ein;   // v75: Kopie - wird je nach Abgleich-Regel gefiltert, das Paket selbst bleibt (Weiterleiten)
         DlgBuildIntSlots();
         int told = 0, vars = 0, logs = 0, npcs = 0, pending = 0;
@@ -1488,7 +2000,7 @@ namespace GOTHIC_ENGINE {
             json f = json::object();
             for (auto it = e.begin(); it != e.end(); ++it) {
                 const std::string k = it.key();
-                if ((!quests && (k == "i" || k == "v" || k == "p" || k == "g" || k == "xp" || k == "ch")) || (!diary && k == "l"))
+                if ((!quests && (k == "i" || k == "v" || k == "p" || k == "g" || k == "xp" || k == "ch" || k == "mi")) || (!diary && k == "l"))
                     continue;
                 f[k] = it.value();
             }
@@ -1497,6 +2009,37 @@ namespace GOTHIC_ENGINE {
                 DialogLog("Fortschritt von %s: %s%s nicht uebernommen (Einstellung Abgleich)", by.c_str(), quests ? "" : "Quest-Teil ",
                     diary ? "" : "Tagebuch");
             e = f;
+        }
+        if (e.contains("mi"))   // u96: Missions-Gegenstaende des Partners
+            MiApply(e["mi"], by);
+        // u85 (P110): Gilden je Held (Variante C) - eine Gilden-Info gilt hier nur, wenn mein Held in einer der abgefragten Gilden ist
+        // (dann samt Belohnung); sonst behaelt jeder seinen eigenen Fortschritt. Die Aufnahme des Partners gilt hier nie als erzaehlt -
+        // ich trete selbst bei. Variablen aus beidem gelten je Held (kein Story-Abgleich mehr)
+        std::vector<int> gi;
+        if (e.contains("gi") && e["gi"].is_array())
+            for (auto& x : e["gi"])
+                if (x.is_number_integer())
+                    gi.push_back(x.get<int>());
+        const bool joinInfo = e.contains("join") && e["join"].is_number_integer();
+        const bool mineGuild = !gi.empty() && player && std::find(gi.begin(), gi.end(), player->guild) != gi.end();
+        if ((!gi.empty() || joinInfo) && e.contains("v") && e["v"].is_array())
+            for (auto& v : e["v"])
+                if (v.is_array() && !v.empty() && v.at(0).is_string())
+                    if (zCPar_Symbol* s = parser->GetSymbol(zSTRING(v.at(0).get<std::string>().c_str())))
+                        DlgGuildVars.insert(s);
+        if (joinInfo || (!gi.empty() && !mineGuild)) {
+            const std::string what = e.contains("i") && e["i"].is_string() ? e["i"].get<std::string>() : std::string("Auswahl");
+            for (const char* k : { "i", "v", "l", "xp", "p", "it" })
+                e.erase(k);
+            static CoopDiagBudget gb = { 0, 0 };
+            if (CoopDiagAllow(gb, 30)) {
+                if (joinInfo)
+                    DialogLog("Gilden je Held: %s trat in %s der Gilde %d bei - hier nicht erzaehlt, nicht uebernommen (eigener Beitritt)",
+                        by.c_str(), what.c_str(), e["join"].get<int>());
+                else
+                    DialogLog("Gilden je Held: %s von %s fragt Gilde %s ab, mein Held ist in Gilde %d - eigener Fortschritt, nicht uebernommen",
+                        what.c_str(), by.c_str(), DlgGuildText(gi).c_str(), player ? player->guild : -1);
+            }
         }
         oCInfo* toldInfo = NULL;
         if (e.contains("i") && e["i"].is_string()) {
@@ -1516,7 +2059,8 @@ namespace GOTHIC_ENGINE {
                 const int ele = sym && sym->ele > 1 ? (int)sym->ele : 1;
                 const int val = v.at(2).get<int>();
                 if (!sym || sym->type != zPAR_TYPE_INT || (sym->flags & (zPAR_FLAG_CONST | zPAR_FLAG_CLASSVAR)) || k < 0 || k >= ele
-                    || !StoryValueOk(val) || StoryIsHeroVar(sym) || DlgNeverSync(sym->name.ToChar()))   // v31: Heldenwerte nie uebernehmen (auch von aelteren Fassungen)
+                    || !StoryValueOk(val) || StoryIsHeroVar(sym) || DlgNeverSync(sym->name.ToChar())   // v31: Heldenwerte nie uebernehmen (auch von aelteren Fassungen)
+                    || (e.contains("q") && DlgGuildVars.count(sym)))   // u85: Werte aus Gilden-Infos nicht ueber den Story-Abgleich
                     continue;
                 int old = 0;
                 sym->GetValue(old, k);
@@ -1578,6 +2122,32 @@ namespace GOTHIC_ENGINE {
                 }
             }
         }
+        int gotItems = 0;   // u85: Belohnung aus einer Gilden-Quest meiner Gilde - der Partner bekam sie, ich auch
+        if (mineGuild && player && e.contains("it") && e["it"].is_array())
+            for (auto& x : e["it"]) {
+                if (!x.is_array() || x.size() < 2 || !x.at(0).is_string() || !x.at(1).is_number_integer())
+                    continue;
+                const int idx = parser->GetIndex(zSTRING(x.at(0).get<std::string>().c_str()));
+                int left = x.at(1).get<int>();
+                if (idx < 0 || left <= 0 || left > 100000)
+                    continue;
+                while (left > 0) {
+                    oCItem* it = CreateCoopItem(idx);
+                    if (!it)
+                        break;
+                    if (it->HasFlag(ITM_FLAG_MI)) {   // u96: Missions-Gegenstaende kommen gespiegelt ("mi") - nicht noch einmal
+                        it->Release();
+                        break;
+                    }
+                    const bool multi = (it->flags & ITM_FLAG_MULTI) != 0;
+                    it->amount = multi ? left : 1;
+                    left -= it->amount;
+                    gotItems += it->amount;
+                    player->PutInInv(it);
+                }
+            }
+        if (gotItems)
+            DialogLog("Gilden je Held: Belohnung von %s uebernommen (gleiche Gilde %d): %d Stueck", by.c_str(), player->guild, gotItems);
         int guilds = 0;
         if (e.contains("g")) {   // v31: Gildenhaltungen (global)
             oCGuilds* g = ogame->GetGuilds();
@@ -1689,7 +2259,7 @@ namespace GOTHIC_ENGINE {
             if (StoryNoisy[i])
                 continue;
             const char* nm = DlgIntSlots[i].sym->name.ToChar();
-            if (StoryIgnored(nm))
+            if (StoryIgnored(nm) || DlgGuildVars.count(DlgIntSlots[i].sym))   // u85: Werte aus Gilden-Infos gelten je Held
                 continue;
             auto& times = StoryChangeTimes[i];
             times.push_back(CurrentMs);
@@ -2543,6 +3113,7 @@ namespace GOTHIC_ENGINE {
         CoopHostActiveNames.clear();
         SpawnBaselineDone = false;
         SpawnNextMs = GetCurrentMs() + 2500;
+        CoopMissionReset(8000);   // u96: der Bestand kommt aus dem Spielstand (dazu die Uebernahme) - nicht als Aenderung melden
     }
 
     // --- Coop-Test per Taste (v32, Wunsch des Nutzers: "Simulation mit einem Hotkey") ---------------------
@@ -2577,8 +3148,10 @@ namespace GOTHIC_ENGINE {
     }
 
     void CoopDialogSyncPulse() {
+        MiKennPulse(false);   // u104: Kennzeichnung gespiegelter Missions-Gegenstaende (ohne Coop nur zurueck)
         if (!DialogSyncAktiv())
             return;
+        CoopMissionPulse();   // u96: Missions-Gegenstaende spiegeln
         if (!CoopSimKey)
             CoopSimKey = ReadConfigKey("CoopSimKey", "KEY_F11");
         if (CoopSimKey && CoopKeyEdge(CoopSimKey, CoopSimKey == KEY_F11 ? VK_F11 : 0, CoopSimKeyWas) && CoopSimShiftDown()
@@ -2717,13 +3290,14 @@ namespace GOTHIC_ENGINE {
         }
         if (!MyDialogNpcPtr)
             TrackOwnDialog();
+        DlgGuildSurvey();   // u85: einmal - wie viele Infos zaehlen als Gilden-Infos
         CoopDlgSnap a, b;
         DlgSnapshot(a);
         const std::string name = info->name.ToChar();
         Ivk_oCInformationManager_OnInfo_Coop(_this, info);
         try {
             DlgSnapshot(b);
-            DlgSendDiff(a, b, name, "Info");
+            DlgSendDiff(a, b, name, "Info", info);
             StoryAbsorb(a, b);
         }
         catch (std::exception& ex) {
@@ -2741,10 +3315,11 @@ namespace GOTHIC_ENGINE {
         }
         CoopDlgSnap a, b;
         DlgSnapshot(a);
+        oCInfo* cur = _this ? _this->Info : NULL;   // u85: die Auswahl gehoert zum laufenden Info (Gilden-Regel)
         Ivk_oCInformationManager_OnChoice_Coop(_this, choice);
         try {
             DlgSnapshot(b);
-            DlgSendDiff(a, b, std::string(), "Auswahl");
+            DlgSendDiff(a, b, std::string(), "Auswahl", cur);
             StoryAbsorb(a, b);
         }
         catch (std::exception& ex) {
@@ -2762,5 +3337,7 @@ namespace GOTHIC_ENGINE {
     void CoopDialogSyncWorldLoaded() {}
     void CoopDialogSyncPulse() {}
     void CoopStorySendAllNpcs(const char*) {}
+    void CoopMissionReset(int) {}
+    int CoopMissionTestMark(const char*) { return -1; }   // u104
 #endif
 }

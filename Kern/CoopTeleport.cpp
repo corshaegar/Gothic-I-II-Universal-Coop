@@ -434,8 +434,12 @@ namespace GOTHIC_ENGINE {
 #include "CoopRuneAssets.h"
 #endif
 
+    // u89 (P113): bis u88 hielt GT das Modell als festen Zeiger (TpLookVisual, geladen beim Start) und setzte ihn nach jedem
+    // Laden/Speichern wieder an die Rune. Jetzt laedt GT es jedes Mal ueber den Namen (zCProgMeshProto::Load gibt das vorhandene
+    // oder ein neues) und haelt keine eigene Referenz - ein Zeiger ueber Ladevorgaenge hinweg ist unnoetig. u89 hielt das fuer die
+    // Ursache der Host-Haenger (u87/u88); u90 widerlegte das (die Rune traegt nach dem Laden schlicht ihr Standardmodell, der
+    // Haenger kam von einem Gegenstand mit zu niedrigem Zaehler in DoDropVob - P114, Helpers.cpp).
     static int TpLookState = 0;   // 0 offen, 1 eigenes Modell aktiv, 2 aus (Othellos Aussehen)
-    static zCVisual* TpLookVisual = NULL;
     static const char* TP_LOOK_VISUAL = "ITRU_COOP_TELEPORT.3DS";
 
     void CoopRuneLookInit() {
@@ -456,12 +460,13 @@ namespace GOTHIC_ENGINE {
             OthelloCompatLog("Teleport-Rune: Modell/Textur nicht schreibbar (%s, %s) - %s", mesh.c_str(), tex.c_str(), before);
             return;
         }
-        TpLookVisual = zCVisual::LoadVisual(zSTRING(TP_LOOK_VISUAL));
-        if (!TpLookVisual) {
+        zCVisual* probe = zCVisual::LoadVisual(zSTRING(TP_LOOK_VISUAL));   // u89: nur zur Probe - keine Referenz behalten
+        if (!probe) {
             TpLookState = 2;
             OthelloCompatLog("Teleport-Rune: %s nicht ladbar (%s) - %s", TP_LOOK_VISUAL, mesh.c_str(), before);
             return;
         }
+        probe->Release();
         sym->SetValue(zSTRING(TP_LOOK_VISUAL), 0);
         TpLookState = 1;
         OthelloCompatLog("Teleport-Rune: eigenes Aussehen aktiv (%s, %s)", mesh.c_str(), tex.c_str());
@@ -471,10 +476,18 @@ namespace GOTHIC_ENGINE {
         if (!player || player->IsDead() || TpRune() < 0)
             return;
         if (oCItem* have = player->IsInInv(TpRuneIdx, 1)) {
-            if (TpLookState == 1 && TpLookVisual && have->GetVisual() != TpLookVisual) {
-                have->SetVisual(TpLookVisual);
+            if (TpLookState != 1)
+                return;
+            zCVisual* v = zCVisual::LoadVisual(zSTRING(TP_LOOK_VISUAL));   // u89 (P113): vorhandenes Modell oder neu geladen
+            if (!v) {
+                TpLog("%s: %s nicht ladbar - Rune behaelt ihr Aussehen", why, TP_LOOK_VISUAL);
+                return;
+            }
+            if (have->GetVisual() != v) {
+                have->SetVisual(v);
                 TpLog("%s: Rune im Inventar bekommt das eigene Aussehen", why);
             }
+            v->Release();   // SetVisual haelt eine eigene Referenz
             return;
         }
         WorldSyncApplying++;
@@ -482,6 +495,16 @@ namespace GOTHIC_ENGINE {
         oCItem* in = it ? player->PutInInv(it) : NULL;
         WorldSyncApplying--;
         TpLog("%s: keine Rune im Inventar - %s", why, in ? "eine angelegt" : "Anlegen FEHLGESCHLAGEN");
+    }
+
+    // u89: traegt die Rune das eigene Modell? Ueber den Namen (zCProgMeshProto::GetVisualName = Objektname) - GT haelt keinen
+    // Zeiger mehr (Coop-Testlauf, Schritt "Rune mit eigenem Aussehen")
+    static bool TpRuneHasOwnLook(oCItem* it) {
+        if (TpLookState != 1 || !it || !it->GetVisual())
+            return false;
+        zSTRING n = it->GetVisual()->GetVisualName();
+        n.Upper();
+        return n == zSTRING(TP_LOOK_VISUAL);
     }
 
     // Plugin.cpp, LoadEnd: nach jedem Laden pruefen (nach dem Wiederherstellen des eigenen Helden)

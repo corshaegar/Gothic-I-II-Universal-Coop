@@ -209,26 +209,26 @@ namespace GOTHIC_ENGINE {
     static void DiagNetSummary() {
         static LONG prevSentB = 0, prevRecvB = 0, prevSentP = 0, prevRecvP = 0;
         static long long prevMs = 0;
-        static unsigned long prevSteps = 0, prevSnaps = 0;
+        static unsigned long prevSteps = 0, prevSnaps = 0, prevSlides = 0, prevStuck = 0;
         const LONG sb = CoopNetSentBytes, rb = CoopNetRecvBytes, sp = CoopNetSentPkts, rp = CoopNetRecvPkts;
         const float secs = prevMs ? (float)(CurrentMs - prevMs) / 1000.f : 0.f;
         if (secs > 0.f) {
             OthelloCompatLog("[%lld s, %s] Netz: gesendet %.0f Pakete/s (%.1f KB/s), empfangen %.0f Pakete/s (%.1f KB/s) |"
                 " warteten zum Senden max %ld, je Durchlauf gesendet max %ld, abgeholt max %ld, im Spiel je Bild max %lu |"
-                " Glaetten: %lu Bilder, %lu harte Spruenge | Verbindung: Ping max %ld ms, Verlust max %.1f %%, ENet-Drossel min %ld/32,"
-                " unterwegs max %ld KB",
+                " Glaetten: %lu Bilder, %lu weich nachgezogen, %lu harte Spruenge, %lu hingen fest | Verbindung: Ping max %ld ms, Verlust max %.1f %%,"
+                " ENet-Drossel min %ld/32, unterwegs max %ld KB",
                 DiagSeconds(), DiagRole(),
                 (float)(unsigned long)(sp - prevSentP) / secs, (float)(unsigned long)(sb - prevSentB) / 1024.f / secs,
                 (float)(unsigned long)(rp - prevRecvP) / secs, (float)(unsigned long)(rb - prevRecvB) / 1024.f / secs,
                 (long)InterlockedExchange(&CoopNetSendQueueMax, 0), (long)InterlockedExchange(&CoopNetSendBatchMax, 0),
                 (long)InterlockedExchange(&CoopNetRecvBatchMax, 0), CoopNetRecvQueueMax,
-                CoopSmoothSteps - prevSteps, CoopSmoothSnaps - prevSnaps,
+                CoopSmoothSteps - prevSteps, CoopSmoothSlides - prevSlides, CoopSmoothSnaps - prevSnaps, CoopSmoothStuck - prevStuck,
                 (long)InterlockedExchange(&CoopNetRttMax, 0), (float)InterlockedExchange(&CoopNetLossMax, 0) * 100.f / 65536.f,   // v71
                 (long)InterlockedExchange(&CoopNetThrottleMin, 32), (long)InterlockedExchange(&CoopNetInTransitMax, 0) / 1024);
             CoopNetRecvQueueMax = 0;
         }
         prevSentB = sb; prevRecvB = rb; prevSentP = sp; prevRecvP = rp;
-        prevSteps = CoopSmoothSteps; prevSnaps = CoopSmoothSnaps;
+        prevSteps = CoopSmoothSteps; prevSnaps = CoopSmoothSnaps; prevSlides = CoopSmoothSlides; prevStuck = CoopSmoothStuck;
         prevMs = CurrentMs;
     }
 
@@ -305,13 +305,31 @@ namespace GOTHIC_ENGINE {
     }
 
     // v53: harter Sprung beim Glaetten (RemoteNpc::UpdateNpcPosition) - welcher NPC? Test v52: 709 Spruenge in 30 s, ohne Namen.
-    void CoopDiagSnap(const char* name, float err, const zVEC3& target, const zVEC3& shown) {
+    // u72: dazu Alter des letzten Lagepakets und Zustand des NPCs hier - ob die eigene KI ihn weggefuehrt hat (altes Paket, NPC
+    // in einem Tagesablauf-Zustand) oder der Host ihn versetzt hat (frisches Paket); "weich" = 3-8 m nachgezogen statt gesetzt
+    void CoopDiagSnap(const char* name, float err, const zVEC3& target, const zVEC3& shown, long long ageMs, const char* state, bool soft) {
+        static CoopDiagBudget hardBudget = { 0, 0 }, softBudget = { 0, 0 };
+        if (!CoopDiagAllow(soft ? softBudget : hardBudget, 10))
+            return;
+        OthelloCompatLog("[%lld s, %s] Glaetten: %s bei %s - %.1f m Abweichung (Ziel %.0f/%.0f/%.0f, war %.0f/%.0f/%.0f; Paket vor %lld ms,"
+            " hier %s)", DiagSeconds(), DiagRole(), soft ? "weich nachgezogen" : "harter Sprung", name ? name : "?", err / 100.f,
+            target.n[0], target.n[1], target.n[2], shown.n[0], shown.n[1], shown.n[2], ageMs, state && *state ? state : "-");
+    }
+
+    // u74: harter Sprung, der nicht griff - der NPC steht 0,5 s nach dem ersten Setzen noch immer ueber 8 m neben dem Ziel. Einmal je
+    // Abweichung, mit allem, was ihn halten koennte: Koerperzustand, Mob (Bank, Amboss ...), Bewegungsmodus, schlafend
+    void CoopDiagStuck(const char* name, float err, const zVEC3& target, const zVEC3& shown, long long sinceMs, const char* state,
+        int bodyState, const char* mob, int moveMode, int sleeping) {
         static CoopDiagBudget budget = { 0, 0 };
         if (!CoopDiagAllow(budget, 10))
             return;
-        OthelloCompatLog("[%lld s, %s] Glaetten: harter Sprung bei %s - %.1f m Abweichung (Ziel %.0f/%.0f/%.0f, war %.0f/%.0f/%.0f)",
-            DiagSeconds(), DiagRole(), name ? name : "?", err / 100.f, target.n[0], target.n[1], target.n[2],
-            shown.n[0], shown.n[1], shown.n[2]);
+        // u83: Schlafmodus als Wort - bis u82 stand die Zahl da ("schlafend 1"), 1 ist aber zVOB_AWAKE (0 schlafend, 2 nur KI);
+        // die Auswertung u81/u82 las sie verkehrt
+        OthelloCompatLog("[%lld s, %s] Glaetten: %s haengt fest - %.1f m neben dem Ziel, %lld ms nach dem ersten Setzen (Ziel %.0f/%.0f/%.0f,"
+            " steht %.0f/%.0f/%.0f; hier %s, Koerperzustand %d, Mob %s, Bewegungsmodus %d, Schlafmodus %s)", DiagSeconds(), DiagRole(),
+            name ? name : "?", err / 100.f, sinceMs, target.n[0], target.n[1], target.n[2], shown.n[0], shown.n[1], shown.n[2],
+            state && *state ? state : "-", bodyState, mob && *mob ? mob : "-", moveMode,
+            sleeping == 0 ? "schlafend" : sleeping == 1 ? "wach" : "nur KI");
     }
 
     // v53: Animation per Name empfangen, im eigenen Modell aber unbekannt (anderes Overlay/Modell)

@@ -46,7 +46,8 @@ namespace GOTHIC_ENGINE {
     //   coopSyncLog     0 an | 1 aus   Tagebuch (Themen, Eintraege, Meldung "Neuer Tagebucheintrag")
     //   coopSyncWorld   0 an | 1 aus   Gegenstaende am Boden und Truhen (CoopWorldSync.cpp)
     //   coopSyncSaves   0 gemeinsam | 1 getrennt   gemeinsames Speichern/Laden, Uebernahme, Archiv, Dateiuebertragung (CoopSaveSync.cpp)
-    //   coopAutoSave    0 aus | 1-5 = 5/10/15/20/30 min   gemeinsame Auto-Sicherung des Hosts
+    //   coopAutoSave    0 aus | 1-5 = 5/10/15/20/30 min   gemeinsame Auto-Sicherung des Hosts (bis u104)
+    //   coopAutoSaveEvery 0 aus | 1-6 = 3/5/10/15/20/30 min   u105: dasselbe mit "3 min" - einmal aus coopAutoSave uebernommen
     //   coopConnectTake 0 Host-Stand uebernehmen | 1 eigenen Stand behalten   beim Verbinden im Spiel
     //   coopWorldChange 0 gemeinsam | 1 getrennt   u32: Weltwechsel - geht einer durch einen Weltuebergang, kommen die anderen
     //                   mit (er bestaetigt vorher, CoopWorlds.cpp) bzw. jeder wechselt fuer sich (u29-u31)
@@ -55,6 +56,7 @@ namespace GOTHIC_ENGINE {
     bool CoopRuleWorld();
     bool CoopRuleSaves();
     int CoopRuleAutoSaveMinutes();
+    void CoopRuleAutoSaveTest(int min, int ms);   // u105: Testlauf
     bool CoopRuleTakeOnConnect();
     bool CoopRuleWorldTogether();   // u32
     void CoopRulesSendSoon();
@@ -87,11 +89,34 @@ namespace GOTHIC_ENGINE {
     // Stufen: Indizes in DiffPlayerPct / DiffEnemyPct (Schaden Spieler, Schaden Gegner, Leben Gegner)
     static const int DiffPresetIdx[4][3] = { { 3, 1, 1 }, { 2, 2, 2 }, { 2, 4, 4 }, { 2, 5, 5 } };
 
-    static const int SyncAutoMin[] = { 0, 5, 10, 15, 20, 30 };   // v75: coopAutoSave
+    // v75: Auto-Sicherung; u105 (P127, Nutzer: "wieso wird denn so selten gespeichert und nicht zb alle 3 minuten?", dann "Ja, u104"
+    // zu "Autospeichern alle 3 Minuten als Option in den COOP-Einstellungen, mit Testschritt" - kam nach P126 als u105): Index der
+    // Auswahl coopAutoSaveEvery, jetzt mit 3 min. Das Paket traegt die Minuten ("sam") und fuer Empfaenger bis u104 den alten Index.
+    static const int SyncAutoMin[] = { 0, 3, 5, 10, 15, 20, 30 };
+    static const int SyncAutoZahl = (int)(sizeof(SyncAutoMin) / sizeof(SyncAutoMin[0]));
+
+    // Minuten -> Index (naechster Wert darueber, 0 = aus)
+    static int SyncAutoIdx(int m) {
+        if (m <= 0)
+            return 0;
+        for (int i = 1; i < SyncAutoZahl; i++)
+            if (m <= SyncAutoMin[i])
+                return i;
+        return SyncAutoZahl - 1;
+    }
+
+    // bis u104 (coopAutoSave, Paket "sa"): 0 aus | 1-5 = 5/10/15/20/30 min
+    static int SyncAutoIdxAlt(int m) {
+        return m <= 0 ? 0 : m <= 5 ? 1 : m <= 10 ? 2 : m <= 15 ? 3 : m <= 20 ? 4 : 5;
+    }
+
+    static int SyncAutoIdxAusAlt(int alt) {
+        return alt <= 0 ? 0 : alt <= 5 ? alt + 1 : 3;
+    }
 
     struct DiffRules {
         int preset = 1, dp = 2, de = 2, hp = 2, xa = 5, xp = 6, xr = 1;   // Indizes
-        int sq = 0, sl = 0, sw = 0, ss = 0, sa = 2, st = 0;              // v75: Abgleich (0 = an / gemeinsam / uebernehmen)
+        int sq = 0, sl = 0, sw = 0, ss = 0, sa = 3, st = 0;              // v75: Abgleich (0 = an / gemeinsam / uebernehmen)
         int wc = 0;                                                      // u32: Weltwechsel 0 gemeinsam, 1 getrennt
         bool SameDifficulty(const DiffRules& o) const {
             return preset == o.preset && dp == o.dp && de == o.de && hp == o.hp && xa == o.xa && xp == o.xp && xr == o.xr;
@@ -142,7 +167,7 @@ namespace GOTHIC_ENGINE {
         r.sl = DiffClamp(r.sl, 2, 0);
         r.sw = DiffClamp(r.sw, 2, 0);
         r.ss = DiffClamp(r.ss, 2, 0);
-        r.sa = DiffClamp(r.sa, 6, 2);
+        r.sa = DiffClamp(r.sa, SyncAutoZahl, 3);   // u105: Index in SyncAutoMin (Vorgabe 10 min)
         r.st = DiffClamp(r.st, 2, 0);
         r.wc = DiffClamp(r.wc, 2, 0);   // u32
         if (r.preset < 4) {
@@ -177,12 +202,19 @@ namespace GOTHIC_ENGINE {
         if (!zoptions->EntryExists(sec, "coopSyncLog")) zoptions->WriteInt(sec, "coopSyncLog", story ? 0 : 1, 0);
         if (!zoptions->EntryExists(sec, "coopSyncWorld")) zoptions->WriteInt(sec, "coopSyncWorld", 0, 0);
         if (!zoptions->EntryExists(sec, "coopSyncSaves")) zoptions->WriteInt(sec, "coopSyncSaves", 0, 0);
-        if (!zoptions->EntryExists(sec, "coopAutoSave")) {
-            int m = 10;
-            if (CoopConfig.contains("coopAutoSaveMinutes") && CoopConfig["coopAutoSaveMinutes"].is_number())
-                m = CoopConfig["coopAutoSaveMinutes"].get<int>();
-            const int idx = m <= 0 ? 0 : m <= 5 ? 1 : m <= 10 ? 2 : m <= 15 ? 3 : m <= 20 ? 4 : 5;
-            zoptions->WriteInt(sec, "coopAutoSave", idx, 0);
+        // u105: eigener Eintrag mit "3 min" (coopAutoSave bleibt, wie er ist, fuer aeltere Fassungen) - einmal daraus uebernommen,
+        // ohne ihn beim ersten Start aus GothicCoopConfig.json
+        if (!zoptions->EntryExists(sec, "coopAutoSaveEvery")) {
+            int idx;
+            if (zoptions->EntryExists(sec, "coopAutoSave"))
+                idx = SyncAutoIdxAusAlt(zoptions->ReadInt(sec, "coopAutoSave", 2));
+            else {
+                int m = 10;
+                if (CoopConfig.contains("coopAutoSaveMinutes") && CoopConfig["coopAutoSaveMinutes"].is_number())
+                    m = CoopConfig["coopAutoSaveMinutes"].get<int>();
+                idx = SyncAutoIdx(m);
+            }
+            zoptions->WriteInt(sec, "coopAutoSaveEvery", idx, 0);
         }
         if (!zoptions->EntryExists(sec, "coopConnectTake"))
             zoptions->WriteInt(sec, "coopConnectTake", jsonBool("coopTakeHostStateOnConnect", true) ? 0 : 1, 0);
@@ -207,11 +239,15 @@ namespace GOTHIC_ENGINE {
         r.sl = zoptions->ReadInt(sec, "coopSyncLog", 0);
         r.sw = zoptions->ReadInt(sec, "coopSyncWorld", 0);
         r.ss = zoptions->ReadInt(sec, "coopSyncSaves", 0);
-        r.sa = zoptions->ReadInt(sec, "coopAutoSave", 2);
+        r.sa = zoptions->ReadInt(sec, "coopAutoSaveEvery", 3);   // u105
         r.st = zoptions->ReadInt(sec, "coopConnectTake", 0);
         r.wc = zoptions->ReadInt(sec, "coopWorldChange", 0);   // u32
         return r;
     }
+
+    // u105 (Testlauf P127): Auto-Sicherung voruebergehend auf einen anderen Wert, ohne Gothic.ini - laeuft von selbst ab
+    static int DiffTestAutoIdx = -1;
+    static long long DiffTestAutoBisMs = 0;
 
     static void DiffReadOwn(bool force) {
         const long long now = GetCurrentMs();
@@ -219,7 +255,20 @@ namespace GOTHIC_ENGINE {
             return;
         DiffNextReadMs = now + 1000;
         DiffOwn = DiffNormalized(DiffReadIniRaw());
+        if (DiffTestAutoIdx >= 0) {
+            if (now < DiffTestAutoBisMs)
+                DiffOwn.sa = DiffTestAutoIdx;
+            else
+                DiffTestAutoIdx = -1;
+        }
         DiffOwnRead = true;
+    }
+
+    // min Minuten fuer ms (min 0: gleich wieder wie in Gothic.ini); beim Host gilt das fuer alle (Paket COOP_RULES)
+    void CoopRuleAutoSaveTest(int min, int ms) {
+        DiffTestAutoIdx = min > 0 ? SyncAutoIdx(min) : -1;
+        DiffTestAutoBisMs = GetCurrentMs() + ms;
+        DiffReadOwn(true);
     }
 
     static bool DiffCoopOn() {
@@ -533,7 +582,8 @@ namespace GOTHIC_ENGINE {
         j["sl"] = r.sl;
         j["sw"] = r.sw;
         j["ss"] = r.ss;
-        j["sa"] = r.sa;
+        j["sa"] = SyncAutoIdxAlt(SyncAutoMin[r.sa]);   // u105: alter Index fuer Empfaenger bis u104 ...
+        j["sam"] = SyncAutoMin[r.sa];                  // ... und die Minuten
         j["st"] = r.st;
         j["wc"] = r.wc;   // u32
         CoopTraceCount(TRACE_SENT, SYNC_COOP_RULES);
@@ -558,7 +608,7 @@ namespace GOTHIC_ENGINE {
         r.sl = geti("sl", 0);
         r.sw = geti("sw", 0);
         r.ss = geti("ss", 0);
-        r.sa = geti("sa", 2);
+        r.sa = e.contains("sam") ? SyncAutoIdx(geti("sam", 10)) : SyncAutoIdxAusAlt(geti("sa", 2));   // u105: Minuten, bis u104 Index
         r.st = geti("st", 0);
         r.wc = geti("wc", 0);   // u32
         r = DiffNormalized(r);
@@ -768,6 +818,7 @@ namespace GOTHIC_ENGINE {
     bool CoopRuleWorld() { return true; }
     bool CoopRuleSaves() { return true; }
     int CoopRuleAutoSaveMinutes() { return 10; }
+    void CoopRuleAutoSaveTest(int, int) {}   // u105
     bool CoopRuleTakeOnConnect() { return true; }
     bool CoopRuleWorldTogether() { return true; }   // u32
     void CoopRulesSendSoon() {}

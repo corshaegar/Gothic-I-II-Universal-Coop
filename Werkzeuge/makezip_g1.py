@@ -48,6 +48,11 @@ Zuschau-Fenster (Shift+F5, blauer Rahmen) zeigt den Mitspieler dort. Sein Ordner
 Beide PCs brauchen den Renderer coop8 aus dieser ZIP.
 Ab u62 (Projekt Gothic-I-II-Universal-Coop 0.2.0, Quelltext: https://github.com/corshaegar/Gothic-I-II-Universal-Coop):
 Union 1.0m liegt als Dateien bei.
+Ab u85: Gilden gelten je Held - Gilden-Dialoge teilen nur Helden derselben Gilde. Ab u96: Missions-Gegenstaende sind gemeinsam:
+bekommt einer einen, hat ihn der Partner auch; gibt einer ihn ab, verliert ihn der Partner (Name "... (gemeinsam)"). Ab u97:
+Coop-Inventar - eine gemeinsame Truhe; die Taste (Vorgabe I, Einstellungen > COOP) oeffnet sie ohne Bewegung, beide koennen sie
+gleichzeitig offen haben, der Inhalt liegt beim Host und im Spielstand, Gegenstaende daraus zaehlen bei Quests. Ab u105: Auto-Sicherung
+auch alle 3 Minuten. Diese Neuerungen sind in Gothic 1 mitgebaut und geprueft, aber noch nicht im Spiel getestet.
 """
 
 

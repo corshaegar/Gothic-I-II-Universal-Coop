@@ -100,6 +100,7 @@ namespace GOTHIC_ENGINE {
         }
         try {
             CoopTitleMenuPulse();     // v84: "Hauptmenue" im Esc-Menue - Menues im naechsten Menuebild schliessen
+            CoopIngameMenuLoadPulse(); // u91: Held tot bzw. Sitzung beendet - ueber das Menue laden (CoopMenuLobby.cpp)
             CoopMainMenuEscGuard();   // v59: Esc im Hauptmenue ohne Spiel = schwarzer Bildschirm - abfangen
             CoopVersionMenuPulse();   // v58: Fassung in den Versionszeilen (auch im Esc-Menue)
             CoopLangMenuPulse();      // v95: Menue-Texte Deutsch/English (COOP_MENU.D userString[2]/[3])
@@ -205,6 +206,7 @@ namespace GOTHIC_ENGINE {
     void _Game_LoadBegin_NewGame() {
         try {
             CoopSaveSyncOnNewGame();   // v76: offene Coop-Auftraege und gemerkter Held gelten nicht fuer ein neues Spiel
+            CoopTruheNeuesSpiel();     // u97: Coop-Truhe leer
         }
         catch (std::exception& e) {
             CoopErrorLog("CoopSaveSyncOnNewGame", e.what(), PluginState.c_str());
@@ -258,6 +260,32 @@ namespace GOTHIC_ENGINE {
 
     void _Game_LoadEnd_ChangeLevel() {
         _LoadEnd();
+    }
+
+    // u64 (Othello-Coop v114, COOP-FIXES B10, nur Othello; dort Test v113: Absturz beim Client 2 s nach dem gemeinsamen Weltwechsel
+    // in die Alte Mine, RemoteNpc::SanitizeStaleVisual auf einem NPC der alten Welt): Union meldet einen Weltwechsel aus seinem Haken
+    // auf dem vtable-Platz oCGame::ChangeLevel (+0xA8: Game_LoadBegin_ChangeLevel, Original, Game_LoadEnd_ChangeLevel). Othello
+    // ersetzt in oCGame::Render den virtuellen Aufruf (G1 0x0063DD5C, call [edx+0xA8]) durch OTHELLO_ABI+0xC5670 - das nimmt die vom
+    // Helden beschworenen NPCs mit (aivar-Bit 0x10 bei +0x304, auch die Coop-Figur) und ruft ChangeLevel direkt (mov eax, 0x0063CD60;
+    // call eax). Unions Meldungen kamen darum unter Othello nie an: GTs LoadBegin/LoadEnd liefen nicht (Namensliste, SyncNpcs,
+    // Weltschluessel, Story-Vergleichsstand blieben bei der alten Welt). GT hakt den Eingang von ChangeLevel darum selbst ein
+    // (unveraendert unter Othello, Speicherabbild) und fuehrt LoadBegin/LoadEnd aus, wenn Union es nicht schon getan hat
+    // (IsLoadingLevel). In G2A und Vanilla G1 kommt Union vorher an, der Haken reicht dort nur durch.
+    void __fastcall oCGame_ChangeLevel_Coop(oCGame* _this, void* vtable, zSTRING const& level, zSTRING const& start);
+    CInvoke<void(__thiscall*)(oCGame*, zSTRING const&, zSTRING const&)> Ivk_oCGame_ChangeLevel_Coop(CoopAddr::oCGame_ChangeLevel,
+        &oCGame_ChangeLevel_Coop);
+    void __fastcall oCGame_ChangeLevel_Coop(oCGame* _this, void* vtable, zSTRING const& level, zSTRING const& start) {
+        const bool own = !IsLoadingLevel;   // Union hat Game_LoadBegin_ChangeLevel nicht gemeldet
+        if (own) {
+            static int logged = 0;
+            if (logged++ < 20)
+                OthelloCompatLog("[%lld s, %s] Weltwechsel nach %s (Startpunkt %s) ohne Meldung von Union - GT laedt selbst (LoadBegin/LoadEnd)",
+                    DiagSeconds(), DiagRole(), level.ToChar(), start.ToChar());
+            _LoadBegin();
+        }
+        Ivk_oCGame_ChangeLevel_Coop(_this, level, start);
+        if (own)
+            _LoadEnd();
     }
 
     void _Game_LoadBegin_Trigger() {

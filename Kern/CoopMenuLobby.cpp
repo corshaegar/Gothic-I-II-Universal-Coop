@@ -639,11 +639,52 @@ namespace GOTHIC_ENGINE {
             e.sid.empty() ? "lokaler Stand" : e.sid.c_str(), slot);
     }
 
+    // u91: im Spiel bei totem Helden bzw. beendeter Sitzung laden (CoopSaveSync.cpp, CoopDoLoad; G2-Weltgrenze: Gothic zeigt bis zum
+    // Laden nur das Hauptmenue) - wie ein Spieler ueber das Menue: Slot ins Ladefenster, oberstes Menue mit SAVEGAME_LOAD schliessen,
+    // CGameManager::Menu laedt (Read_Savegame setzt exitSession zurueck). Geschlossen wird im naechsten Menuebild, sobald m_exitState
+    // 0 ist (wie CoopTitleMenuPulse, v85). Allgemein.
+    static int IngameLoadSlot = -1;
+    static bool IngameLoadOwn = false;   // eigenes ForceSelAction - der Ladewunsch-Fall des Clients unten gilt dafuer nicht
+
+    bool CoopIngameMenuLoad(int slot) {
+        zCMenu* menu = zCMenu::GetActive();
+        if (!player || !menu || !gameMan || !gameMan->menu_load_savegame || slot < 0)
+            return false;
+        IngameLoadSlot = slot;
+        LobbyLog("im Spiel: lade Slot %d " COOP_UE "ber das Men" COOP_UE " %s (Held tot bzw. Sitzung beendet)", slot, LobbyUpper(menu->name).c_str());
+        return true;
+    }
+
+    // UnionHooks.cpp, Game_MenuLoop
+    void CoopIngameMenuLoadPulse() {
+        if (IngameLoadSlot < 0)
+            return;
+        zCMenu* menu = zCMenu::GetActive();
+        if (!player || !menu || !gameMan || !gameMan->menu_load_savegame) {
+            LobbyLog("im Spiel: Laden von Slot %d " COOP_UE "ber das Men" COOP_UE " entf" COOP_AE "llt (%s)", IngameLoadSlot, !player ? "kein Held" : "kein Men" COOP_UE);
+            IngameLoadSlot = -1;
+            return;
+        }
+        if ((int)menu->m_exitState != 0)
+            return;   // noch in einer Eintragsaktion bzw. schon beim Schliessen (CoopMenuCloseRequest) - naechstes Bild
+        const int slot = IngameLoadSlot;
+        IngameLoadSlot = -1;
+        gameMan->menu_load_savegame->m_selSlot = slot;
+        IngameLoadOwn = true;
+        LobbyLog("im Spiel: schlie" "\xDF" "e Men" COOP_UE " %s mit %s (Slot %d)", LobbyUpper(menu->name).c_str(), LobbyLoadAction(), slot);
+        menu->ForceSelAction(SEL_ACTION_CLOSE, zSTRING(LobbyLoadAction()), NULL);
+    }
+
     // --- Haken auf zCMenu::HandleSelAction ----------------------------------------------------------------------------
     // Rueckgabe true: selbst behandelt, result = Rueckgabe an zCMenu::HandleAction (0 = Menue bleibt offen).
     static bool LobbyHandleSelAction(zCMenu* menu, int action, const zSTRING& s, int& result) {
         const std::string arg = LobbyUpper(s);
         result = 0;
+        if (IngameLoadOwn && action == SEL_ACTION_CLOSE && (arg == "SAVEGAME_LOAD" || arg == "OTHELLO_SAVEGAME_LOAD")) {
+            IngameLoadOwn = false;   // u91: unser Schliessen zum Laden (CoopIngameMenuLoadPulse) - Gothic laedt
+            LobbyLog("im Spiel: Men" COOP_UE " schlie" "\xDF" "t, Gothic l" COOP_AE "dt Slot %d", gameMan && gameMan->menu_load_savegame ? (int)gameMan->menu_load_savegame->m_selSlot : -1);
+            return false;
+        }
         if (action == SEL_ACTION_EXECCOMMANDS && arg == "COOP_TITLE") {   // v82: "Ja" in MENU_COOP_TITLE (Esc-Menue im Spiel)
             CoopTitleRequest(menu);
             return true;
@@ -1967,5 +2008,7 @@ namespace GOTHIC_ENGINE {
     void CoopLobbyReceiveInGame(json&, const std::string&) {}
     void CoopIngameLoadListPulse() {}
     void CoopLangMenuPulse() {}
+    bool CoopIngameMenuLoad(int) { return false; }
+    void CoopIngameMenuLoadPulse() {}
 #endif
 }

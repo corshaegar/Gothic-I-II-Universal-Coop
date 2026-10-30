@@ -393,7 +393,7 @@ namespace GOTHIC_ENGINE {
     static void MainShowForState(zCMenu* menu) {
         InjectArray& a = InjectList(menu);
         const bool inGame = zCMenu::inGameMenu != 0;
-        int hidden = 0, rows = 0, moved = 0;
+        int hidden = 0, rows = 0, moved = 0, orphaned = 0;
         for (int i = 0; i < a.num; i++) {
             zCMenuItem* it = a.items[i];
             if (!it)
@@ -410,8 +410,18 @@ namespace GOTHIC_ENGINE {
                 if (hideInGame && inGame)
                     vis = false;
                 it->m_bVisible = vis ? 1 : 0;
-                if (!vis)
+                if (!vis) {
                     hidden++;
+                    // u79 (P108; Dauerlauf u78: Absturz beim Beenden ueber das Esc-Menue, C0000005 in zCView::RemoveItem <-
+                    // zCMenuItem::RemoveFromWin <- zCMenu::ScreenDone): InsertInWin (G2A 0x004DFA90) setzt orgWin nur fuer sichtbare
+                    // Eintraege, RemoveFromWin ruft orgWin->RemoveItem aber immer. Ein Eintrag, der in der vorigen Sitzung sichtbar war
+                    // (Startmenue) und jetzt ausgeblendet ist (Esc-Menue), behielt das Fenster jener Sitzung - ScreenDone hatte es
+                    // geloescht. Meist stand der alte Inhalt noch im Speicher, sonst Absturz. Vanilla blendet nie um, nur GT seit u21
+                    if (it->orgWin) {
+                        it->orgWin = NULL;
+                        orphaned++;
+                    }
+                }
             }
             const int y = MainRowY[id] - INJECT_MAIN_Y;
             if (y < 0 || y % INJECT_MAIN_DY != 0 || !it->m_bVisible)
@@ -422,10 +432,13 @@ namespace GOTHIC_ENGINE {
                 moved++;
             }
         }
-        static int logged[2] = { 0, 0 };
+        static int logged[2] = { 0, 0 }, orphanLogged = 0;
         if (logged[inGame]++ < 3)
             InjectLog("Hauptmen\xFC %s: %d Eintr\xE4ge ausgeblendet, %d Zeilen sichtbar (Listenfolge), %d verschoben", inGame ? "im Spiel" : "beim Start",
                 hidden, rows, moved);
+        if (orphaned && orphanLogged++ < 3)   // u79 (P108)
+            InjectLog("Hauptmen\xFC %s: %d ausgeblendete Eintr\xE4ge hielten das Fenster einer fr\xFC" "heren Sitzung - Zeiger geleert (kein Zugriff "
+                "auf das gel\xF6schte Fenster beim Schlie\xDF" "en)", inGame ? "im Spiel" : "beim Start", orphaned);
     }
 
     static void __fastcall CoopScreenInitHook(zCMenu* menu, void* edx) {

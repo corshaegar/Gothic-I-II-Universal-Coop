@@ -310,6 +310,7 @@ namespace GOTHIC_ENGINE {
         GameChat->Render();
         GameStatsLoop();
         PacketProcessorLoop();
+        CoopSlotGuardPulse();     // u88 (P112): geloeschte Gegenstaende in NPC-Slots austragen, bevor die Engine sie anfasst (Helpers.cpp)
         DamageProcessorLoop();
         SpellCastProcessorLoop();
         ReviveFriendLoop();
@@ -346,6 +347,8 @@ namespace GOTHIC_ENGINE {
         CoopFarSyncPulse();   // v41: Todesabgleich ausserhalb der Reichweite, Bericht zum Verfolgungspunkt
         PluginState = "Teleport";
         CoopTeleportPulse();  // v102: Teleport-Rune (Ziel Mitspieler, Startausstattung)
+        PluginState = "Truhe";
+        CoopTruhePulse();     // u97: Coop-Truhe (Benutzen -> Fenster, Schliessen, Gegenstand im Inventar)
         PluginState = "PartnerMarker";
         CoopPartnerMarkerPulse();   // v104: Name ueber dem Kopf / Pfeil am Bildrand / Marke auf Othellos Karte
         PluginState = "Camera";
@@ -443,6 +446,8 @@ namespace GOTHIC_ENGINE {
             if (CoopCamKeyHit(shift)) {
                 CoopCamToggle();   // v48: Zuschau-Fenster an / naechster Mitspieler / aus; v47: einmal je Druck
             }
+
+            CoopTruheKeyPulse(shift);   // u101: Taste fuers Coop-Inventar (COOP-Einstellungen, Vorgabe I) - oeffnen bzw. schliessen
 
             if (shift && zinput->KeyToggled(KEY_F12)) {
                 CoopWpHostToggle();   // u33: Weltprozess starten/beenden (CoopWorldProcess.cpp)
@@ -544,10 +549,12 @@ namespace GOTHIC_ENGINE {
         IsSavingGame = false;
         CoopSaveSyncOnSaveEnd();   // v17: im naechsten Frame archivieren und den Partner mitspeichern lassen
         CoopTeleportSaveEnd();     // u7: Rune-Aussehen nach dem Speichern neu setzen (zUnionUtils raeumt das Inventar um)
+        CoopTruheSaveEnd();        // u97: Inhalt der Coop-Truhe in den Slot (COOPTRUHE.TXT)
     }
 
     void LoadBegin() {
         CoopCamStop("Laden");   // v44/v48: noch vor IsLoadingLevel - Zuschau-Fenster aus, Automatik neu
+        CoopTruheLoadBegin();   // u97: offene Coop-Truhe schliessen (Inhalt an den Host)
         CoopDiffHpWorldGone();  // v70: gemerkte NPC-Zeiger der alten Welt verwerfen
         CoopLeadClear("Laden"); // v72: Kampf-Uebergaben der alten Welt vergessen
         // v98 (A16): alles mit Zeigern in die alte Welt verwerfen - nach dem Laden gilt nur der Spielstand (Nutzer: "beim Laden sollte
@@ -601,6 +608,7 @@ namespace GOTHIC_ENGINE {
         CoopDialogSyncWorldLoaded();  // v26: Dialog-Sperren der alten Welt verwerfen
         CoopFarSyncWorldLoaded();     // v41: Todesliste/Vergleichsstand der alten Welt verwerfen
         CoopTeleportLoadEnd();        // v102: Teleport-Rune - nach dem Laden pruefen, ob sie im Inventar ist
+        CoopTruheLoadEnd(false);      // u97: Coop-Truhe - Gegenstand pruefen (Inhalt nur beim Laden eines Spielstands, unten)
 
         auto totWp = ogame->GetWorld()->wayNet->GetWaypoint("TOT");
         if (totWp) {
@@ -639,6 +647,7 @@ namespace GOTHIC_ENGINE {
         }
 
         CoopSaveSyncApplyHeroAtLoad();   // v24: eigener Held + Lage noch im Ladevorgang (kein sichtbarer Sprung)
+        CoopTruheLoadEnd(true);          // u97: Inhalt der Coop-Truhe aus dem Slot (Client: bis der Host-Stand kommt)
     }
 
     void Game_LoadBegin_Trigger() {

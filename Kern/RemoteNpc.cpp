@@ -87,12 +87,16 @@ namespace GOTHIC_ENGINE {
         // zwei Paketen stand der NPC, waehrend seine Lauf-Animation ihn vorwaerts schob - beim naechsten Bild zurueck, beim
         // naechsten Paket ein Sprung (Ruckeln, "Gummiband"). Jetzt: Geschwindigkeit aus den letzten beiden Paketen, Ziel = letzte
         // Lage + Geschwindigkeit x Alter (hoechstens 120 ms weiter), angezeigte Lage folgt dem Ziel weich (Zeitkonstante ~65 ms).
-        // Grosse Abweichungen (> 3 m, Teleport) weiter hart. Blickrichtung ebenso ueber den kuerzesten Winkel.
+        // Grosse Abweichungen (> 3 m, Teleport) weiter hart - u72: erst ab 8 m, 3-8 m mit hoechstens 15 m/s nachgezogen
+        // (UpdateNpcPosition). Blickrichtung ebenso ueber den kuerzesten Winkel.
         // Konfiguration coopSmoothRemote (true); false = wie bisher.
         zVEC3 velocityFromServer = zVEC3(0, 0, 0);
         long long lastPosRecvMs = 0;
         long long lastSmoothMs = 0;
         float shownHeading = -1;
+        bool slideActive = false;   // u72: laeuft gerade ein Nachziehen von 3-8 m (fuer Zaehler und Meldung)
+        bool hardActive = false, stuckLogged = false;   // u74: harter Sprung laeuft (je Abweichung einmal zaehlen), "haengt fest" gemeldet
+        long long hardSinceMs = 0;
 
         static bool SmoothOn() {
             static int on = -1;
@@ -655,9 +659,13 @@ namespace GOTHIC_ENGINE {
                     auto selectedSpell = book->GetSelectedSpell();
                     if (selectedSpell) {
                         auto selectedSpellItem = book->GetSpellItem(selectedSpell);
-                        if (selectedSpellItem) {   // v97 (A14): kann NULL sein (Upstream: Gothic-Workshop 0a5bb2f)
+                        // v97 (A14): kann NULL sein (Upstream: Gothic-Workshop 0a5bb2f); u88 (P112): wie UpdateHand
+                        if (selectedSpellItem && CoopSlotVobAlive(npc, selectedSpellItem, "UpdateMagicSetup")) {
+                            selectedSpellItem->AddRef();
                             npc->DoDropVob(selectedSpellItem);
-                            selectedSpellItem->RemoveVobFromWorld();
+                            if (selectedSpellItem->GetHomeWorld())
+                                selectedSpellItem->RemoveVobFromWorld();
+                            CoopDropRelease(npc, selectedSpellItem, "UpdateMagicSetup");   // u90 (P114)
                         }
                         selectedSpell->Kill();
                     }
@@ -691,12 +699,18 @@ namespace GOTHIC_ENGINE {
             auto leftItem = update["left"].get<std::string>();
             auto rightItem = update["right"].get<std::string>();
 
+            // u88 (P112): erst pruefen, ob der Gegenstand noch lebt (sonst nur aus dem Slot austragen); waehrend DoDropVob und
+            // RemoveVobFromWorld eine eigene Referenz - GTs Haken nimmt ihn bei Coop-Figuren schon aus der Welt, bis u87 konnte der
+            // zweite Aufruf so an einem freigegebenen Objekt laufen
             auto leftHandItem = npc->GetLeftHand();
-            if (leftHandItem)
+            if (leftHandItem && CoopSlotVobAlive(npc, leftHandItem, "UpdateHand (links)"))
             {
+                leftHandItem->AddRef();
                 npc->DoDropVob(leftHandItem);
-                leftHandItem->RemoveVobFromWorld();
+                if (leftHandItem->GetHomeWorld())
+                    leftHandItem->RemoveVobFromWorld();
                 syncedNpcItems.erase(leftHandItem);
+                CoopDropRelease(npc, leftHandItem, "UpdateHand (links)");   // u90 (P114): nur freigeben, wenn noch jemand haelt
             }
 
             if (leftItem != "NULL") {
@@ -711,11 +725,14 @@ namespace GOTHIC_ENGINE {
             }
 
             auto rightHandItem = npc->GetRightHand();
-            if (rightHandItem)
+            if (rightHandItem && CoopSlotVobAlive(npc, rightHandItem, "UpdateHand (rechts)"))   // u88: wie links
             {
+                rightHandItem->AddRef();
                 npc->DoDropVob(rightHandItem);
-                rightHandItem->RemoveVobFromWorld();
+                if (rightHandItem->GetHomeWorld())
+                    rightHandItem->RemoveVobFromWorld();
                 syncedNpcItems.erase(rightHandItem);
+                CoopDropRelease(npc, rightHandItem, "UpdateHand (rechts)");   // u90 (P114)
             }
 
             if (rightItem != "NULL") {
@@ -1030,12 +1047,12 @@ namespace GOTHIC_ENGINE {
         }
 
         void UpdateTime(json update) {
-            if (!IsPlayerTalkingWithAnybody()) {
-                auto h = update["h"].get<int>();
-                auto m = update["m"].get<int>();
-                CoopApplyHostTime(update.contains("d") && update["d"].is_number_integer() ? update["d"].get<int>() : -1, h, m,
-                    "Figur des Hosts");   // u51: mit Spieltag (Helpers.cpp)
-            }
+            auto h = update["h"].get<int>();
+            auto m = update["m"].get<int>();
+            const int d = update.contains("d") && update["d"].is_number_integer() ? update["d"].get<int>() : -1;
+            if (!IsPlayerTalkingWithAnybody() || CoopHostTimeSmall(d, h, m))   // u83: kleine Korrektur auch im Gespraech
+                CoopApplyHostTime(d, h, m, "Figur des Hosts",   // u51: mit Spieltag; u83: genau (Helpers.cpp)
+                    update.contains("t") && update["t"].is_number() ? update["t"].get<float>() : -1.f);
         }
 
         void UpdateRevived(json update) {
@@ -1232,16 +1249,54 @@ namespace GOTHIC_ENGINE {
                 if (age >= 0.f && age <= 0.15f)
                     target = pos + velocityFromServer * (age > 0.1f ? 0.1f : age);
                 const float err = (target - currentPosition).LengthApprox();
-                if (dt > 0.f && err < 300.f) {
-                    pos = currentPosition + (target - currentPosition) * (1.f - expf(-dt * 15.f));
+                // u72 (Dauertest u67: beim Client 799 harte Spruenge in 100 min, 671 davon 3-12 m - Blutfliegen, Schafe, NPCs auf
+                // ihren Tageswegen): 3-8 m nicht mehr hart setzen, sondern zuegig nachziehen - wie bisher weich, aber hoechstens
+                // 15 m/s (5 m in gut 0,3 s statt in einem Bild). Hart erst ab 8 m (Laden, Teleport, neu eingesetzt) und ohne dt
+                if (dt > 0.f && err < 800.f) {
+                    zVEC3 step = (target - currentPosition) * (1.f - expf(-dt * 15.f));
+                    if (err >= 300.f) {
+                        const float maxStep = 1500.f * dt, len = step.LengthApprox();
+                        if (len > maxStep && len > 0.f)
+                            step = step * (maxStep / len);
+                        if (!slideActive) {   // je Abweichung einmal zaehlen und melden
+                            slideActive = true;
+                            CoopSmoothSlides++;
+                            CoopDiagSnap(zSTRING(name).ToChar(), err, target, currentPosition, CurrentMs - lastPosRecvMs,
+                                npc->state.curState.name.ToChar(), true);
+                        }
+                    }
+                    else
+                        slideActive = false;
+                    hardActive = false;
+                    pos = currentPosition + step;
                     CoopSmoothSteps++;
                 }
                 else {
                     pos = target;
-                    if (err >= 300.f) {
-                        CoopSmoothSnaps++;
-                        CoopDiagSnap(zSTRING(name).ToChar(), err, target, currentPosition);   // v53: welcher NPC?
+                    slideActive = false;
+                    if (err >= 800.f) {
+                        // u74 (Dauerlauf u73: 24 von 48 "harter Sprung" beim Client waren dieselben drei NPCs - Maleth, ein Bauer,
+                        // Gerbrandt auf der Bank -, 1-3 s lang jedes Bild, die Lage blieb gleich): je Abweichung einmal zaehlen und
+                        // melden; steht er 0,5 s danach noch so weit daneben, greift das Setzen nicht - einmal ausfuehrlich melden
+                        if (!hardActive) {
+                            hardActive = true;
+                            stuckLogged = false;
+                            hardSinceMs = CurrentMs;
+                            CoopSmoothSnaps++;
+                            CoopDiagSnap(zSTRING(name).ToChar(), err, target, currentPosition, CurrentMs - lastPosRecvMs,
+                                npc->state.curState.name.ToChar(), false);   // v53: welcher NPC? u72: Paketalter, Zustand
+                        }
+                        else if (!stuckLogged && CurrentMs > hardSinceMs + 500) {
+                            stuckLogged = true;
+                            CoopSmoothStuck++;
+                            CoopDiagStuck(zSTRING(name).ToChar(), err, target, currentPosition, CurrentMs - hardSinceMs,
+                                npc->state.curState.name.ToChar(), npc->GetBodyState(),
+                                npc->interactMob ? npc->interactMob->GetObjectName().ToChar() : "-", (int)npc->isInMovementMode,
+                                (int)npc->sleepingMode);
+                        }
                     }
+                    else
+                        hardActive = false;
                 }
             }
             auto dist = (int)(pos - currentPosition).LengthApprox();
@@ -1263,8 +1318,12 @@ namespace GOTHIC_ENGINE {
 #endif
             }
 
+            // u74: auch weite Spruenge ueber SetPositionWorld (Kollision aus) - bis u73 nur die Matrix (trafoObjToWorld). Die Engine
+            // fuehrt eine Bewegung ueber das Kollisionsobjekt des Vobs und schreibt dessen Lage an ihrem Ende zurueck; vermutlich
+            // ging der direkte Eintrag dabei verloren (drei NPCs standen nach dem Sprung unveraendert). SetPositionWorld geht ueber
+            // diesen Weg und setzt auch Huelle und Zelle der Welt neu
             npc->SetCollDet(FALSE);
-            npc->trafoObjToWorld.SetTranslation(pos);
+            npc->SetPositionWorld(pos);
             npc->SetCollDet(TRUE);
 
             if (inMove) {

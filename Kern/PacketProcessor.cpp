@@ -28,6 +28,7 @@ namespace GOTHIC_ENGINE {
 
             CoopWorldSyncPeerGone(std::string(name.ToChar()));
             CoopDialogSyncPeerGone(std::string(name.ToChar()));
+            CoopTruhePeerGone(std::string(name.ToChar()));    // u97
             CoopWorldsPeerGone(std::string(name.ToChar()));   // u29
             removeSyncedNpc(name);
             return;
@@ -124,10 +125,13 @@ namespace GOTHIC_ENGINE {
         if (type == SYNC_TIME) {
             // u31 (P72; Testlauf u30: "Partner 08:51, hier 00:05"): die Uhrzeit des Hosts lief ueber seine Figur (RemoteNpc::UpdateTime)
             // - steht sie nicht in meiner Welt, kam sie nie an. Jetzt hier, unabhaengig von der Figur.
-            if (ClientThread && !ServerThread && id == "HOST" && ogame && !IsPlayerTalkingWithAnybody() && e.contains("h") && e.contains("m") &&
-                e["h"].is_number_integer() && e["m"].is_number_integer())
-                CoopApplyHostTime(e.contains("d") && e["d"].is_number_integer() ? e["d"].get<int>() : -1, e["h"].get<int>(),
-                    e["m"].get<int>(), "Paket des Hosts");   // u51: mit Spieltag (Helpers.cpp)
+            // u83: genau ("t") und im Gespraech auch, solange es nur eine kleine Korrektur ist (Helpers.cpp)
+            if (ClientThread && !ServerThread && id == "HOST" && ogame && e.contains("h") && e.contains("m") &&
+                e["h"].is_number_integer() && e["m"].is_number_integer()) {
+                const int d = e.contains("d") && e["d"].is_number_integer() ? e["d"].get<int>() : -1, h = e["h"].get<int>(), m = e["m"].get<int>();
+                if (!IsPlayerTalkingWithAnybody() || CoopHostTimeSmall(d, h, m))
+                    CoopApplyHostTime(d, h, m, "Paket des Hosts", e.contains("t") && e["t"].is_number() ? e["t"].get<float>() : -1.f);
+            }
             return;
         }
         if (cameIn) {
@@ -253,6 +257,7 @@ namespace GOTHIC_ENGINE {
 
             CoopWorldSyncPeerGone(std::string(remoteNpc->name.ToChar()));
             CoopDialogSyncPeerGone(std::string(remoteNpc->name.ToChar()));
+            CoopTruhePeerGone(std::string(remoteNpc->name.ToChar()));    // u97: offene Coop-Truhe wieder frei
             CoopWorldsPeerGone(std::string(remoteNpc->name.ToChar()));   // u29
             CoopSaveSyncPeerLeft();
             removeSyncedNpc(remoteNpc->name);

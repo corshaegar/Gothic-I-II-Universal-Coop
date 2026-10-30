@@ -150,6 +150,9 @@ namespace GOTHIC_ENGINE {
     static int CoopPeerCount = 0;
     static long long CoopLastSaveMs = 0;
     static long long CoopNextAutoTryMs = 0;
+    static int CoopAutoSaveZahl = 0;              // u105 (Testlauf P127): so oft automatisch gesichert
+    static int CoopAutoSaveSlot = -1;             //                       Slot der letzten Auto-Sicherung
+    static long long CoopAutoSaveFaelligMs = 0;   //                       wann die letzte faellig wurde (Frage an die Clients)
     static long long CoopFirstActiveMs = 0;
     static bool CoopConnectTakeSent = false;
     static bool CoopSavingForAuto = false;
@@ -1424,6 +1427,8 @@ namespace GOTHIC_ENGINE {
 
     // v89 Platz neben dem Helden des Stands (CoopFloorBelow, CoopClearLine, CoopPlaceBesideHost): u10 nach CoopPlace.cpp
 
+    void CoopMissionReset(int quietMs);   // u96: CoopDialogSync.cpp - Missions-Gegenstaende nach der Uebernahme neu zaehlen
+
     // Auf den (frisch geladenen) Helden anwenden. Eigene Aenderungen laufen unter WorldSyncApplying,
     // damit die Welt-Sync-Hooks (Inventar, Welt) sie nicht als Spieleraktion melden.
     static void CoopHeroApply(const CoopHero& h) {
@@ -1440,11 +1445,71 @@ namespace GOTHIC_ENGINE {
             return;
         }
         WorldSyncApplying++;
+        // u91 (Dauerlauf u90: beim Client nach jeder Uebernahme beim ersten Ziehen ein geloeschtes Schwert in ZS_SWORD, Zaehler
+        // -998): die Uebernahme laedt den Stand des Hosts, dessen Held oft die Waffe gezogen hat. Hier wurde das Schwert aus dem
+        // Inventar genommen und geloescht, waehrend ZS_RIGHTHAND es noch hielt; beim naechsten Ziehen tauschte SetWeaponMode2 es nach
+        // ZS_SWORD. Jetzt zuerst wegstecken (die Waffe geht in ihren Inventar-Slot, UnequipItem nimmt sie dort heraus) und die Haende
+        // leeren: ein Gegenstand des Inventars in einem Slot ausserhalb des Inventars (Hand) kommt mit RemoveFromSlot(slot, 0) aus
+        // Slot und Welt (G2A 0x0074A340, G1 0x006A5F50: nur der Verweis des Slots wird frei), der des Inventars bleibt bis zum
+        // Ablegen. Allgemein.
+        const int weaponMode = player->GetWeaponMode();
+        if (weaponMode != NPC_WEAPON_NONE)
+            player->SetWeaponMode2(NPC_WEAPON_NONE);
+        int hands = 0;
+        for (int i = 0; i < player->invSlot.GetNumInList(); i++) {
+            TNpcSlot* s = player->invSlot.GetSafe(i);
+            if (!s || !s->vob || s->inInventory || !CoopInInventory(player, s->vob))
+                continue;
+#if ENGINE >= Engine_G2
+            player->RemoveFromSlot(s, FALSE, TRUE);
+#else
+            player->RemoveFromSlot(s, FALSE);
+#endif
+            hands++;
+        }
+        if (weaponMode != NPC_WEAPON_NONE || hands)
+            SaveSyncLog("eigener Held: vorher Waffe weggesteckt (Modus %d), %d Gegenstand/Gegenst\xE4nde aus den H\xE4nden", weaponMode, hands);
         std::vector<oCItem*> inv;
         CoopForEachInvItem(inv);
         for (oCItem* it : inv)
             if (it->HasFlag(ITM_FLAG_ACTIVE))
                 player->UnequipItem(it);
+        // u93 (P117, Dauerlauf u92: wieder ein geloeschtes Schwert in ZS_SWORD, Zaehler -998, beim ersten Ziehen 70 s nach einer
+        // Uebernahme - ohne gezogene Waffe und ohne Gegenstand des Inventars in den Haenden): nach dem Ablegen jeden Slot pruefen. Haelt
+        // einer noch einen Gegenstand des Inventars (Guertel, Ruecken, Schild), kommt er mit RemoveFromSlot(slot, 0) heraus (bei Inventar-
+        // Slots nimmt das das Modell vom Knoten und gibt nur den Verweis des Slots frei). Haelt eine Hand etwas, das nicht im Inventar
+        // steht (vom Helden des geladenen Stands), hielt es bis jetzt nur der Slot - SetWeaponMode2 gab es beim Ziehen frei und legte das
+        // geloeschte Objekt nach ZS_SWORD. Jetzt mit eigenem Verweis aus dem Slot nehmen und den Verweis freigeben (es bleibt, wenn noch
+        // jemand es haelt, z. B. oCNpc::interactItem - SetInteractItem zaehlt mit). Allgemein.
+        int leftInv = 0, foreign = 0;
+        std::string slotsText;
+        for (int i = 0; i < player->invSlot.GetNumInList(); i++) {
+            TNpcSlot* s = player->invSlot.GetSafe(i);
+            if (!s || !s->vob)
+                continue;
+            zCVob* v = s->vob;
+            const bool mine = CoopInInventory(player, v);
+            if (!mine && s->inInventory)
+                continue;   // kein Gegenstand des Inventars in einem Inventar-Slot - bleibt
+            if (slotsText.size() < 300)
+                slotsText += (slotsText.empty() ? "" : ", ") + std::string(s->name.ToChar()) + "=" + CoopVobLabel(v) + (mine ? "" : " (nicht im Inventar)");
+            if (!mine)
+                v->AddRef();
+#if ENGINE >= Engine_G2
+            player->RemoveFromSlot(s, FALSE, TRUE);
+#else
+            player->RemoveFromSlot(s, FALSE);
+#endif
+            if (mine)
+                leftInv++;
+            else {
+                v->Release();
+                foreign++;
+            }
+        }
+        if (leftInv || foreign)
+            SaveSyncLog("eigener Held: nach dem Ablegen %d Gegenstand/Gegenst\xE4nde des Inventars und %d fremde noch in Slots (%s) - herausgenommen",
+                leftInv, foreign, slotsText.c_str());
         CoopForEachInvItem(inv);
         int removed = 0;
         for (oCItem* it : inv) {
@@ -1508,6 +1573,7 @@ namespace GOTHIC_ENGINE {
         SaveSyncLog("eigener Held: %s, %d Heldenwerte in Skriptvariablen", h.hasHit ? "Trefferchancen" : "keine Trefferchancen (alter Stand)", hv);
 #endif
         WorldSyncApplying--;
+        CoopMissionReset(3000);   // u96: der eigene Held kam mit seinen Missions-Gegenstaenden zurueck - nicht als Aenderung spiegeln
 
         CoopLookApplyOwn("eigener Held wiederhergestellt");   // v55: gewaehltes Aussehen (CoopLook.cpp)
 
@@ -1573,7 +1639,25 @@ namespace GOTHIC_ENGINE {
     // OTHELLO_SAVEGAME_LOAD (u5: ohne Othello SAVEGAME_LOAD) schliessen, CGameManager::Menu laedt dann. CoopActiveRemoteSid bleibt
     // bis Game_LoadBegin gesetzt.
     bool CoopLobbyLoadFromMenu(int slot);
+    bool CoopIngameMenuLoad(int slot);   // u91: CoopMenuLobby.cpp - im Spiel bei totem Helden ueber das Menue laden
     static bool CoopMenuLoadDeferred = false;
+
+    // u91 (Dauerlauf u90: beide Testinstanzen lagen ueber eine Stunde tot im Hauptmenue, jeder Ladevorgang "wartet: Menue MENU_MAIN ist
+    // offen"): die Weltgrenze (oCMagFrontier::DoCheck, G2A 0x00473740) setzt die Leben auf 0, ruft DoDie und spielt FishFood.bik
+    // mit Sitzungsende (CGameManager::PlayVideoEx, sonst setzt nur ExitSession aus B_Extro_Avi exitSession +0x18). Solange
+    // exitSession steht, ruft CGameManager::Run immer wieder Menu(0) - das Hauptmenue geht erst mit einem Ladevorgang
+    // (Read_Savegame setzt exitSession zurueck) oder einem neuen Spiel weg; Warten half nie. Gelesen im laufenden Prozess: Host
+    // und Client exitSession 1, zCMenu::inGameMenu 0. Bei totem Helden ist Laden ohnehin der einzige Weg. Allgemein (G1 kennt
+    // exitSession nicht, dort nur der tote Held).
+    static bool CoopHeroOut() {
+        if (!player)
+            return false;
+#if ENGINE >= Engine_G2
+        if (gameMan && gameMan->exitSession)
+            return true;
+#endif
+        return player->IsDead() != 0;
+    }
 
     // v80: im Spiel nur laden, wenn kein Menue laeuft. Game_Loop (und damit dieser Takt) laeuft auch bei offenem Spielmenue
     // (Esc-Menue, Tagebuch, Ladefenster - Sicherung 1408 s im Lademenue, Test 21.10.). Test v79: im offenen Tagebuch aus der
@@ -1587,6 +1671,13 @@ namespace GOTHIC_ENGINE {
     // (oCInformationManager::Exit wie der Dialog-Waechter) und laedt 0,7 s spaeter (Kamera zurueck). Allgemein.
     static long long CoopLoadDialogWaitMs = 0;
     static long long CoopLoadDialogExitMs = 0;
+    // u100 (P122, Dauerlauf u97: der Host hing bei Lobart, 16-mal "lade gemeinsam", keiner kam durch): Exit (G2A 0x00661240,
+    // G1 0x0072C530) setzt nur IsWaitingForEnd (+0x30) - zu Ende ist der Dialog erst, wenn Update beide Seiten fertig sieht und
+    // OnTermination ruft (G2A 0x006631A0, G1 0x0072E430: Kamera zurueck, Bewegungssperre weg, Npc/Player leer, IsDone +0x2C). Beim
+    // NPC stand hinter EV_PROCESSINFOS ein EV_LOOKAT, das nie fertig wurde - der Dialog endete nie, dieser Ladevorgang und jeder
+    // weitere wartete fuer immer. Jetzt: endet er 5 s nach Exit nicht, beendet GT ihn selbst (OnTermination); haengt er auch 5 s
+    // danach noch, wird trotzdem geladen (das Laden verwirft die Welt). Allgemein (G1/G2).
+    static long long CoopLoadDialogTermMs = 0;
     // v101 (Durchsicht v90): ein Ladevorgang, der waehrend des Wartens wegfiel (Verbindung weg, Auftrag ueberholt), liess die
     // Zeiten stehen - der naechste Ladevorgang in einem Dialog haette ihn sofort beendet statt 15 s zu warten. Jeder Ladevorgang
     // fragt hier in jedem Bild; laenger als 2 s keine Frage = neuer Ladevorgang, Zeiten zuruecksetzen.
@@ -1594,9 +1685,20 @@ namespace GOTHIC_ENGINE {
 
     static bool CoopLoadBlockedByMenu(const char* what) {
         if (CurrentMs - CoopLoadBlockAskMs > 2000)
-            CoopLoadMenuWaitMs = CoopLoadDialogWaitMs = CoopLoadDialogExitMs = 0;
+            CoopLoadMenuWaitMs = CoopLoadDialogWaitMs = CoopLoadDialogExitMs = CoopLoadDialogTermMs = 0;
         CoopLoadBlockAskMs = CurrentMs;
         zCMenu* menu = player ? zCMenu::GetActive() : NULL;
+        if (menu && CoopHeroOut()) {   // u91: nicht warten - CoopDoLoad laedt ueber das Menue
+#if ENGINE >= Engine_G2
+            const bool ended = gameMan && gameMan->exitSession;
+#else
+            const bool ended = false;
+#endif
+            SaveSyncLog("%s: %s, Men\xFC %s offen - lade \xFC" "ber das Men\xFC%s", what, player->IsDead() ? "Held tot" : "Held lebt",
+                menu->name.ToChar(), ended ? " (Sitzung beendet)" : "");
+            CoopLoadMenuWaitMs = CoopLoadDialogWaitMs = CoopLoadDialogExitMs = CoopLoadDialogTermMs = 0;
+            return false;
+        }
         if (!menu) {
             if (CoopLoadMenuWaitMs) {
                 SaveSyncLog("%s: Menue zu - lade jetzt (nach %lld s Warten)", what, (CurrentMs - CoopLoadMenuWaitMs) / 1000);
@@ -1624,15 +1726,35 @@ namespace GOTHIC_ENGINE {
                 CoopLoadDialogExitMs = CurrentMs;
                 SaveSyncLog("%s: Dialog nach 15 s beendet (Exit) - lade gleich", what);
             }
+            else if (CoopLoadDialogExitMs && !CoopLoadDialogTermMs && CurrentMs > CoopLoadDialogExitMs + 5000) {   // u100 (P122)
+                CoopLoadDialogTermMs = CurrentMs;
+                char npc[64] = "-";
+                if (im.Npc)
+                    CDiagName(im.Npc, npc, sizeof(npc));
+                zCEventManager* em = im.Npc ? im.Npc->GetEM(0) : NULL;
+                const bool term = !im.IsDone && im.Npc && im.Player;
+                SaveSyncLog("%s: Dialog endet auch 5 s nach Exit nicht (NPC %s, %d Nachrichten, IsDone %d, WartetEnde %d, Kamera %s) - %s", what,
+                    npc, em ? em->GetNumMessages() : -1, im.IsDone, im.IsWaitingForEnd, ogame->GetCameraAI()->GetMode().ToChar(),
+                    term ? "beendet (OnTermination)" : "warte noch 5 s");
+                if (term)
+                    im.OnTermination();
+            }
+            else if (CoopLoadDialogTermMs && CurrentMs > CoopLoadDialogTermMs + 5000) {   // u100: auch das half nicht - trotzdem laden
+                SaveSyncLog("%s: Dialog bzw. Dialog-Kamera auch 5 s nach OnTermination noch (IsDone %d, Kamera %s) - lade trotzdem", what,
+                    im.IsDone, ogame->GetCameraAI()->GetMode().ToChar());
+                CoopLoadDialogWaitMs = CoopLoadDialogExitMs = CoopLoadDialogTermMs = 0;
+                return false;
+            }
             return true;
         }
-        if (CoopLoadDialogExitMs && CurrentMs < CoopLoadDialogExitMs + 700)
+        if ((CoopLoadDialogExitMs && CurrentMs < CoopLoadDialogExitMs + 700) || (CoopLoadDialogTermMs && CurrentMs < CoopLoadDialogTermMs + 700))
             return true;   // nach dem Beenden die Kamera erst zurueckkehren lassen
         if (CoopLoadDialogWaitMs) {
-            SaveSyncLog("%s: Dialog vorbei - lade jetzt (nach %lld s Warten)", what, (CurrentMs - CoopLoadDialogWaitMs) / 1000);
+            SaveSyncLog("%s: Dialog vorbei - lade jetzt (nach %lld s Warten%s)", what, (CurrentMs - CoopLoadDialogWaitMs) / 1000,
+                CoopLoadDialogTermMs ? ", von GT beendet" : "");
             CoopLoadDialogWaitMs = 0;
         }
-        CoopLoadDialogExitMs = 0;
+        CoopLoadDialogExitMs = CoopLoadDialogTermMs = 0;
         return false;
     }
 
@@ -1644,6 +1766,13 @@ namespace GOTHIC_ENGINE {
         CoopMenuLoadDeferred = CoopLobbyLoadFromMenu(slot);
         if (CoopMenuLoadDeferred)
             return;
+        // u91: Menue offen geht hier nur bei totem Helden bzw. beendeter Sitzung (CoopLoadBlockedByMenu) - nicht in der
+        // Menue-Schleife laden (v80), sondern das Menue mit SAVEGAME_LOAD schliessen wie ein Spieler; CGameManager::Menu laedt
+        if (player && zCMenu::GetActive() && CoopHeroOut()) {
+            CoopMenuLoadDeferred = CoopIngameMenuLoad(slot);
+            if (CoopMenuLoadDeferred)
+                return;
+        }
         gameMan->Read_Savegame(slot);
     }
 
@@ -4285,6 +4414,7 @@ namespace GOTHIC_ENGINE {
                 SaveSyncLog("Auto-Sicherung verschoben: Host beschaeftigt (%s) - neuer Versuch in 1 Minute", why.c_str());
                 return;
             }
+            CoopAutoSaveFaelligMs = CurrentMs;   // u105 (Testlauf)
             CoopCheckStart(1);   // erst alle Clients fragen
             return;
         }
@@ -4293,6 +4423,9 @@ namespace GOTHIC_ENGINE {
         CoopSavingForAuto = true;
         CoopDoSave(slot, "Coop " + CoopNowText("time"));
         CoopSavingForAuto = false;
+        CoopAutoSaveZahl++;
+        CoopAutoSaveSlot = slot;
+        SaveSyncLog("Auto-Sicherung (alle %d min) in Slot %d - %lld ms nach der Faelligkeit", autoMin, slot, CurrentMs - CoopAutoSaveFaelligMs);
     }
 
     // u30: Testsicherung des Coop-Testlaufs (CoopSaveSyncTestSave) - wie jede Sicherung am Ende des Bilds; ist der Held gerade
@@ -4653,6 +4786,20 @@ namespace GOTHIC_ENGINE {
         return CoopReadMeta(CoopSlotDir(slot), m) ? m.sid : std::string();
     }
 
+    // u105 (Testlauf P127): letzte Sicherung vor ms - die Auto-Sicherung vergleicht ab dem naechsten Bild mit ihrem Intervall
+    void CoopSaveSyncTestAutoAgo(int ms) {
+        CoopLastSaveMs = CurrentMs - ms;
+        CoopNextAutoTryMs = 0;
+    }
+
+    // Auto-Sicherungen bisher, Slot der letzten, wann sie faellig wurde (CurrentMs); frei: keine Sicherung bzw. Uebernahme offen
+    void CoopSaveSyncTestAutoInfo(int& zahl, int& slot, long long& faelligMs, bool& frei) {
+        zahl = CoopAutoSaveZahl;
+        slot = CoopAutoSaveSlot;
+        faelligMs = CoopAutoSaveFaelligMs;
+        frei = PendingArchiveSlot < 0 && RemoteSaveQueue.empty() && !CoopHostSyncPending && !TakeJob.active && CoopCheckKind == 0;
+    }
+
     // u39 (Coop-Testlauf, Weltstand-Tausch): CRC32 und Groesse der Weltdatei einer Welt (NEWWORLD.SAV) in einem Slot bzw. (slot < 0)
     // in Saves\current; false = Datei fehlt
     bool CoopSaveSyncWorldFileCrc(int slot, const std::string& world, unsigned& crc, long long& size) {
@@ -4670,7 +4817,7 @@ namespace GOTHIC_ENGINE {
         return (int)WxQueue.size();
     }
 
-    // u57 (Dauertest: Bot tot ohne eigene Bot-Sicherung): neuester Slot mit einer gemeinsamen Sicherung (Coop-Kennung), -1 = keiner
+    // u57 (Dauertest: Testinstanz tot ohne eigene Test-Sicherung): neuester Slot mit einer gemeinsamen Sicherung (Coop-Kennung), -1 = keiner
     int CoopSaveSyncNewestSlot() {
         int best = -1;
         long long bestT = 0;
@@ -5108,6 +5255,8 @@ namespace GOTHIC_ENGINE {
     void CoopSaveSyncSkipConnectTake() {}
     void CoopSaveSyncPeersReset() {}
     std::string CoopSaveSyncSlotSid(int) { return std::string(); }
+    void CoopSaveSyncTestAutoAgo(int) {}   // u105
+    void CoopSaveSyncTestAutoInfo(int& zahl, int& slot, long long& faelligMs, bool& frei) { zahl = 0; slot = -1; faelligMs = 0; frei = true; }
     bool CoopSaveSyncWorldFileCrc(int, const std::string&, unsigned& crc, long long& size) { crc = 0; size = 0; return false; }   // u39
     int CoopSaveSyncWxPending() { return 0; }
     std::string CoopSaveSyncMyPc() { return std::string(); }   // u55

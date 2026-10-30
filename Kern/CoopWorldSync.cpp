@@ -81,9 +81,21 @@ namespace GOTHIC_ENGINE {
     };
     static std::map<oCItem*, CoopWorldGone> RecentWorldRemovals;   // je mit AddRef gehalten
     static std::map<oCItem*, long long> ReportedStillInWorld;      // schon gemeldet, Entfernen folgt noch (AddRef)
+    // u70 (Dauertest u67: "HOST nahm ITPL_MUSHROOM_01 bei 31335_3889_-20391 - hier nicht gefunden", 30 min spaeter nahm der Client
+    // genau dort einen Pilz, den es beim Host nicht mehr gab - doppelt): Entfernungen, die hier nicht gleich gingen (inst, Lage,
+    // bis wann) - der Gegenstand kann spaeter auftauchen (eben geladen, noch nicht "frei"). Alle 2 s neu suchen, 2 min lang;
+    // Laden leert die Liste (danach gleicht der Weltbestand ab)
+    struct CoopPendingGone {
+        std::string inst, by;
+        zVEC3 pos;
+        long long sinceMs = 0;
+    };
+    static std::vector<CoopPendingGone> PendingGone;
+    static long long PendingGoneCheckMs = 0;
     static std::map<oCMobContainer*, CoopBestand> ChestDirty;      // Truhe ohne Oeffnen veraendert: Stand vorher
     static int ChestHookDepth = 0;
     static int WorldSyncApplying = 0;                              // > 0: eigene Aenderung, nicht melden
+    static oCMobContainer* CoopTruheObj = NULL;                    // u97: gemeinsame Coop-Truhe (CoopTruhe.cpp) - keine Welt-Truhe
     static unsigned long WorldSyncDiagLines = 0;
 
     // v15: Pluendern toter/bewusstloser NPCs. Gezaehlt wird, was in diesem Frame aus ihrem Inventar
@@ -284,8 +296,18 @@ namespace GOTHIC_ENGINE {
         return BestandText(d);
     }
 
+    // u98 (P120): Gegenstand aus einer Truhe nehmen und freigeben. Nicht oCMobContainer::Remove (G2A 0x00725FF0, G1 0x00683EB0):
+    // das gibt ihn zwar frei, legt ihn aber vorher ueber oCWorld::InsertVobInWorld in die Listen der Welt (voblist und
+    // voblist_items, je mit eigenem Verweis) - wer ihn nicht gleich in ein Inventar oder die Welt legt, laesst ihn dort liegen, bis
+    // die Welt verworfen wird (Befund u97, Disassembly beider Engines). Hier nur aus containList (der Knoten wie in Remove ueber
+    // Gothics Speicher-Pool) und den Verweis der Truhe frei - die Haken auf Remove sehen das nicht. Allgemein (G1/G2).
+    static void CoopChestDropItem(oCMobContainer* c, oCItem* it) {
+        c->containList.Remove(it);
+        it->Release();
+    }
+
     // Menge einer Instanz in der Truhe um delta aendern. Rueckgabe: tatsaechlich geaenderte Menge.
-    // Remove(oCItem*) gibt den Gegenstand selbst frei (Release), Insert nimmt eine Referenz.
+    // Insert nimmt eine Referenz, CoopChestDropItem gibt sie frei (u98: bis u97 Remove - siehe dort).
     static int ChestAdjustRaw(oCMobContainer* c, const std::string& inst, int delta);
     static int ChestAdjust(oCMobContainer* c, const std::string& inst, int delta) {
         WorldSyncApplying++;   // die eigenen Insert/Remove nicht als Quickloot melden
@@ -312,7 +334,7 @@ namespace GOTHIC_ENGINE {
                 }
                 else {
                     need -= a;
-                    c->Remove(it);
+                    CoopChestDropItem(c, it);   // u98 (P120): nicht Remove - kein Rest in den Listen der Welt
                 }
             }
             return -delta - need;
@@ -1118,8 +1140,16 @@ namespace GOTHIC_ENGINE {
                 if (n)
                     WorldSyncLog("%s nahm %s bei %s - lag hier nicht am Boden, aus der Leiche %s entfernt (%d/%d)",
                         by.c_str(), inst.c_str(), CoopPosKey(p).c_str(), who.c_str(), n, amount);
-                else
-                    WorldSyncLog("%s nahm %s bei %s - hier nicht gefunden", by.c_str(), inst.c_str(), CoopPosKey(p).c_str());
+                else {
+                    WorldSyncLog("%s nahm %s bei %s - hier nicht gefunden, suche 2 min weiter", by.c_str(), inst.c_str(), CoopPosKey(p).c_str());
+                    CoopPendingGone g;   // u70
+                    g.inst = inst;
+                    g.by = by;
+                    g.pos = p;
+                    g.sinceMs = CurrentMs;
+                    if (PendingGone.size() < 200)
+                        PendingGone.push_back(g);
+                }
                 break;
             }
             case SYNC_ITEM_BULK:
@@ -1206,6 +1236,7 @@ namespace GOTHIC_ENGINE {
         ChestOpenSnapshot.clear();
         ChestPendingDiffs.clear();
         ItemBulk = CoopItemBulk();
+        PendingGone.clear();   // u70: der geladene Stand gilt, der Weltbestand gleicht gleich ab
         WorldRequestSent = false;
         WorldLoadedMs = GetCurrentMs();
         WorldBulkAtMs = ServerThread ? WorldLoadedMs + 3000 : 0;
@@ -1243,6 +1274,20 @@ namespace GOTHIC_ENGINE {
         }
         FlushChestDirty();
         FlushNpcLoot();
+        if (!PendingGone.empty() && CurrentMs >= PendingGoneCheckMs && !IsLoadingLevel) {   // u70: verspaetete Entfernungen
+            PendingGoneCheckMs = CurrentMs + 2000;
+            for (size_t i = PendingGone.size(); i-- > 0;) {
+                const CoopPendingGone& g = PendingGone[i];
+                oCItem* it = FindLooseItem(g.inst, g.pos, 200.f);
+                if (it) {
+                    RemoveWorldItem(it);
+                    WorldSyncLog("%s nahm %s bei %s - hier nachtraeglich entfernt (%lld s nach der Meldung)", g.by.c_str(), g.inst.c_str(),
+                        CoopPosKey(g.pos).c_str(), (CurrentMs - g.sinceMs) / 1000);
+                }
+                if (it || CurrentMs > g.sinceMs + 120000)
+                    PendingGone.erase(PendingGone.begin() + i);
+            }
+        }
         if (ClientThread && !WorldRequestSent && CurrentMs > WorldLoadedMs + 3000) {
             json j;
             WorldSyncSend(j, SYNC_WORLD_REQUEST);
@@ -1263,7 +1308,7 @@ namespace GOTHIC_ENGINE {
     void __fastcall oCMobContainer_Open_Coop(oCMobContainer* _this, void* vtable, oCNpc* npc) {
         const bool warOffen = _this && _this->items;
         Ivk_oCMobContainer_Open_Coop(_this, npc);
-        if (_this && !warOffen && _this->items && npc && npc == player && WorldSyncAktiv())
+        if (_this && _this != CoopTruheObj && !warOffen && _this->items && npc && npc == player && WorldSyncAktiv())   // u97
             ChestOpenedLocal(_this);
     }
 
@@ -1271,7 +1316,7 @@ namespace GOTHIC_ENGINE {
     CInvoke<void(__thiscall*)(oCMobContainer*, oCNpc*)> Ivk_oCMobContainer_Close_Coop(CoopAddr::oCMobContainer_Close, &oCMobContainer_Close_Coop, COOP_IVK(World));
     void __fastcall oCMobContainer_Close_Coop(oCMobContainer* _this, void* vtable, oCNpc* npc) {
         Ivk_oCMobContainer_Close_Coop(_this, npc);
-        if (_this && npc && npc == player)
+        if (_this && _this != CoopTruheObj && npc && npc == player)   // u97: die Coop-Truhe gleicht CoopTruhe.cpp ab
             ChestClosedLocal(_this);
     }
 
@@ -1338,6 +1383,10 @@ namespace GOTHIC_ENGINE {
     void __fastcall oCMobContainer_Insert_Coop(oCMobContainer* _this, void* vtable, oCItem* item);
     CInvoke<void(__thiscall*)(oCMobContainer*, oCItem*)> Ivk_oCMobContainer_Insert_Coop(CoopAddr::oCMobContainer_Insert, &oCMobContainer_Insert_Coop, COOP_IVK(World));
     void __fastcall oCMobContainer_Insert_Coop(oCMobContainer* _this, void* vtable, oCItem* item) {
+        if (_this && _this == CoopTruheObj) {   // u97
+            Ivk_oCMobContainer_Insert_Coop(_this, item);
+            return;
+        }
         ChestChangeBegin(_this);
         Ivk_oCMobContainer_Insert_Coop(_this, item);
         ChestChangeEnd();
@@ -1346,6 +1395,10 @@ namespace GOTHIC_ENGINE {
     void __fastcall oCMobContainer_Remove_Coop(oCMobContainer* _this, void* vtable, oCItem* item);
     CInvoke<void(__thiscall*)(oCMobContainer*, oCItem*)> Ivk_oCMobContainer_Remove_Coop(CoopAddr::oCMobContainer_Remove, &oCMobContainer_Remove_Coop, COOP_IVK(World));
     void __fastcall oCMobContainer_Remove_Coop(oCMobContainer* _this, void* vtable, oCItem* item) {
+        if (_this && _this == CoopTruheObj) {   // u97
+            Ivk_oCMobContainer_Remove_Coop(_this, item);
+            return;
+        }
         ChestChangeBegin(_this);
         Ivk_oCMobContainer_Remove_Coop(_this, item);
         ChestChangeEnd();
@@ -1354,6 +1407,8 @@ namespace GOTHIC_ENGINE {
     oCItem* __fastcall oCMobContainer_RemoveN_Coop(oCMobContainer* _this, void* vtable, oCItem* item, int n);
     CInvoke<oCItem*(__thiscall*)(oCMobContainer*, oCItem*, int)> Ivk_oCMobContainer_RemoveN_Coop(CoopAddr::oCMobContainer_RemoveN, &oCMobContainer_RemoveN_Coop, COOP_IVK(World));
     oCItem* __fastcall oCMobContainer_RemoveN_Coop(oCMobContainer* _this, void* vtable, oCItem* item, int n) {
+        if (_this && _this == CoopTruheObj)   // u97
+            return Ivk_oCMobContainer_RemoveN_Coop(_this, item, n);
         ChestChangeBegin(_this);
         oCItem* r = Ivk_oCMobContainer_RemoveN_Coop(_this, item, n);
         ChestChangeEnd();

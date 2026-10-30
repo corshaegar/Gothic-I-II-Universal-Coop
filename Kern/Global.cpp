@@ -72,6 +72,8 @@ namespace GOTHIC_ENGINE {
     // v52: Glaetten beim Empfaenger (RemoteNpc.cpp, nur Hauptfaden): Bilder mit geglaetteter Lage, harte Spruenge
     static unsigned long CoopSmoothSteps = 0;
     static unsigned long CoopSmoothSnaps = 0;
+    static unsigned long CoopSmoothSlides = 0;   // u72: 3-8 m weich nachgezogen statt hart gesetzt
+    static unsigned long CoopSmoothStuck = 0;    // u74: harter Sprung griff 0,5 s lang nicht (NPC blieb stehen)
     static unsigned long CoopNetRecvQueueMax = 0;   // v52: empfangene Ereignisse, die auf den Hauptfaden warteten (je Bild)
 
     static void CoopNetMax(volatile LONG& slot, LONG value) {

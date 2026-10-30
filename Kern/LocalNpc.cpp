@@ -73,8 +73,14 @@ namespace GOTHIC_ENGINE {
                 this->SyncTalents();
                 //this->SyncHand();
 
+                // u69 (Dauertest u65/u67: Pruefrunde "Spieltag und Uhrzeit gleich" bis 24 Spielminuten auseinander): nach einem
+                // gemeinsamen Laden ist der Client spaeter fertig (er holt den Stand vom Host) - seine Uhr stand bis zum naechsten Paket
+                // auf der Zeit des Spielstands, und im Gespraech uebernimmt er sie nicht. Alle 60 s waren bei x1 bis 8 Spielminuten, bei
+                // schnellerer Spielzeit mehr. Jetzt alle 10 s (das Paket sind drei Zahlen). Allgemein (G1/G2).
+                // u83 (Nutzer: "die Uhrzeit des Clients tatsaechlich mit dem Host synchronisieren"): jede Sekunde, mit der genauen
+                // Spielzeit (worldTime) - der Client uebernimmt sie, statt dazwischen frei zu laufen (Helpers.cpp CoopApplyHostTime)
                 if (ServerThread) {
-                    if (CurrentMs > lastTimeSyncTime + 60000) {
+                    if (CurrentMs > lastTimeSyncTime + 1000) {
                         this->SyncTime();
                         lastTimeSyncTime = CurrentMs;
                     }
@@ -614,6 +620,8 @@ namespace GOTHIC_ENGINE {
                     j["d"] = day;   // u51: Spieltag mit (CoopApplyHostTime, Helpers.cpp)
                     j["h"] = h;
                     j["m"] = m;
+                    if (oCWorldTimer* t = ogame->GetWorldTimer())
+                        j["t"] = t->worldTime;   // u83: genaue Spielzeit
                     break;
                 }
                 case SYNC_REVIVED:

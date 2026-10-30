@@ -1389,6 +1389,13 @@ namespace GOTHIC_ENGINE {
     CInvoke<int(__thiscall*)(oCNpc*, zCVob*)> Ivk_oCNpc_DoDropVob(0x006A10F0, &oCNpc_DoDropVob);
 #endif
     int __fastcall oCNpc_DoDropVob(oCNpc* _this, void* vtable, zCVob* vob) {
+        // u88 (P112): geloeschter Gegenstand (Dauerlauf u87: Host hing im Fenster "An Assertion Failed") - ausgelassen, Slot frei
+        if (vob && !CoopSlotVobAlive(_this, vob, "DoDropVob"))
+            return FALSE;
+        // u90 (P114): eigener Verweis waehrend DoDropVob - ein Gegenstand mit zu niedrigem Zaehler starb sonst mitten darin
+        // (Dauerlauf u87/u88: AddVob an einem geloeschten Objekt -> Fenster "An Assertion Failed"); Freigabe nur, wenn danach noch
+        // jemand haelt (Helpers.cpp)
+        CoopDropHold(_this, vob, "DoDropVob");
         if (Myself && _this && _this->IsAPlayer() && vob && (!_this->IsDead() && !_this->IsUnconscious()))
         {
             if (auto pItem = vob->CastTo<oCItem>())
@@ -1399,11 +1406,15 @@ namespace GOTHIC_ENGINE {
                 Myself->itemDropReady = true;
                 Myself->SyncOnDropItem();
 
-                return Ivk_oCNpc_DoDropVob(_this, vob);
+                const int r = Ivk_oCNpc_DoDropVob(_this, vob);
+                CoopVobPartsLearn(vob);   // u89
+                CoopDropRelease(_this, vob, "DoDropVob");
+                return r;
             }
         }
 
         auto dropResult = Ivk_oCNpc_DoDropVob(_this, vob);
+        CoopVobPartsLearn(vob);   // u89 (P113): die neue Fall-AI (oCAIVobMove) gilt als bekannt
 
         if (_this && vob && IsCoopPlayer(_this->GetObjectName())) {
             if (auto pItem = vob->CastTo<oCItem>())
@@ -1414,6 +1425,7 @@ namespace GOTHIC_ENGINE {
             }
         }
 
+        CoopDropRelease(_this, vob, "DoDropVob");
         return dropResult;
     }
 }

@@ -33,6 +33,7 @@ namespace GOTHIC_ENGINE {
         int tries = 0;
         long long runEndMs = 0, connectedMs = 0;
         std::string result;         // eigene Ergebniszeile
+        bool guilds = false;        // u86: -cooptest:<Rolle>:<Slot>:gilden - Gilden-Testlauf (P110) statt des Welten-Testlaufs
         HANDLE clientProc = NULL, clientJob = NULL;
         long long clientStartMs = 0;
         bool menuStarted = false;
@@ -57,8 +58,13 @@ namespace GOTHIC_ENGINE {
             CA.role = 2;
             c += 6;
         }
-        if (CA.role && *c == ':' && atoi(c + 1) > 0)
+        if (CA.role && *c == ':' && atoi(c + 1) > 0) {
             CA.slot = atoi(c + 1);
+            const char* m = c + 1;
+            while (*m >= '0' && *m <= '9')
+                m++;
+            CA.guilds = !_strnicmp(m, ":gilden", 7);
+        }
         return CA.role;
     }
 
@@ -155,7 +161,8 @@ namespace GOTHIC_ENGINE {
         const std::string dir = c + "\\system";
         const std::string exe = dir + "\\" + WpExeName();
         char cmd[2048];
-        _snprintf(cmd, sizeof(cmd), "\"%s\" -cooptest:client:%d -zwindow -zres:960,540,32 -znosound -znomusic%s", exe.c_str(), CA.slot, pass.c_str());
+        _snprintf(cmd, sizeof(cmd), "\"%s\" -cooptest:client:%d%s -zwindow -zres:960,540,32 -znosound -znomusic%s", exe.c_str(), CA.slot,
+            CA.guilds ? ":gilden" : "", pass.c_str());
         cmd[sizeof(cmd) - 1] = 0;
         // derselbe Desktop wie der Host (tools\cooptest_lauf.py: eigener Desktop "GothicCoopTest")
         char desk[256] = "";
@@ -345,7 +352,8 @@ namespace GOTHIC_ENGINE {
             break;
         case CA_HOSTING:
             if (settled) {
-                CoopAutoLog("Partner da (%s) - starte den Welten-Testlauf", PlayerNpcs.empty() ? "andere Welt" : "Figur in meiner Welt");
+                CoopAutoLog("Partner da (%s) - starte den %s", PlayerNpcs.empty() ? "andere Welt" : "Figur in meiner Welt",
+                    CA.guilds ? "Gilden-Testlauf" : "Welten-Testlauf");   // u87: auch im Gilden-Lauf stand "Welten-Testlauf"
                 CoopAutoSetPhase(CA_START_RUN);
             }
             else if (now > CA.phaseMs + 15 * 60000) {
@@ -384,13 +392,13 @@ namespace GOTHIC_ENGINE {
             break;
         case CA_WAIT_HOST_RUN:
             if (CTPartnerEndMs > CA.connectedMs && now > CTPartnerEndMs + 15000 && settled) {
-                CoopAutoLog("Host-Lauf zu Ende (%s) - starte den eigenen Welten-Testlauf", CTPartnerEndText.c_str());
+                CoopAutoLog("Host-Lauf zu Ende (%s) - starte den eigenen %s", CTPartnerEndText.c_str(), CA.guilds ? "Gilden-Testlauf" : "Welten-Testlauf");
                 CoopAutoSetPhase(CA_START_RUN);
             }
             break;
         case CA_START_RUN:
             if (CT.on) {
-                CoopAutoLog("Welten-Testlauf %s laeuft", CT.tag.c_str());
+                CoopAutoLog("%s %s laeuft", CT.guildsOnly ? "Gilden-Testlauf" : CT.checksOnly ? "Pruefrunde" : "Welten-Testlauf", CT.tag.c_str());
                 CoopAutoSetPhase(CA_RUNNING);
                 break;
             }
@@ -400,6 +408,9 @@ namespace GOTHIC_ENGINE {
                     CoopAutoExit("Testlauf startet nicht");
                     break;
                 }
+                if (CA.guilds)
+                    CoopSelfTestGuildRun();   // u86 (P110)
+                else
                     CoopSelfTestToggle(true);
             }
             break;
