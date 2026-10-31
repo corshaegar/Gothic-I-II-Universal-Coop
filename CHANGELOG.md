@@ -4,11 +4,15 @@ Projektversion (Veröffentlichung) und je Spiel/Mod die Coop-Fassung `uNN`. Vorg
 (github.com/corshaegar/Othello-Coop, 0.1.0–0.1.2, nur Othello). Die Fassungen dazwischen (u1–u61) stehen im Entwicklungsverlauf;
 hier beginnt der Verlauf mit u62.
 
-## 0.4.0 – Türen und Mechanismen gemeinsam, Weltwechsel ohne doppelte NPCs, Drachen auf beiden PCs (Gothic I u142, Gothic II u142, Othello u142)
+## 0.4.1 – Türen gemeinsam (Gothic I u143, Gothic II u143, Othello u143)
+
+- **Türen** (u143): Öffnen, Schließen und Aufschließen durch einen Helden gelten jetzt für beide. 0.4.0 nannte Türen schon, tatsächlich kam der Abgleich dort nie an: Die Engine ruft bei Türen die Funktion nicht auf, an der er hing. NPCs benutzen Türen weiter je PC, offen oder zu kann also abweichen, wenn ein NPC durchgeht.
+
+## 0.4.0 – Mechanismen gemeinsam, Weltwechsel ohne doppelte NPCs, Drachen auf beiden PCs (Gothic I u142, Gothic II u142, Othello u142; nur Tag `v0.4.0`, kein eigenes Release)
 
 **Neu**
 
-- **Mechanismen gemeinsam** (u137): Türen, Hebel, Steinplatten und Portale gelten jetzt für beide, samt den Skripten und Kamerafahrten dahinter. Bisher blieb zum Beispiel ein Portal beim Partner zu; nach dem Laden war es für beide wieder zu und der eingesetzte Gegenstand trotzdem weg. Feuerstellen bleiben je PC (u138).
+- **Mechanismen gemeinsam** (u137): Hebel, Steinplatten und Portale gelten jetzt für beide (Türen erst ab 0.4.1), samt den Skripten und Kamerafahrten dahinter. Bisher blieb zum Beispiel ein Portal beim Partner zu; nach dem Laden war es für beide wieder zu und der eingesetzte Gegenstand trotzdem weg. Feuerstellen bleiben je PC (u138).
 
 **Korrekturen**
 

@@ -1,7 +1,7 @@
-GothicCoop u142 - Gothic 1 ohne Mod (Union-Coop)
+GothicCoop u143 - Gothic 1 ohne Mod (Union-Coop)
 
 Voraussetzung: Gothic 1 (Steam/GOG, Fassung 1.08k). Union 1.0m (mit zParserExtender) liegt bei.
-Beide PCs brauchen dieselbe GothicCoop-Fassung (u142).
+Beide PCs brauchen dieselbe GothicCoop-Fassung (u143).
 
 Installation: den Inhalt dieser ZIP in den Gothic-Ordner entpacken (den Ordner, in dem "system" liegt) und
 vorhandene Dateien ersetzen. War Union noch nicht installiert: danach system\dinput.dll entfernen (der Lader von

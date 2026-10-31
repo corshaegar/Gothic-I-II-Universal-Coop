@@ -1,5 +1,5 @@
-// Generiert von tools\hooktable.py - nicht von Hand aendern (Quellen, G1-Classic-SDK, GT-Build Gothic1Coop-u138.dll).
-// 8329 Funktionsanfaenge, 58 GT-Haken, 392 von GT aufgerufene Engine-Funktionen.
+// Generiert von tools\hooktable.py - nicht von Hand aendern (Quellen, G1-Classic-SDK, GT-Build Gothic1Coop-u143.dll).
+// 8329 Funktionsanfaenge, 59 GT-Haken, 394 von GT aufgerufene Engine-Funktionen.
 static const DWORD CoopFnStarts[] = {
     0x00401260, 0x004012F0, 0x004013A0, 0x00401430, 0x00401C20, 0x00401D80, 0x00401D90, 0x00401DA0,
     0x00401DE0, 0x00401DF0, 0x00401E00, 0x00401E10, 0x00401E20, 0x00401E30, 0x00401E40, 0x00401E50,
@@ -1118,6 +1118,7 @@ static const CoopFnName CoopFnNames[] = {
     { 0x0047EC50, 0, "zCModel::GetAniIDFromAniName" },
     { 0x004988E0, 0, "zCAICamera::GetCurrent" },
     { 0x004997F0, 0, "zCAICamera::GetMode" },
+    { 0x00499910, 0, "zCAICamera::SetVob" },
     { 0x00499BC0, 0, "zCAICamera::SetTarget" },
     { 0x004B6930, 1, "zCCSCamera::Unarchive" },   // Ivk_zCCSCamera_Unarchive_Coop
     { 0x004B9E20, 1, "zCCSCamera::OnTrigger" },   // Ivk_zCCSCamera_OnTrigger_Coop
@@ -1225,6 +1226,7 @@ static const CoopFnName CoopFnNames[] = {
     { 0x00678210, 0, "oCMobContainer::_CreateNewInstance" },
     { 0x0067F300, 1, "oCMobInter::OnEndStateChange" },   // Ivk_oCMobInter_OnEndStateChange_Coop
     { 0x00681FC0, 1, "oCMobLockable::CanInteractWith" },   // Ivk_oCMobLockable_CanInteractWith_Coop
+    { 0x00682600, 1, "oCMobLockable::OnEndStateChange" },   // Ivk_oCMobLockable_OnEndStateChange_Coop
     { 0x00683E80, 1, "oCMobContainer::Insert" },   // Ivk_oCMobContainer_Insert_Coop
     { 0x00683EB0, 1, "oCMobContainer::Remove" },   // Ivk_oCMobContainer_Remove_Coop
     { 0x00683F40, 1, "oCMobContainer::Remove" },   // Ivk_oCMobContainer_RemoveN_Coop

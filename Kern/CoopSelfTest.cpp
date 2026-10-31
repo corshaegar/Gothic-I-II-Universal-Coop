@@ -1242,6 +1242,8 @@ namespace GOTHIC_ENGINE {
             x["found"] = m ? 1 : 0;
             x["s"] = m ? (int)m->state : -1;
             x["ms"] = mv ? (int)mv->moverState : -1;
+            oCMobLockable* lk = zDYNAMIC_CAST<oCMobLockable>(m);   // u143 (P144)
+            x["lk"] = lk && lk->locked ? 1 : 0;
             o["mob"] = x;
         }
         if (q.contains("items")) {
@@ -4106,6 +4108,74 @@ namespace GOTHIC_ENGINE {
     static bool JMobOff(const json& pre, const json& post, std::string& d) { return CTJudgeMob(pre, post, 0, d, -1, -1); }
     static bool JMobOn2(const json& pre, const json& post, std::string& d) { return CTJudgeMob(pre, post, 1, d, zCMover::MOVER_STATE_CLOSING, zCMover::MOVER_STATE_CLOSED); }
 
+    // u143 (P144): Tuer auf dem Weg des Spielers, ueber oCMobLockable::OnEndStateChange. Die fernste unverschlossene Tuer ohne Ziel und Skript: auf, zu, abgeschlossen
+    // geoeffnet, aufgeschlossen geschlossen - danach ist alles wie vorher
+    static oCMobDoor* CTDoor = NULL;
+    static zVEC3 CTDoorPos;
+
+    static bool PDoorNew(std::string& why) {
+        CTDoor = NULL;
+        if (!CoopRuleWorld() && !CoopRuleQuests()) {
+            why = "Abgleich Quests und Gegenstaende/Truhen aus";
+            return false;
+        }
+        zCArray<zCVob*> mobs;
+        ogame->GetGameWorld()->SearchVobListByClass(oCMobDoor::classDef, mobs, NULL);
+        float best = -1.f;
+        for (int i = 0; i < mobs.GetNumInList(); i++) {
+            oCMobDoor* m = zDYNAMIC_CAST<oCMobDoor>(mobs.GetSafe(i));
+            if (!m || m->locked || m->state != 0 || m->npcsCurrent > 0 || !m->triggerTarget.IsEmpty() || !m->onStateFuncName.IsEmpty() || !m->conditionFunc.IsEmpty())
+                continue;
+            const float d = CoopDist(m->GetPositionWorld(), player->GetPositionWorld());
+            if (d > best) {
+                best = d;
+                CTDoor = m;
+                CTDoorPos = m->GetPositionWorld();
+            }
+        }
+        if (!CTDoor) {
+            why = "keine freie Tuer in dieser Welt";
+            return false;
+        }
+        return true;
+    }
+
+    static bool PDoorAgain(std::string& why) {
+        if (!CTDoor || zDYNAMIC_CAST<oCMobDoor>(FindMob(CTDoorPos)) != CTDoor) {
+            why = "keine Tuer aus dem Schritt davor";
+            return false;
+        }
+        return true;
+    }
+
+    static json QDoor() { json q; q["mob"]["p"] = CTVec(CTDoorPos); q["mob"]["z"] = ""; return q; }
+
+    static bool CTDoorUse(int from, int to, int locked) {
+        CTDoor->locked = locked;
+        CTDoor->state_target = to;
+        CTDoor->OnEndStateChange(player, from, to);
+        CTDoor->state = to;
+        return true;
+    }
+
+    static bool ADoorOpen(std::string&) { return CTDoorUse(0, 1, FALSE); }
+    static bool ADoorClose(std::string&) { return CTDoorUse(1, 0, FALSE); }
+    static bool ADoorLocked(std::string&) { return CTDoorUse(0, 1, TRUE); }
+
+    static bool CTJudgeDoor(const json& pre, const json& post, int s, int lk, std::string& d) {
+        if (CTInt(post, "mob", "found") != 1) {
+            d = "Partner findet die Tuer nicht";
+            return false;
+        }
+        const int a = CTInt(pre, "mob", "s"), b = CTInt(post, "mob", "s"), l0 = CTInt(pre, "mob", "lk"), l1 = CTInt(post, "mob", "lk");
+        d = CTFmt("Tuer %s beim Partner: Zustand %d -> %d (soll %d), verschlossen %d -> %d (soll %d)", CoopPosKey(CTDoorPos).c_str(), a, b, s, l0, l1, lk);
+        return b == s && l1 == lk;
+    }
+
+    static bool JDoorOpen(const json& pre, const json& post, std::string& d) { return CTJudgeDoor(pre, post, 1, 0, d); }
+    static bool JDoorClose(const json& pre, const json& post, std::string& d) { return CTJudgeDoor(pre, post, 0, 0, d); }
+    static bool JDoorLocked(const json& pre, const json& post, std::string& d) { return CTJudgeDoor(pre, post, 1, 1, d); }
+
     // Skript und Kamera in der Kette: am Portal in NEWWORLD (G2A), dessen Skript B_ADDON_PORTAL_ACTIVATED leer ist. Ohne Haken lief hier die
     // Kamerafahrt, sonst geschieht nichts
     static oCTriggerScript* CTChainScript = NULL;
@@ -5588,6 +5658,10 @@ namespace GOTHIC_ENGINE {
         { "Mechanismus: Hebel aus",              "P134",   2500, 0,           PMobAgain,   QMob,       AMobOff,     JMobOff,     NULL },
         { "Mechanismus: Hebel an, Tor geht zu",  "P134",   2500, 0,           PMobAgain,   QMob,       AMobOn,      JMobOn2,     NULL },
         { "Mechanismus: Hebel wieder aus",       "P134",   2500, 0,           PMobAgain,   QMob,       AMobOff,     JMobOff,     NULL },
+        { "Mechanismus: Tuer auf",               "P144",   2500, 0,           PDoorNew,    QDoor,      ADoorOpen,   JDoorOpen,   NULL },      // u143
+        { "Mechanismus: Tuer zu",                "P144",   2500, 0,           PDoorAgain,  QDoor,      ADoorClose,  JDoorClose,  NULL },
+        { "Mechanismus: Tuer abgeschlossen auf", "P144",   2500, 0,           PDoorAgain,  QDoor,      ADoorLocked, JDoorLocked, NULL },
+        { "Mechanismus: Tuer aufgeschlossen zu", "P144",   2500, 0,           PDoorAgain,  QDoor,      ADoorClose,  JDoorClose,  NULL },
         { "Mechanismus: Skript und Kamera nur beim Benutzer", "P134", 100, CTF_ONCE, PMobChain, QBase,  AMobChain,   JMobChain,   NULL },
         { "Alle Mechanismen der Welt gleich",    "P134",    300, CTF_ONCE,    PWorld,      QDigMobs,   ANone,       JDigMobs,    NULL },
         { "Gegenstaende am Boden um mich",       "E4",      300, CTF_ONCE,           PWorld,      QDigLoose,  ANone,       JDigLoose,   NULL },

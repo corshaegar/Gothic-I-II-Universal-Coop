@@ -1742,17 +1742,31 @@ namespace GOTHIC_ENGINE {
         return Ivk_oCMobLockable_CanInteractWith_Coop(_this, npc);
     }
 
-    // u137 (P134): Mechanismus benutzt. Alle Mobs laufen hier durch (oCMobLockable::OnEndStateChange ruft das Original mit auf). Der eigene Held immer;
-    // NPCs des Hosts nur mit Ausloeser - Tueren benutzen sie je PC fuer sich, ein Hebel aendert die Welt. NPCs beim Client sind Abbilder.
+    // u137 (P134): Mechanismus benutzt. Der eigene Held immer; NPCs des Hosts nur mit Ausloeser - Tueren benutzen sie je PC fuer sich, ein Hebel aendert die
+    // Welt. NPCs beim Client sind Abbilder.
+    static void MobEndStateChange(oCMobInter* m, oCNpc* npc, int from, int to) {
+        if (!m || !npc || from == to || !MobSyncBase() || !MobSyncRelevant(m))
+            return;
+        if (npc == player || (ServerThread && !PlayerNpcs.count(npc) && !m->triggerTarget.IsEmpty()))
+            MobSendUse(m, from, to);
+    }
+
     void __fastcall oCMobInter_OnEndStateChange_Coop(oCMobInter* _this, void* vtable, oCNpc* npc, int from, int to);
     CInvoke<void(__thiscall*)(oCMobInter*, oCNpc*, int, int)> Ivk_oCMobInter_OnEndStateChange_Coop(CoopAddr::oCMobInter_OnEndStateChange, &oCMobInter_OnEndStateChange_Coop,
         COOP_IVK(World));
     void __fastcall oCMobInter_OnEndStateChange_Coop(oCMobInter* _this, void* vtable, oCNpc* npc, int from, int to) {
         Ivk_oCMobInter_OnEndStateChange_Coop(_this, npc, from, to);
-        if (!_this || !npc || from == to || !MobSyncBase() || !MobSyncRelevant(_this))
-            return;
-        if (npc == player || (ServerThread && !PlayerNpcs.count(npc) && !_this->triggerTarget.IsEmpty()))
-            MobSendUse(_this, from, to);
+        MobEndStateChange(_this, npc, from, to);
+    }
+
+    // u143 (P144): Tueren kamen oben nie an. oCMobLockable::OnEndStateChange (G2A 0x00724330, G1 0x00682600) hat den Rumpf von oCMobInter::OnEndStateChange im
+    // Maschinencode eingebaut, statt ihn aufzurufen; u137 nahm das Gegenteil an. Testlauf u141: neunmal "benutzen DOOR_FRONT", keine Zeile "Mechanismus"
+    void __fastcall oCMobLockable_OnEndStateChange_Coop(oCMobLockable* _this, void* vtable, oCNpc* npc, int from, int to);
+    CInvoke<void(__thiscall*)(oCMobLockable*, oCNpc*, int, int)> Ivk_oCMobLockable_OnEndStateChange_Coop(CoopAddr::oCMobLockable_OnEndStateChange, &oCMobLockable_OnEndStateChange_Coop,
+        COOP_IVK(World));
+    void __fastcall oCMobLockable_OnEndStateChange_Coop(oCMobLockable* _this, void* vtable, oCNpc* npc, int from, int to) {
+        Ivk_oCMobLockable_OnEndStateChange_Coop(_this, npc, from, to);
+        MobEndStateChange(_this, npc, from, to);
     }
 
     static bool MobChainNow(zCVob* instigator) {

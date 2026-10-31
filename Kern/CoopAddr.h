@@ -71,6 +71,7 @@ namespace GOTHIC_ENGINE {
         static const uint oCItemContainer_RemoveN          = COOP_ENGINE_SWITCH(0, 0, 0, 0x007094E0);
         static const uint oCMobLockable_CanInteractWith    = COOP_ENGINE_SWITCH(0x00681FC0, 0x006B16C0, 0x006C5C30, 0x00723CC0);   // oCMobLockable::int CanInteractWith( oCNpc* ) - Haken Truhen-Sperre (E1)
         static const uint oCMobInter_OnEndStateChange      = COOP_ENGINE_SWITCH(0x0067F300, 0x006AE410, 0x006C2BF0, 0x00720C80);   // oCMobInter::void OnEndStateChange( oCNpc*, int, int ) - Haken Mechanismus benutzt (P134; CoopWorldSync.cpp)
+        static const uint oCMobLockable_OnEndStateChange   = COOP_ENGINE_SWITCH(0x00682600, 0x006B1D50, 0x006C62A0, 0x00724330);   // oCMobLockable::void OnEndStateChange( oCNpc*, int, int ) - Haken Tuer benutzt (P144; CoopWorldSync.cpp)
         static const uint oCTriggerScript_TriggerTarget    = COOP_ENGINE_SWITCH(0x00438A30, 0x0043D420, 0x0043BE90, 0x0043C4C0);   // oCTriggerScript::void TriggerTarget( zCVob* ) - Haken Skript nur beim Benutzer (P134)
         static const uint zCCSCamera_OnTrigger             = COOP_ENGINE_SWITCH(0x004B9E20, 0x004C9170, 0x004C0D00, 0x004C3270);   // zCCSCamera::void OnTrigger( zCVob*, zCVob* ) - Haken Kamerafahrt nur beim Benutzer (P134)
         static const uint zCCSCamera_OnUntrigger           = COOP_ENGINE_SWITCH(0x004BA6F0, 0x004C9A60, 0x004C1550, 0x004C3AC0);   // zCCSCamera::void OnUntrigger( zCVob*, zCVob* ) - ebenso (P134)
