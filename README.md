@@ -5,10 +5,7 @@ dieselbe Geschichte gemeinsam: Welt, NPCs, Kämpfe, Dialoge, Tagebuch, Truhen un
 abgeglichen. Ein Union-Plugin auf Grundlage von [GothicCoop / Gothic Together](https://gitlab.com/gothiccoop/gothiccoop)
 (AGPL-3.0), Nachfolger des [Othello-Coops](https://github.com/corshaegar/Othello-Coop).
 
-> *English summary: co-op multiplayer for Gothic 1, Gothic 2 Night of the Raven and Gothic 1 with the Othello mod. Download the
-> installer (recommended) or the ZIP for your game from the [releases](../../releases), choose the game folder, install. Both
-> players need the same coop version. Host via "COOP › Host game", join via IP (UDP port 9955) or Steam. Documentation below is
-> in German; menus are available in German and English.*
+> *English version: [README.en.md](README.en.md). Menus and the installer are available in German and English.*
 
 **Inhalt:** [Versionen](#versionen) · [Was funktioniert](#was-funktioniert) · [Teststand](#teststand) ·
 [Installation](#installation) · [Spielen](#spielen) · [Einstellungen](#einstellungen) · [Probleme](#probleme-lösen) ·
