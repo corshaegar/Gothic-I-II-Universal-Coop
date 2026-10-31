@@ -1,7 +1,7 @@
 """pfade.py - wo die Paket-Skripte (makezip_g1/g2, installer_bau, installer_test) ihre Dateien finden.
 
 Alles relativ zum Wurzelordner des Repos. Was nicht im Repo liegt (gebaute Renderer, steam_api.dll, Union 1.0m), gehoert nach
-Bau\\eingaben\\ (siehe README.md, Abschnitt "Bauen").
+Bau\\eingaben\\ (siehe README.de.md, Abschnitt "Bauen").
 """
 import os
 
