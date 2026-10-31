@@ -9,7 +9,7 @@ namespace GOTHIC_ENGINE {
     // OthelloCompatLog/DiagSeconds nicht (Plan Phase 1, Schritt 1). Hier steht nur engine-neutraler Code (Windows-Aufrufe,
     // keine Engine-Stelle); Othello-Eigenes bleibt in OthelloCompat.cpp.
 
-#define COOP_FASSUNG "u134"
+#define COOP_FASSUNG "u142"
 
     // Auswahl je Engine, z. B. Adressen: COOP_ENGINE_SWITCH(G1, G1A, G2, G2A). ENGINE wird erst an der Stelle des Gebrauchs
     // eingesetzt - in Mehr-Engine-Builds (MP x2/x4) bindet Interface.cpp Sources.h je Engine neu ein.
@@ -418,20 +418,27 @@ namespace GOTHIC_ENGINE {
         else {
             // Fassung und Start aus der ersten Zeile des alten Logs, sonst "vor-v35" und die letzte Aenderung.
             // u1: "GothicCoop <Profil>-Fassung ..." - Othello schreibt wie bis v106 "GothicCoop Othello-Fassung ...".
+            // u137: die letzte Startzeile statt der ersten (Test-Fenster, 30.10.: ein nicht verschiebbares Log haengt die neue Sitzung an - die u136-Sitzung
+            // landete sonst beim naechsten Start unter CoopLogs\u134\)
             char ver[32] = "vor-v35";
             int y = 0, mo = 0, d = 0, hh = 0, mi = 0, ss = 0;
             bool haveStart = false;
             if (FILE* old = fopen(CoopSystemFile(CoopLogMainName()).c_str(), "r")) {
                 char line[256] = "";
-                char v[32] = "";
-                if (fgets(line, sizeof(line), old) &&
-                    sscanf(line, "GothicCoop %*[^-]-Fassung %31[^,], Start %d-%d-%d %d:%d:%d", v, &y, &mo, &d, &hh, &mi, &ss) == 7) {
+                while (fgets(line, sizeof(line), old)) {
+                    if (strncmp(line, "GothicCoop ", 11))
+                        continue;
+                    char v[32] = "";
+                    int ly = 0, lmo = 0, ld = 0, lhh = 0, lmi = 0, lss = 0;
+                    if (sscanf(line, "GothicCoop %*[^-]-Fassung %31[^,], Start %d-%d-%d %d:%d:%d", v, &ly, &lmo, &ld, &lhh, &lmi, &lss) != 7)
+                        continue;
                     bool clean = v[0] != 0;
                     for (const char* p = v; *p; p++)
                         if (!isalnum((unsigned char)*p) && *p != '.' && *p != '-' && *p != '_')
                             clean = false;
                     if (clean) {
                         strncpy(ver, v, sizeof(ver) - 1);
+                        y = ly; mo = lmo; d = ld; hh = lhh; mi = lmi; ss = lss;
                         haveStart = true;
                     }
                 }

@@ -9,9 +9,9 @@ SKRIPTE = {'g1': os.path.join('Gothic I', 'Skripte'), 'g2': os.path.join('Gothic
 EINGABEN = os.path.join('Bau', 'eingaben')
 STEAM_API = os.path.join(EINGABEN, 'steam_api.dll')
 STEAM_APPID = {'g1': os.path.join('Gothic I', 'steam_appid.txt'), 'g2': os.path.join('Gothic II', 'steam_appid.txt')}
-RENDERER = {'g1': os.path.join(EINGABEN, 'g1_avx2-v17.9.7-coop8.dll'), 'g2': os.path.join(EINGABEN, 'g2a_avx2-v17.9.7-coop8.dll'),
+RENDERER = {'g1': os.path.join(EINGABEN, 'g1_avx2-v17.9.7-coop8.dll'), 'g2': os.path.join(EINGABEN, 'g2a_avx2-v17.9.7-coop9.dll'),
             'g2_original': os.path.join(EINGABEN, 'g2a_avx2-v17.9.7-original.dll')}
-RENDERER_PATCHES = [os.path.join('Renderer', 'coop%d.patch' % n) for n in (6, 7, 8)]
+RENDERER_PATCHES = [os.path.join('Renderer', 'coop%d.patch' % n) for n in (6, 7, 8, 9)]
 LIZENZEN = 'Lizenzen'
 INSTALLER = 'Installer'
 WERKZEUGE = 'Werkzeuge'

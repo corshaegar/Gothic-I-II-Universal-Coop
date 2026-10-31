@@ -232,6 +232,49 @@ namespace GOTHIC_ENGINE {
         return false;
     }
 
+    // u142 (P142): oCMsgManipulate::targetVob haelt keinen Verweis. Testlaeufe G1 und Othello, immer beim Client (u134, u136; sechs
+    // Abstuerze bei GothicMod.exe+0x2AFF9E, z. B. Lesen von 0x7962227B = "{\"by" - dort lag schon ein Netz-Paket): Der Gegenstand eines
+    // laufenden EV_USEITEMTOSTATE war frei und oCNpc::interactItem leer. Die Engine holt ihn dann neu aus der Nachricht und ruft seine
+    // vtable. Es traf nie den eigenen Helden (dann stuerzte schon TruheIstGegenstand). Wer freigibt, ist offen - die Zeile nennt NPC,
+    // Gegenstand und Zustand. Ohne Zeiger beendet die Engine die Nachricht selbst. Allgemein: G2A ist gleich gebaut, nur traf es dort
+    // bisher keinen neu belegten Speicher
+    int CoopMsgVobDeadCount = 0;
+
+    // vtable von oCItem aus dem ersten Gegenstand der Welt (von oCItem leitet nichts ab). SearchVobListByClass nimmt nur genau die
+    // angegebene Klasse: CoopVobVtablesBuild findet mit zCVob::classDef keine Gegenstaende, "fremde vtable" greift dort darum nicht
+    static void* CoopItemVtable() {
+        static void* vt = NULL;
+        static long long nextMs = 0;
+        const long long now = GetCurrentMs();
+        if (vt || now < nextMs || !ogame || !ogame->GetGameWorld())
+            return vt;
+        nextMs = now + 1000;
+        zCArray<zCVob*> items;
+        ogame->GetGameWorld()->SearchVobListByClass(oCItem::classDef, items, NULL);
+        if (items.GetNumInList() > 0 && items.GetSafe(0))
+            vt = *(void**)items.GetSafe(0);
+        return vt;
+    }
+
+    void CoopMsgVobCheck(oCNpc* npc, oCMsgManipulate* msg, const char* where) {
+        if (!msg || !msg->targetVob)
+            return;
+        void* vt = NULL;
+        int ref = 0;
+        const char* why = !CoopVobPeek(msg->targetVob, &vt, &ref) ? "nicht lesbar" : ref <= 0 ? "Referenzzaehler <= 0" : NULL;
+        if (!why && CoopItemVtable() && vt != CoopItemVtable())
+            why = "fremde vtable";
+        if (!why)
+            return;
+        CoopMsgVobDeadCount++;
+        static CoopDiagBudget budget = { 0, 0 };
+        if (CoopDiagAllow(budget, 20))
+            OthelloCompatLog("[%lld s, %s] Absturzschutz: %s an %s - Gegenstand \"%s\" der Nachricht ist schon frei (%p, %s; vtable %p, Zaehler %d), "
+                "Zustand %s - Zeiger geloescht", DiagSeconds(), DiagRole(), where, npc ? CoopSlotOwnerName(npc).c_str() : "-", msg->name.ToChar(),
+                (void*)msg->targetVob, why, vt, ref, npc ? npc->state.curState.name.ToChar() : "-");
+        msg->targetVob = NULL;
+    }
+
     // --- u90 (P114): Gegenstand stirbt mitten in DoDropVob -------------------------------------------------------------------
     // Dauerlauf u88, dritter Haenger: Disassembly von zCWorld::AddVobAsChild (G2A 0x006245A0) - die Ruecksprungadresse +0x147
     // steht hinter "mov eax,[esi]; push 1; call [eax+40h]", ein virtueller Aufruf am eingefuegten Vob selbst, nicht an Visual oder

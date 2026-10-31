@@ -70,6 +70,11 @@ namespace GOTHIC_ENGINE {
         // G1 nicht geprueft (dort laeuft E6 seit v15) - 0 = kein Haken (SDK-Werte: G1 0x006693D0, G1A 0x00696F30, G2 0x006AB9F0)
         static const uint oCItemContainer_RemoveN          = COOP_ENGINE_SWITCH(0, 0, 0, 0x007094E0);
         static const uint oCMobLockable_CanInteractWith    = COOP_ENGINE_SWITCH(0x00681FC0, 0x006B16C0, 0x006C5C30, 0x00723CC0);   // oCMobLockable::int CanInteractWith( oCNpc* ) - Haken Truhen-Sperre (E1)
+        static const uint oCMobInter_OnEndStateChange      = COOP_ENGINE_SWITCH(0x0067F300, 0x006AE410, 0x006C2BF0, 0x00720C80);   // oCMobInter::void OnEndStateChange( oCNpc*, int, int ) - Haken Mechanismus benutzt (P134; CoopWorldSync.cpp)
+        static const uint oCTriggerScript_TriggerTarget    = COOP_ENGINE_SWITCH(0x00438A30, 0x0043D420, 0x0043BE90, 0x0043C4C0);   // oCTriggerScript::void TriggerTarget( zCVob* ) - Haken Skript nur beim Benutzer (P134)
+        static const uint zCCSCamera_OnTrigger             = COOP_ENGINE_SWITCH(0x004B9E20, 0x004C9170, 0x004C0D00, 0x004C3270);   // zCCSCamera::void OnTrigger( zCVob*, zCVob* ) - Haken Kamerafahrt nur beim Benutzer (P134)
+        static const uint zCCSCamera_OnUntrigger           = COOP_ENGINE_SWITCH(0x004BA6F0, 0x004C9A60, 0x004C1550, 0x004C3AC0);   // zCCSCamera::void OnUntrigger( zCVob*, zCVob* ) - ebenso (P134)
+        static const uint zCCSCamera_Unarchive             = COOP_ENGINE_SWITCH(0x004B6930, 0x004C5B20, 0x004BD650, 0x004BFBC0);   // zCCSCamera::void Unarchive( zCArchiver& ) - Haken Kamerafahrt im Spielstand stoppen (P136)
         static const uint oCNpc_EV_UseItemToState          = COOP_ENGINE_SWITCH(0x006AFC70, 0x006E3AF0, 0x006F6AC0, 0x007558F0);   // oCNpc::int EV_UseItemToState( oCMsgManipulate* ) - Haken Coop-Inventar direkt (u101, CoopTruhe.cpp)
         static const uint oCItemContainer_TransferItem     = COOP_ENGINE_SWITCH(0x00669780, 0x006972D0, 0x006AC450, 0x00709F40);   // oCItemContainer::int TransferItem( int, int ) - Haken Coop-Inventar nicht in sich selbst (u101)
         static const uint oCNpc_EV_WhirlAround             = COOP_ENGINE_SWITCH(0x0074ED50, 0x00790B90, 0x0079B6F0, 0x00684BF0);   // oCNpc::int EV_WhirlAround( oCMsgMovement* ) - Haken Ueberraschungs-Sprung -> Drehung (C21; Hooks.cpp)
@@ -78,6 +83,9 @@ namespace GOTHIC_ENGINE {
         static const uint oCNpc_CheckModelOverlays         = COOP_ENGINE_SWITCH(0x0068DA20, 0x006BE2E0, 0x006D1E00, 0x007301D0);   // oCNpc::void CheckModelOverlays() - Haken (Hooks.cpp)
         static const uint zCModel_GetProgressPercent       = COOP_ENGINE_SWITCH(0x005652C0, 0x0057DC40, 0x00579E20, 0x0057F340);   // zCModel::float GetProgressPercent( int ) const - Haken ohne laufende Animation 0 (A17)
         static const uint zCModel_GetProgressPercentName   = COOP_ENGINE_SWITCH(0x00565210, 0x0057DB80, 0x00579D70, 0x0057F290);   // zCModel::float GetProgressPercent( zSTRING const& ) const - Haken ebenso, per Name (A17)
+        // oCGuilds::int GetAttitude( int, int ) - Haken negative Gilde neutral (P133, u136). G1 hat dieselbe Luecke, aber dort und in Othello gibt kein
+        // Skript einem Raum die Gilde -1 - 0 = kein Haken (SDK-Werte: G1 0x00663170, G1A 0x0068FCD0, G2 0x006A32B0)
+        static const uint oCGuilds_GetAttitude             = COOP_ENGINE_SWITCH(0, 0, 0, 0x00700D40);
         static const uint zCCSPlayer_StartCutscene         = COOP_ENGINE_SWITCH(0x0041CD00, 0x0041EC00, 0x0041CF10, 0x0041D240);   // zCCSPlayer::zCCSCutsceneContext* StartCutscene( zSTRING&, zCVob* ) - Haken Player ohne Manager (A19)
         static const uint zCCSPlayer_StartOutputUnit       = COOP_ENGINE_SWITCH(0x0041D2E0, 0x0041F250, 0x0041D520, 0x0041D850);   // zCCSPlayer::zCCSCutsceneContext* StartOutputUnit( int, zCVob* ) - Haken ebenso (A19)
         static const uint zCCSPlayer_CreateNewOutputUnit   = COOP_ENGINE_SWITCH(0x0041D000, 0x0041EF20, 0x0041D210, 0x0041D540);   // zCCSPlayer::zCCSCutsceneContext* CreateNewOutputUnit( int, zCVob* ) - Haken ebenso (A19)

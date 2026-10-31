@@ -214,6 +214,7 @@ namespace GOTHIC_ENGINE {
         zVEC3 pos;
         std::set<oCNpc*> before;    // Fleischwanzen vor dem Einsetzen (die neue erkennen)
         long long insertedMs = 0;
+        std::string entryVar;       // u140 (P139): Probe - Eintritts-Merker dieser Welt, von mir gesetzt
     };
     static CTMark CTMarkMine;   // Testender: "Ich markiere meine Welt"
     static CTMark CTMarkMade;   // Antwortseite: auf Wunsch des Testenden ("go" mit "mark")
@@ -563,6 +564,12 @@ namespace GOTHIC_ENGINE {
         x["hp"] = b->GetAttribute(NPC_ATR_HITPOINTS);
         x["hm"] = b->GetAttribute(NPC_ATR_HITPOINTSMAX);
         x["att"] = b->attitude;
+        const CoopNpcFields fields = DlgNpcFields(b);   // u139 (P138)
+        x["fl"] = fields.flags;
+        x["gu"] = fields.guild;
+        x["gt"] = fields.guildTrue;
+        x["nt"] = fields.npcType;
+        x["nf"] = fields.noFocus;
         x["h"] = GetHeading(b);
         x["wm"] = b->GetWeaponMode();
         x["ani"] = CTAnis(b);
@@ -703,7 +710,7 @@ namespace GOTHIC_ENGINE {
             m[t.t] = std::to_string(t.st) + "|" + std::to_string(t.e.size());
     }
 
-    // dead: alle Welt-NPCs tot/lebendig; sonst lebende mit Tagesablauf und dauerhafter Haltung (wie der Story-Takt)
+    // dead: alle Welt-NPCs tot/lebendig; sonst lebende mit Tagesablauf, dauerhafter Haltung und Skriptfeldern (wie der Story-Takt)
     static void CTMapNpcs(CTKv& m, bool dead) {
         for (auto* li = CoopWorldNpcListFirst(ogame->GetGameWorld()); li; li = li->next) {
             oCNpc* npc = li->data;
@@ -719,7 +726,9 @@ namespace GOTHIC_ENGINE {
             if (npc->IsDead() || StoryNpcNoisy.count(name))
                 continue;
             zCPar_Symbol* rs = parser->GetSymbol(npc->daily_routine);
-            m[name] = std::string(rs ? rs->name.ToChar() : "-") + "|" + std::to_string(npc->attitude);
+            const CoopNpcFields f = DlgNpcFields(npc);   // u139 (P138)
+            m[name] = std::string(rs ? rs->name.ToChar() : "-") + "|" + std::to_string(npc->attitude) + "|" + std::to_string(f.flags) + "|"
+                + std::to_string(f.guild) + "|" + std::to_string(f.guildTrue) + "|" + std::to_string(f.npcType) + "|" + std::to_string(f.noFocus);
         }
     }
 
@@ -738,6 +747,19 @@ namespace GOTHIC_ENGINE {
         for (int i = 0; i < chests.GetNumInList(); i++)
             if (oCMobContainer* c = zDYNAMIC_CAST<oCMobContainer>(chests.GetSafe(i)))
                 m[CoopPosKey(c->GetPositionWorld())] = std::string(c->locked ? "zu|" : "offen|") + BestandText(ChestBestand(c));
+    }
+
+    // u137 (P134): alle Mechanismen. Bei Tueren nur das Schloss - offen oder zu steht eine Tuer je PC verschieden, NPCs benutzen sie fuer sich
+    static void CTMapMobs(CTKv& m) {
+        zCArray<zCVob*> mobs;
+        ogame->GetGameWorld()->SearchVobListByBaseClass(oCMobInter::classDef, mobs, NULL);
+        for (int i = 0; i < mobs.GetNumInList(); i++) {
+            oCMobInter* x = zDYNAMIC_CAST<oCMobInter>(mobs.GetSafe(i));
+            if (!MobSyncRelevant(x))
+                continue;
+            oCMobLockable* l = zDYNAMIC_CAST<oCMobLockable>(x);
+            m[CoopPosKey(x->GetPositionWorld())] = (zDYNAMIC_CAST<oCMobDoor>(x) ? std::string() : "Zustand " + std::to_string((int)x->state)) + (l && l->locked ? " zu" : "");
+        }
     }
 
     static void CTMapLoose(const zVEC3& p, float r, CTKv& m) {
@@ -766,6 +788,8 @@ namespace GOTHIC_ENGINE {
             CTMapGuilds(m);
         else if (k == "chests")
             CTMapChests(m);
+        else if (k == "mobs")
+            CTMapMobs(m);   // u137
         else if (k == "loose" && d.contains("p"))
             CTMapLoose(CTVecOf(d["p"]), d.value("r", 2000.f), m);
     }
@@ -1017,6 +1041,7 @@ namespace GOTHIC_ENGINE {
             x["have"] = CTMarkMade.have ? 1 : 0;
             x["w"] = CTMarkMade.world;
             x["wp"] = CTMarkMade.wp;
+            x["ev"] = CTMarkMade.entryVar;   // u140 (P139)
             if (CTMarkMade.insertedMs) {
                 int dead = 0, apples = 0;
                 if (CoopWcBase(CTMarkMade.world) == CoopWcBase(CoopWorldName()))
@@ -1208,6 +1233,16 @@ namespace GOTHIC_ENGINE {
                 x["all"] = BestandText(b);
             }
             o["chest"] = x;
+        }
+        if (q.contains("mob")) {   // u137 (P134): Mechanismus und das Tor dahinter
+            const json& c = q["mob"];
+            oCMobInter* m = FindMob(CTVecOf(c["p"]));
+            zCMover* mv = zDYNAMIC_CAST<zCMover>(ogame->GetGameWorld()->SearchVobByName(zSTRING(c["z"].get<std::string>().c_str())));
+            json x;
+            x["found"] = m ? 1 : 0;
+            x["s"] = m ? (int)m->state : -1;
+            x["ms"] = mv ? (int)mv->moverState : -1;
+            o["mob"] = x;
         }
         if (q.contains("items")) {
             const json& c = q["items"];
@@ -2533,6 +2568,62 @@ namespace GOTHIC_ENGINE {
         return true;
     }
 
+    // u136 (P133): Gildenhaltung mit Gilde -1, wie sie C_NpcIsBotheredByPlayerRoomGuild in den Kastell-Raeumen abfragt. Die Engine liest dann vor
+    // der Tabelle; gestuerzt ist sie im Testlauf nur, weil davor kein Speicher lag - das stellt hier eine Kopie der Tabelle hinter einer
+    // gesperrten Seite nach. Fehlt der Haken in Hooks.cpp, stuerzt das Spiel in diesem Schritt ab (bei Gothic2.exe+0x300D7F).
+    static int CTGuildNegA = -9, CTGuildNegB = -9;
+    static bool CTGuildNegSame = false;
+
+    static bool PGuildNeg(std::string& why) {
+        if (!CoopAddr::oCGuilds_GetAttitude) {
+            why = "nur G2A (kein Skript gibt hier einem Raum die Gilde -1)";
+            return false;
+        }
+        oCGuilds* g = ogame ? ogame->GetGuilds() : NULL;
+        if (!g || !g->attitude || g->size < 3) {
+            why = "Gildentabelle nicht lesbar";
+            return false;
+        }
+        return true;
+    }
+
+    static bool AGuildNeg(std::string& why) {
+        oCGuilds* g = ogame->GetGuilds();
+        const SIZE_T page = 0x1000, bytes = (SIZE_T)g->size * g->size, room = (bytes + page - 1) / page * page;
+        unsigned char* base = (unsigned char*)VirtualAlloc(NULL, page + room, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+        DWORD old = 0;
+        if (!base || !VirtualProtect(base, page, PAGE_NOACCESS, &old)) {
+            why = "Speicher fuer die Kopie nicht bekommen";
+            if (base)
+                VirtualFree(base, 0, MEM_RELEASE);
+            return false;
+        }
+        unsigned char* was = g->attitude;
+        memcpy(base + page, was, bytes);
+        g->attitude = base + page;
+        CTGuildNegA = g->GetAttitude(1, -1);
+        CTGuildNegB = g->GetAttitude(-1, 1);
+        CTGuildNegSame = g->GetAttitude(1, 2) == was[2 * g->size + 1] && g->GetAttitude(2, 1) == was[g->size + 2];
+        g->attitude = was;
+        VirtualFree(base, 0, MEM_RELEASE);
+        return true;
+    }
+
+    static bool JGuildNeg(const json&, const json&, std::string& d) {
+        oCPortalRoomManager* pm = ogame->GetPortalRoomManager();
+        int rooms = 0, neg = 0;
+        std::string names;
+        for (int i = 0; pm && i < pm->portals.GetNum(); i++) {
+            oCPortalRoom* r = pm->portals[i];
+            rooms++;
+            if (r && r->ownerGuild < 0 && neg++ < 5)
+                names += std::string(neg > 1 ? ", " : " (") + r->portalName.ToChar();
+        }
+        d = CTFmt("Gilde -1 liefert %d/%d (neutral %d), gueltige Gilden %s; %d Raeume, %d mit Gilde -1%s%s", CTGuildNegA, CTGuildNegB, (int)NPC_ATT_NEUTRAL,
+            CTGuildNegSame ? "wie in der Tabelle" : "FALSCH", rooms, neg, names.c_str(), neg ? ")" : "");
+        return CTGuildNegA == NPC_ATT_NEUTRAL && CTGuildNegB == NPC_ATT_NEUTRAL && CTGuildNegSame;
+    }
+
     static bool CTJudgeGuild(const json& post, std::string& d) {
         int p1 = -999, p2 = -999;
         try {
@@ -3103,7 +3194,7 @@ namespace GOTHIC_ENGINE {
     static bool JDigVars(const json&, const json& post, std::string& d) { return CTDigJudge(post, "Skript-Variablen", 0, d); }
     static bool JDigLog(const json&, const json& post, std::string& d) { return CTDigJudge(post, "Tagebuch-Themen (Status|Eintraege)", 1, d); }
     static bool JDigGuilds(const json&, const json& post, std::string& d) { return CTDigJudge(post, "Gildenhaltungen", 1, d); }
-    static bool JDigNpcs(const json&, const json& post, std::string& d) { return CTDigJudge(post, "lebende NPCs (Tagesablauf|Haltung)", 0, d); }
+    static bool JDigNpcs(const json&, const json& post, std::string& d) { return CTDigJudge(post, "lebende NPCs (Tagesablauf|Haltung|Felder)", 0, d); }
 
     // =====================================================================================================================
     // Bereich 4: Test-NPCs und Welt-Ereignisse
@@ -3488,6 +3579,64 @@ namespace GOTHIC_ENGINE {
 
     static bool JBugFriendly(const json&, const json& post, std::string& d) { return CTJudgeBugAtt(post, 3, d); }
     static bool JBugNeutral(const json&, const json& post, std::string& d) { return CTJudgeBugAtt(post, 2, d); }
+
+    // u139 (P138): Skriptfelder der Test-Fleischwanze. Erst unsterblich im Dialog-Weg (DIA_DRAGON_*_EXIT in der Gegenrichtung), dann im Takt
+    // wieder verwundbar mit fremder Gilde, Typ und ohne Fokus, dann zurueck - sonst waere "Fleischwanze toeten" beim Partner wirkungslos
+    static CoopNpcFields CTBugOld;
+
+    static bool CTJudgeBugFields(const json& post, const CoopNpcFields& want, std::string& d) {
+        const CoopNpcFields got = { CTInt(post, "npc", "fl"), CTInt(post, "npc", "gu"), CTInt(post, "npc", "gt"), CTInt(post, "npc", "nt"), CTInt(post, "npc", "nf") };
+        d = CTFmt("%s beim Partner: Schutz %d (soll %d), Gilde %d (%d), wahre Gilde %d (%d), Typ %d (%d), ohne Fokus %d (%d)", CT.bugName.c_str(), got.flags, want.flags,
+            got.guild, want.guild, got.guildTrue, want.guildTrue, got.npcType, want.npcType, got.noFocus, want.noFocus);
+        return DlgNpcFieldsSame(got, want);
+    }
+
+    static bool ABugImmortal(std::string&) {
+        oCNpc* m = DialogNpcByName(CT.bugName);
+        CTBugOld = DlgNpcFields(m);
+        CoopDlgSnap a, b;
+        DlgSnapshot(a);
+        m->variousFlags = CTBugOld.flags | NPC_FLAG_IMMORTAL;
+        DlgSnapshot(b);
+        DlgSendDiff(a, b, std::string(), "Coop-Test");
+        StoryAbsorb(a, b);
+        return true;
+    }
+
+    static bool JBugImmortal(const json&, const json& post, std::string& d) {
+        CoopNpcFields want = CTBugOld;
+        want.flags |= NPC_FLAG_IMMORTAL;
+        return CTJudgeBugFields(post, want, d);
+    }
+
+    static CoopNpcFields CTBugChanged() {
+        CoopNpcFields f = CTBugOld;
+        f.flags &= ~NPC_FLAG_IMMORTAL;
+        f.guild = CTBugOld.guild + 1;
+        f.guildTrue = CTBugOld.guildTrue + 1;
+        f.npcType = CTBugOld.npcType == 3 ? 0 : 3;   // NPCTYPE_FRIEND
+#if ENGINE == Engine_G2A
+        f.noFocus = CTBugOld.noFocus ? 0 : 1;
+#endif
+        return f;
+    }
+
+    static void CTSetBugFields(const CoopNpcFields& f) {
+        oCNpc* m = DialogNpcByName(CT.bugName);
+        m->variousFlags = f.flags;
+        m->guild = f.guild;
+        m->SetTrueGuild(f.guildTrue);
+        m->npcType = f.npcType;
+#if ENGINE == Engine_G2A
+        m->noFocus = f.noFocus;
+#endif
+    }
+
+    static bool ABugFieldsTick(std::string&) { CTSetBugFields(CTBugChanged()); return true; }
+    static bool JBugFieldsTick(const json&, const json& post, std::string& d) { return CTJudgeBugFields(post, CTBugChanged(), d); }
+    static bool ABugFieldsBack(std::string&) { CTSetBugFields(CTBugOld); return true; }
+    static bool JBugFieldsBack(const json&, const json& post, std::string& d) { return CTJudgeBugFields(post, CTBugOld, d); }
+
     // v108 (Test v108: mit "Leben der Gegner 150 %" hat sie 8 HP - ein Schlag mit Mindestschaden reichte nicht mehr): toedlicher Schlag
     static bool ABugKill(std::string& why) { return CTHit(CT.bugName, 10000.f, why); }
     static bool JBugKill(const json&, const json& post, std::string& d) { return CTJudgeDead(post, CT.bugName, d); }
@@ -3879,6 +4028,191 @@ namespace GOTHIC_ENGINE {
         return p == mine;
     }
 
+    // --- u137 (P134): Mechanismen -------------------------------------------------------------------------------------
+    // Ein echter Hebel: Mob mit Ziel, dahinter genau ein Mover, der hin und her kann (2STATE_TOGGLE, beliebig oft), ohne Skript und Gegenstand. Der am
+    // weitesten vom Helden - ein Gefaengnistor, das sich dort bewegt, stoert niemanden. OnEndStateChange wie die Engine am Ende der Bewegung; das
+    // laeuft durch den Haken und schickt die Benutzung. Vier Schritte: an (Tor geht auf), aus, an (Tor geht zu), aus - danach ist alles wie vorher.
+    static oCMobInter* CTMob = NULL;
+    static zVEC3 CTMobPos;
+    static std::string CTMobZiel;
+    static int CTMobScriptsWas = 0, CTMobCamsWas = 0;
+
+    static bool PMobNew(std::string& why) {
+        CTMob = NULL;
+        if (!CoopRuleWorld() && !CoopRuleQuests()) {
+            why = "Abgleich Quests und Gegenstaende/Truhen aus";
+            return false;
+        }
+        oCWorld* w = ogame->GetGameWorld();
+        zCArray<zCVob*> mobs;
+        w->SearchVobListByBaseClass(oCMobInter::classDef, mobs, NULL);
+        float best = -1.f;
+        for (int i = 0; i < mobs.GetNumInList(); i++) {
+            oCMobInter* m = zDYNAMIC_CAST<oCMobInter>(mobs.GetSafe(i));
+            if (!m || m->triggerTarget.IsEmpty() || !m->useWithItem.IsEmpty() || !m->onStateFuncName.IsEmpty() || !m->conditionFunc.IsEmpty() || m->rewind ||
+                m->state != 0 || m->npcsCurrent > 0 || !MobSyncRelevant(m) || zDYNAMIC_CAST<oCMobDoor>(m))
+                continue;
+            zCArray<zCVob*> ziele;
+            w->SearchVobListByName(m->triggerTarget, ziele);
+            zCMover* mv = ziele.GetNumInList() == 1 ? zDYNAMIC_CAST<zCMover>(ziele.GetSafe(0)) : NULL;
+            if (!mv || mv->moverBehavior != zCMover::MB_2STATE_TOGGLE || mv->moverState != zCMover::MOVER_STATE_CLOSED || mv->numCanBeActivated >= 0 || !mv->triggerTarget.IsEmpty())
+                continue;
+            const float d = CoopDist(m->GetPositionWorld(), player->GetPositionWorld());
+            if (d > best) {
+                best = d;
+                CTMob = m;
+                CTMobPos = m->GetPositionWorld();
+                CTMobZiel = m->triggerTarget.ToChar();
+            }
+        }
+        if (!CTMob) {
+            why = "kein Hebel mit einfachem Tor in dieser Welt";
+            return false;
+        }
+        return true;
+    }
+
+    static bool PMobAgain(std::string& why) {
+        if (!CTMob || FindMob(CTMobPos) != CTMob) {
+            why = "kein Hebel aus dem Schritt davor";
+            return false;
+        }
+        return true;
+    }
+
+    static json QMob() { json q; q["mob"]["p"] = CTVec(CTMobPos); q["mob"]["z"] = CTMobZiel; return q; }
+
+    static bool CTMobUse(int from, int to) {
+        CTMob->state_target = to;
+        CTMob->OnEndStateChange(player, from, to);
+        CTMob->state = to;
+        return true;
+    }
+
+    static bool AMobOn(std::string&) { return CTMobUse(0, 1); }
+    static bool AMobOff(std::string&) { return CTMobUse(1, 0); }
+
+    static bool CTJudgeMob(const json& pre, const json& post, int s, std::string& d, int ms1, int ms2) {
+        if (CTInt(post, "mob", "found") != 1) {
+            d = "Partner findet den Hebel nicht";
+            return false;
+        }
+        const int a = CTInt(pre, "mob", "s"), b = CTInt(post, "mob", "s"), m0 = CTInt(pre, "mob", "ms"), m1 = CTInt(post, "mob", "ms");
+        d = CTFmt("%s: beim Partner Hebel %d -> %d, Tor %d -> %d (0 offen, 1 geht auf, 2 zu, 3 geht zu)", CTMobZiel.c_str(), a, b, m0, m1);
+        return b == s && (ms1 < 0 || m1 == ms1 || m1 == ms2);
+    }
+
+    static bool JMobOn(const json& pre, const json& post, std::string& d) { return CTJudgeMob(pre, post, 1, d, zCMover::MOVER_STATE_OPENING, zCMover::MOVER_STATE_OPEN); }
+    static bool JMobOff(const json& pre, const json& post, std::string& d) { return CTJudgeMob(pre, post, 0, d, -1, -1); }
+    static bool JMobOn2(const json& pre, const json& post, std::string& d) { return CTJudgeMob(pre, post, 1, d, zCMover::MOVER_STATE_CLOSING, zCMover::MOVER_STATE_CLOSED); }
+
+    // Skript und Kamera in der Kette: am Portal in NEWWORLD (G2A), dessen Skript B_ADDON_PORTAL_ACTIVATED leer ist. Ohne Haken lief hier die
+    // Kamerafahrt, sonst geschieht nichts
+    static oCTriggerScript* CTChainScript = NULL;
+    static zCCSCamera* CTChainCam = NULL;
+
+    static bool PMobChain(std::string& why) {
+        oCWorld* w = ogame->GetGameWorld();
+        CTChainScript = zDYNAMIC_CAST<oCTriggerScript>(w->SearchVobByName(zSTRING("EVT_ADDON_TROLLPORTAL_TRIGGERSCRIPT_01")));
+        CTChainCam = zDYNAMIC_CAST<zCCSCamera>(w->SearchVobByName(zSTRING("EVT_ADDON_TROLLPORTAL_CAMERA_01")));
+        if (!CTChainScript || !CTChainCam || !CTChainScript->triggerTarget.IsEmpty()) {
+            why = "nur in NEWWORLD (Portal in Khorinis)";
+            return false;
+        }
+        return true;
+    }
+
+    static bool AMobChain(std::string&) {
+        CTMobScriptsWas = CoopMobSkipScripts;
+        CTMobCamsWas = CoopMobSkipCams;
+        const long long was = MobChainUntilMs;
+        MobChainUntilMs = GetCurrentMs() + 1000;
+        CTChainScript->TriggerTarget(NULL);
+        CTChainCam->OnTrigger(NULL, NULL);
+        CTChainCam->OnUntrigger(NULL, NULL);
+        MobChainUntilMs = was;
+        return true;
+    }
+
+    static bool JMobChain(const json&, const json&, std::string& d) {
+        const int s = CoopMobSkipScripts - CTMobScriptsWas, c = CoopMobSkipCams - CTMobCamsWas;
+        d = CTFmt("Skript %d-mal, Kamera %d-mal uebergangen (soll 1 und 2)", s, c);
+        return s == 1 && c == 2;
+    }
+
+    // u138 (P136): gemeinsam speichern, waehrend eine Kamerafahrt laeuft, dann gemeinsam laden. Ohne den Haken auf zCCSCamera::Unarchive stuerzt das Spiel im ersten Bild nach dem Laden ab
+    // (zCKBSpline::Interpolate0 aus zCCSCamera::OnTick). Die laengste Fahrt der Welt, damit sie beim Speichern noch laeuft; das Laden beendet sie.
+    static std::string CTCamName;
+    static int CTCamStoppedWas = 0;
+    static bool PSave(std::string& why);
+    static bool PAfterLoad(std::string& why);
+
+    static bool PCamSave(std::string& why) {
+        CTCamName.clear();
+        if (!PSave(why))
+            return false;
+        zCArray<zCVob*> cams;
+        ogame->GetGameWorld()->SearchVobListByClass(zCCSCamera::classDef, cams, NULL);
+        float best = 0.f;
+        for (int i = 0; i < cams.GetNumInList(); i++) {
+            zCCSCamera* c = zDYNAMIC_CAST<zCCSCamera>(cams.GetSafe(i));
+            if (c && !c->started && c->posKeys.GetNumInList() >= 2 && c->totalTime > best && !c->GetObjectName().IsEmpty()) {
+                best = c->totalTime;
+                CTCamName = c->GetObjectName().ToChar();
+            }
+        }
+        if (CTCamName.empty()) {
+            why = "keine Kamerafahrt in dieser Welt";
+            return false;
+        }
+        return true;
+    }
+
+    static zCCSCamera* CTCamByName() {
+        return CTCamName.empty() ? NULL : zDYNAMIC_CAST<zCCSCamera>(ogame->GetGameWorld()->SearchVobByName(zSTRING(CTCamName.c_str())));
+    }
+
+    static bool ACamSave(std::string& why) {
+        zCCSCamera* c = CTCamByName();
+        if (!c) {
+            why = "Kamerafahrt nicht gefunden";
+            return false;
+        }
+        CTCamStoppedWas = CoopCamStopped;
+        c->GetEM()->OnTrigger(c, player);
+        return true;
+    }
+
+    static bool JCamSave(const json&, const json&, std::string& d) {
+        zCCSCamera* c = CTCamByName();
+        d = CTFmt("%s, %.0f s: laeuft %d", CTCamName.c_str(), c ? c->totalTime : 0.f, c ? (int)c->started : -1);
+        return c && c->started;
+    }
+
+    static bool PCamLoad(std::string& why) {
+        if (!PAfterLoad(why))
+            return false;
+        if (CTCamName.empty()) {
+            why = "keine Kamerafahrt beim Speichern";
+            return false;
+        }
+        return true;
+    }
+
+    // Der Client uebernimmt beim gemeinsamen Laden die Welt des Hosts: In seinem Lauf steht dort keine laufende Kamerafahrt (die Fahrt fehlt dann, wenn der Host woanders ist);
+    // im Lauf des Hosts muss sie beim Laden gestoppt worden sein
+    static bool JCamLoad(const json&, const json&, std::string& d) {
+        zCCSCamera* c = CTCamByName();
+        zCAICamera* ai = zCAICamera::GetCurrent();
+        const int stopped = CoopCamStopped - CTCamStoppedWas;
+        d = CTFmt("%s: laeuft %d (-1 nicht in dieser Welt); beim Laden gestoppt %d; zCCSCamera::playing %d, Held beweglich %d", CTCamName.c_str(), c ? (int)c->started : -1, stopped,
+            (int)zCCSCamera::playing, ai ? (int)ai->playerIsMovable : -1);
+        return (!c || !c->started) && !zCCSCamera::playing && ai && ai->playerIsMovable && (!ServerThread || stopped > 0);
+    }
+
+    static json QDigMobs() { return CTDigQuery("mobs"); }
+    static bool JDigMobs(const json&, const json& post, std::string& d) { return CTDigJudge(post, "alle Mechanismen (Zustand, Schloss)", 1, d); }
+
     static bool JDigChests(const json&, const json& post, std::string& d) { return CTDigJudge(post, "alle Truhen (Inhalt)", 1, d); }
     static bool JDigLoose(const json&, const json& post, std::string& d) { return CTDigJudge(post, "Gegenstaende am Boden in 20 m (Menge je Art)", 1, d); }
 
@@ -4033,6 +4367,84 @@ namespace GOTHIC_ENGINE {
         const bool off = !CoopCamWindowOn();
         d = off ? "Fenster aus, Kamera und Held unberuehrt" : "Fenster wieder an (Automatik?)";
         return off && !player->IsMovLock();
+    }
+
+    // u135 (P132): Zuschau-Fenster mit weit entferntem Partner - die zweite Kamera steht dann weit von der ersten. Der Testlauf stuerzte mit
+    // AtmosphericScattering=0 beim automatischen Oeffnen ab (Partner 515 m entfernt), der Schritt "Zuschau-Fenster an" mit dem Partner daneben nie.
+    // Der eigene Held geht dafuer an den entferntesten Wegpunkt und danach zurueck.
+    static zVEC3 CTFarHome;
+    static bool CTFarAway = false;
+    static float CTFarDist = 0.f;
+
+    static zCWaypoint* CTFarthestWaypoint() {
+        zCWorld* w = ogame->GetGameWorld();
+        zCWayNet* net = w ? w->wayNet : NULL;
+        if (!net)
+            return NULL;
+        const zVEC3 me = player->GetPositionWorld();
+        zCWaypoint* best = NULL;
+        float bestD = 10000.f;   // mindestens 100 m (die Automatik oeffnet ab 45 m)
+        for (zCListSort<zCWaypoint>* l = net->wplist.next; l; l = l->next) {
+            zCWaypoint* wp = l->data;
+            if (!wp)
+                continue;
+            const float d = CoopDist(wp->GetPositionWorld(), me);
+            if (d > bestD) {
+                best = wp;
+                bestD = d;
+            }
+        }
+        return best;
+    }
+
+    static bool PWinFar(std::string& why) {
+        if (!PWin(why))
+            return false;
+        if (!CTFarthestWaypoint()) {
+            why = "kein Wegpunkt mindestens 100 m entfernt";
+            return false;
+        }
+        return true;
+    }
+
+    static bool AWinFar(std::string& why) {
+        zCWaypoint* wp = CTFarthestWaypoint();
+        if (!wp) {
+            why = "kein Wegpunkt mindestens 100 m entfernt";
+            return false;
+        }
+        CTFarHome = player->GetPositionWorld();
+        CTFarDist = CoopDist(wp->GetPositionWorld(), CTFarHome);
+        CTFarAway = true;
+        player->SetPositionWorld(wp->GetPositionWorld());
+        if (!CoopCamWindowOn())
+            CoopCamToggle();
+        return true;
+    }
+
+    static bool JWinFar(const json&, const json&, std::string& d) {
+        const bool on = CoopCamWindowSent();
+        d = CTFmt("Fenster %s, Held %.0f m vom Partner entfernt", on ? "an" : "AUS", CTFarDist / 100.f);
+        return on;
+    }
+
+    static void CWinFar() {
+        for (int i = 0; i < 8 && CoopCamWindowOn(); i++)
+            CoopCamToggle();
+        if (CTFarAway && player)
+            player->SetPositionWorld(CTFarHome);
+        CTFarAway = false;
+    }
+
+    // u135 (P132): im Testlauf fiel das Oeffnen des Fensters mit der gemeinsamen Sicherung beim Verbinden zusammen - darum speichern, solange
+    // es offen ist. Wird der Schritt uebersprungen, laeuft kein cleanup: dann hier zurueck
+    static bool PSaveFar(std::string& why) {
+        if (!CoopRuleSaves()) {
+            why = "Spielstaende getrennt (Einstellungen > COOP > Abgleich)";
+            CWinFar();
+            return false;
+        }
+        return true;
     }
 
     // =====================================================================================================================
@@ -4486,8 +4898,82 @@ namespace GOTHIC_ENGINE {
         std::string homeWorld;      // meine Welt und Lage vor dem Betreten
         zVEC3 homePos, homeAt;
         bool homeSet = false, homePlaced = false;
+        std::string entryVar;       // u140 (P139): Eintritts-Merker, den der Partner in seiner Welt gesetzt hat
     };
     static CTEnterState CTEnter;
+
+    // u140 (P139): Probe fuer "Eintritts-Merker reisen mit der Weltdatei" - der Merker von Kapitel 6 meiner Welt auf 1. Die Skripte dazu sind leer und
+    // laufen erst ab Kapitel 6: Wer diese Welt jetzt betritt, kann den Merker nur mit der Datei bekommen. G1: der Merker der Mine, sonst keiner
+    static std::string CTEntryProbe() {
+        std::string name;
+        for (auto& v : CoopWorldEntryVarsGet(WxWorldTag(CoopWorldName()))) {
+            const std::string n = v.at(0).get<std::string>();
+            if (name.empty() || n[n.size() - 1] == '6')
+                name = n;
+        }
+        if (zCPar_Symbol* s = name.empty() ? NULL : parser->GetSymbol(zSTRING(name.c_str())))
+            s->SetValue(1, 0);
+        return name;
+    }
+
+    static int CTEntryVarNow(const std::string& name) {
+        int v = -1;
+        if (zCPar_Symbol* s = name.empty() || !parser ? NULL : parser->GetSymbol(zSTRING(name.c_str())))
+            s->GetValue(v, 0);
+        return v;
+    }
+
+    static void CTEntryProbeOff(const std::string& name) {
+        if (name.empty() || name[name.size() - 1] != '6')
+            return;
+        if (zCPar_Symbol* s = parser->GetSymbol(zSTRING(name.c_str())))
+            s->SetValue(0, 0);
+    }
+
+    static void CTEntryProbeOffBoth(const std::string& name) {
+        if (name.empty())
+            return;
+        CTEntryProbeOff(name);
+        json x;
+        x["run"] = CT.tag;
+        x["to"] = CT.partner;
+        x["from"] = DialogMe();
+        x["evoff"] = name;
+        CTSend("go", x);
+    }
+
+    // u141 (P141): In derselben Welt gilt der Merker fuer beide
+    static std::string CTEntrySame;
+
+    static json QEntrySame() { json q; q["var"] = json::array({ CTEntrySame }); return q; }
+
+    static bool PEntrySame(std::string& why) {
+        CTEntrySame.clear();
+        for (auto& v : CoopWorldEntryVarsGet(WxWorldTag(CoopWorldName()))) {
+            const std::string n = v.at(0).get<std::string>();
+            if (n[n.size() - 1] == '6')
+                CTEntrySame = n;
+        }
+        if (CTEntrySame.empty()) {
+            why = "keine Eintritts-Merker fuer Kapitel 6 in dieser Welt";
+            return false;
+        }
+        return PStory(why);
+    }
+
+    static bool AEntrySame(std::string&) {
+        if (zCPar_Symbol* s = parser->GetSymbol(zSTRING(CTEntrySame.c_str())))
+            s->SetValue(1, 0);
+        return true;
+    }
+
+    static bool JEntrySame(const json&, const json& post, std::string& d) {
+        const int v = post.contains("var") ? post["var"].value(CTEntrySame, -999) : -999;
+        d = CTFmt("%s beim Partner %d (soll 1)", CTEntrySame.c_str(), v);
+        return v == 1;
+    }
+
+    static void CEntrySame() { CTEntryProbeOffBoth(CTEntrySame); }
 
     static json QEnterMark() { json q; q["emark"] = 1; q["base"] = 1; return q; }   // "mark" = Mitspieler-Markierung
     static json QMarkChk() {
@@ -4541,6 +5027,11 @@ namespace GOTHIC_ENGINE {
             CTEnter.partnerMark = true;
             CTEnter.world = w;
             CTEnter.wp = wp;
+            CTEnter.entryVar = CTStr(post, "emark", "ev");   // u140 (P139)
+            if (CTEntryVarNow(CTEnter.entryVar) == 1) {      // war noch nie dort, der Merker steht hier schon: nicht bewertbar, also zuruecksetzen
+                CTLog("Eintritts-Merker %s steht hier schon auf 1 - fuer den Test auf 0", CTEnter.entryVar.c_str());
+                CTEntryProbeOff(CTEnter.entryVar);
+            }
         }
         return ok;
     }
@@ -4585,6 +5076,96 @@ namespace GOTHIC_ENGINE {
         return ok;
     }
 
+    // u140 (P139): Eintritts-Merker kamen mit der Weltdatei - vor dem Einzug, sonst liefe B_Enter_* auf der Welt des Partners noch einmal
+    static bool JEntryVar(const json&, const json&, std::string& d) {
+        if (CTEnter.entryVar.empty()) {
+            d = "-- nicht bewertbar: diese Welt hat keine Eintritts-Merker";
+            return false;
+        }
+        const int v = CTEntryVarNow(CTEnter.entryVar);
+        d = CTFmt("%s hier %d (soll 1, gesetzt nur beim Partner)", CTEnter.entryVar.c_str(), v);
+        return v == 1;
+    }
+
+    // u140 (P140): festgefahrener Spielstand nachgestellt - Abschluss-Gespraech des Sumpfdrachen gehoert, Drache unsterblich. Danach alles wie vorher
+    static bool CTDragonOk = false;
+    static int CTDragonBefore = 0, CTDragonAfter = 0;
+
+    static oCInfo* CTDragonInfo() {
+        const int idx = parser ? parser->GetIndex(zSTRING("DIA_DRAGON_SWAMP_EXIT")) : -1;
+        return idx >= 0 && ogame->GetInfoManager() ? ogame->GetInfoManager()->GetInformation(idx) : NULL;
+    }
+
+    static bool PDragonHeal(std::string& why) {
+        if (!CTDragonInfo() || !DialogNpcByName("DRAGON_SWAMP-1")) {
+            why = "kein Sumpfdrache in dieser Welt";
+            return false;
+        }
+        return true;
+    }
+
+    static bool ADragonHeal(std::string&) {
+        oCInfo* info = CTDragonInfo();
+        oCNpc* d = DialogNpcByName("DRAGON_SWAMP-1");
+        const int told = info->told, flags = d->variousFlags;
+        info->told = TRUE;
+        d->variousFlags = flags | NPC_FLAG_IMMORTAL;
+        CTDragonBefore = d->variousFlags;
+        const int healed = DlgDragonsHeal();
+        CTDragonAfter = d->variousFlags;
+        CTDragonOk = healed == 1 && !(CTDragonAfter & NPC_FLAG_IMMORTAL);
+        info->told = told;
+        d->variousFlags = flags;
+        return true;
+    }
+
+    static bool JDragonHeal(const json&, const json&, std::string& d) {
+        d = CTFmt("DRAGON_SWAMP-1: Schutz %d -> %d", CTDragonBefore, CTDragonAfter);
+        return CTDragonOk;
+    }
+
+    // u142 (P142): Gegenstand einer Nachricht ist schon frei - ein Puffer, der aussieht wie neu belegter Speicher ("{\"by" statt vtable).
+    // Beide Wege der Engine: Nachricht laeuft schon (dort stuerzten G1 und Othello ab) und Nachricht beginnt
+    static int CTMsgVobDead = 0, CTMsgVobLeft = 0, CTMsgVobRet = 0;
+
+    static bool PMsgVob(std::string& why) {
+        if (!player || player->interactItem || player->GetInteractMob()) {
+            why = "Held benutzt gerade etwas";
+            return false;
+        }
+        return true;
+    }
+
+    static int CTMsgVobRun(BOOL running) {
+        struct { void* vt; int ref; char rest[0x60]; } alt = { (void*)0x7962227B, 1, { 0 } };
+        oCMsgManipulate* msg = new oCMsgManipulate(oCMsgManipulate::EV_USEITEMTOSTATE, (zCVob*)&alt, 0);
+        msg->SetInUse(running);
+        const int ret = player->EV_UseItemToState(msg);
+        if (msg->targetVob)
+            CTMsgVobLeft++;
+        msg->targetVob = NULL;
+        msg->Release();
+        return ret;
+    }
+
+    static bool AMsgVob(std::string&) {
+        const int before = CoopMsgVobDeadCount, target = player->interactItemTargetState, current = player->interactItemCurrentState, body = player->GetBodyState();
+        CTMsgVobLeft = 0;
+        player->interactItemTargetState = 0;
+        CTMsgVobRet = CTMsgVobRun(TRUE);
+        CTMsgVobRet += CTMsgVobRun(FALSE);
+        player->interactItemTargetState = target;
+        player->interactItemCurrentState = current;
+        player->SetBodyState(body);
+        CTMsgVobDead = CoopMsgVobDeadCount - before;
+        return true;
+    }
+
+    static bool JMsgVob(const json&, const json&, std::string& d) {
+        d = CTFmt("%d alte Zeiger erkannt, %d stehen geblieben, Nachrichten fertig %d von 2", CTMsgVobDead, CTMsgVobLeft, CTMsgVobRet);
+        return CTMsgVobDead == 2 && !CTMsgVobLeft && CTMsgVobRet == 2 && !player->interactItem;
+    }
+
     static bool PBack(std::string& why) {
         if (!CTEnter.homeSet) {
             why = "nicht weg (Schritt davor)";
@@ -4601,6 +5182,12 @@ namespace GOTHIC_ENGINE {
         CT.loadedMs = 0;
         CT.expectLoad = true;
         CTSay("Coop-Test: zurueck in meine Welt (%s)", CoopWorldShow(CTEnter.homeWorld).c_str());
+        CTEntryProbeOffBoth(CTEnter.entryVar);   // u140 (P139): die Probe zuruecknehmen, hier und beim Partner
+        if (CTVarSym()) {   // u140 (P139): im selben Moment wie der Wechsel - nur die Meldung nach dem Weltwechsel bringt den Wert zum Partner
+            CT.varValue = 1000 + (int)((GetCurrentMs() / 1000) % 8000);
+            CTVarSym()->SetValue(CT.varValue, 0);
+            CT.varSet = true;
+        }
         CoopWcGo(CTEnter.homeWorld, "");
         return true;
     }
@@ -4692,7 +5279,10 @@ namespace GOTHIC_ENGINE {
     }
 
     static bool AWinWp(std::string&) {
-        CoopCamToggle();   // kein Mitspieler in der Welt -> Bild des Weltprozesses
+        // u135: die Automatik kann das Fenster seit PWinWp schon wieder geoeffnet haben (Othello-Client unter Last: 386 s geoeffnet, 387 s
+        // hier ausgeschaltet, Schritt FEHLER) - dann nicht umschalten
+        if (!CoopCamWindowOn())
+            CoopCamToggle();   // kein Mitspieler in der Welt -> Bild des Weltprozesses
         return true;
     }
 
@@ -4931,6 +5521,7 @@ namespace GOTHIC_ENGINE {
         { "Ruf zurueck",                         "D17",    2500, CTF_OTHELLO, PRepBack,    QVarRep,    ARepBack,    JRepBack,    NULL },
         { "Gildenhaltung Troll/Golem",           "D9",     2500, 0,           PGuild,      QGuild,     AGuild,      JGuild,      NULL },
         { "Gildenhaltung zurueck",               "D9",     2500, 0,           PGuildBack,  QGuild,     AGuildBack,  JGuildBack,  NULL },
+        { "Gildenhaltung mit Gilde -1",          "P133",    300, CTF_ONCE,    PGuildNeg,   QBase,      AGuildNeg,   JGuildNeg,   NULL },      // u136
         // u86 (P110): Gilden je Held (Variante C) - Beitritt, Gilden-Quest mit Belohnung und erfuelltem Thema, fremde Gilde
         { "Gilden: Partner in Testgilde",        "P110",   1500, 0,           PGld,        QGldSet,    ANone,       JGldSet,     NULL },
         { "Gilden: Quest gleicher Gilde",        "P110",   2500, 0,           PGld,        QGld,       AGldSame,    JGldSame,    NULL },
@@ -4968,7 +5559,11 @@ namespace GOTHIC_ENGINE {
         { "Zweiter Test-NPC (Fleischwanze)",     "D13",    3500, 0,           PBugSpawn,   QCountBug,  ABugSpawn,   JBugSpawn,   NULL },
         { "Fleischwanze Haltung freundlich",     "D9",     2500, 0,           PBugAlive,   QBug,       ABugFriendly, JBugFriendly, NULL },
         { "Fleischwanze Haltung neutral",        "D9",     2500, 0,           PBugAlive,   QBug,       ABugNeutral, JBugNeutral, NULL },
+        { "Fleischwanze unsterblich (Dialog)",   "P138",   1500, 0,           PBugAlive,   QBug,       ABugImmortal, JBugImmortal, NULL },   // u139
+        { "Fleischwanze Skriptfelder (Takt)",    "P138",   2500, 0,           PBugAlive,   QBug,       ABugFieldsTick, JBugFieldsTick, NULL },
+        { "Fleischwanze Skriptfelder zurueck",   "P138",   2500, 0,           PBugAlive,   QBug,       ABugFieldsBack, JBugFieldsBack, NULL },
         { "Fleischwanze toeten",                 "C1",     3000, 0,           PBugAlive,   QBug,       ABugKill,    JBugKill,    NULL },
+        { "Gegenstand der Nachricht schon frei", "P142",    100, 0,           PMsgVob,     QBase,      AMsgVob,     JMsgVob,     NULL },   // u142
         { "Tote NPCs gleich",                    "I3",      300, CTF_ONCE,           NULL,        QDigDead,   ANone,       JDigDead,    NULL },
         { "Trigger an den Partner",              "D13",    2000, 0,           PTrig,       QTrig,      ATrig,       JTrig,       NULL },
         { "Untrigger an den Partner",            "D13",    2000, 0,           PTrig,       QTrig,      AUntrig,     JUntrig,     NULL },
@@ -4989,6 +5584,12 @@ namespace GOTHIC_ENGINE {
         { "Truhe: drei Aepfel heraus",           "E1/E3",  2500, 0,           PChestAgain, QChest,     AChestOut3,  JChestOut3,  NULL },
         { "Truhe: ganzer Inhalt gleich",         "E1",      300, 0,           PChestAgain, QChest,     ANone,       JChestAll,   NULL },
         { "Alle Truhen der Welt gleich",         "E4",      300, CTF_ONCE,           PWorld,      QDigChests, ANone,       JDigChests,  NULL },
+        { "Mechanismus: Hebel an, Tor geht auf", "P134",   2500, 0,           PMobNew,     QMob,       AMobOn,      JMobOn,      NULL },      // u137
+        { "Mechanismus: Hebel aus",              "P134",   2500, 0,           PMobAgain,   QMob,       AMobOff,     JMobOff,     NULL },
+        { "Mechanismus: Hebel an, Tor geht zu",  "P134",   2500, 0,           PMobAgain,   QMob,       AMobOn,      JMobOn2,     NULL },
+        { "Mechanismus: Hebel wieder aus",       "P134",   2500, 0,           PMobAgain,   QMob,       AMobOff,     JMobOff,     NULL },
+        { "Mechanismus: Skript und Kamera nur beim Benutzer", "P134", 100, CTF_ONCE, PMobChain, QBase,  AMobChain,   JMobChain,   NULL },
+        { "Alle Mechanismen der Welt gleich",    "P134",    300, CTF_ONCE,    PWorld,      QDigMobs,   ANone,       JDigMobs,    NULL },
         { "Gegenstaende am Boden um mich",       "E4",      300, CTF_ONCE,           PWorld,      QDigLoose,  ANone,       JDigLoose,   NULL },
         { "Aufheben: verschwindet beim Partner", "E2",     2500, 0,           PPick,       QPick,      APick,       JPick,       NULL },
         { "Welt-Abgleich neu anfordern",         "E4/H1",  6000, CTF_CLIENT | CTF_ONCE,  PWorld,      QDigLoose,  AWorldAgain, JDigLoose,   NULL },
@@ -4998,10 +5599,14 @@ namespace GOTHIC_ENGINE {
         { "Mitspieler-Markierung zeigt mich",    "O1/O2",   100, 0,           NULL,        QMark,      ANone,       JMark,       NULL },
         { "Zuschau-Fenster an",                  "K2",     1500, 0,           PWin,        QBase,      AWin,        JWin,        NULL },
         { "Zuschau-Fenster aus",                 "K2",     1000, 0,           PWinOff,     QBase,      AWinOff,     JWinOff,     NULL },
+        { "Zuschau-Fenster, Partner weit weg",   "P132",   5000, CTF_LONG,    PWinFar,     QBase,      AWinFar,     JWinFar,     NULL },      // u135
+        { "Gemeinsam speichern, Fenster offen",  "P132",   4000, CTF_LONG,    PSaveFar,    QSave,      ASave,       JSave,       CWinFar },   // u135
         // 8 Speichern und Laden (u30) - am Ende: das Laden baut die Welt neu auf
         { "Auto-Sicherung alle 3 min",           "P127",   3000, CTF_LONG,    PAuto,       QAuto,      AAuto,       JAuto,       CAuto },   // u105
+        { "Kamerafahrt laeuft beim Speichern",   "P136",    500, CTF_ONCE,    PCamSave,    QBase,      ACamSave,    JCamSave,    NULL },   // u138
         { "Gemeinsam speichern",                 "P69",    4000, CTF_LONG,    PSave,       QSave,      ASave,       JSave,       NULL },
         { "Gemeinsam laden",                     "P69",    8000, CTF_LOAD,    PLoad,       QLoad,      ALoad,       JLoad,       CLoad },
+        { "Nach dem Laden: Kamerafahrt gestoppt", "P136",   300, CTF_LONG,    PCamLoad,    QBase,      ANone,       JCamLoad,    NULL },   // u138
         { "Nach dem Laden: Held erhalten",       "P69",     300, CTF_LONG,    PAfterLoad,  QSave,      ANone,       JHeroKept,   NULL },
         { "Nach dem Laden: Figuren wie beim Speichern",          "P69",     300, CTF_LONG,    PAfterLoad,  QBase,      ANone,       JFigsAfterLoad, NULL },
         { "Nach dem Laden: Welten wie beim Speichern",        "P69",     100, CTF_LONG,    PAfterLoad,  QSave,      ANone,       JWorldAfterLoad, NULL },
@@ -5036,11 +5641,13 @@ namespace GOTHIC_ENGINE {
         { "Weltprozess bereit",                  "P80",    2000, CTF_SEPWORLD | CTF_PARTNERWAIT, PWp, QBase, ANone,      JWpReady,    NULL },
         { "Zuschau-Fenster zeigt den Weltprozess", "P80",  1500, CTF_SEPWORLD | CTF_LONG, PWinWp, QBase,   AWinWp,      JWinWp,      NULL },
         { "Zuschau-Fenster (Weltprozess) aus",   "P80",    1000, CTF_SEPWORLD,  PWinOff,    QBase,      AWinOff,     JWinOff,     NULL },
+        { "Kamerafahrt beim Speichern (getrennte Welten)", "P136", 500, CTF_SEPWORLD | CTF_ONCE, PCamSave, QBase, ACamSave, JCamSave, NULL },   // u138
         { "Gemeinsam speichern (getrennte Welten)", "P69", 4000, CTF_SEPWORLD | CTF_LONG, PSave, QSave,    ASave,       JSaveApart,  NULL },
         { "Weltstand des Partners im Spielstand", "P81",   2000, CTF_SEPWORLD | CTF_PARTNERWAIT, PApart, QWx, ANone,     JWxSlot,     NULL },
         { "Sicherung beim Partner (getrennte Welten)", "P102", 2000, CTF_SEPWORLD | CTF_PARTNERWAIT, PBk, QBk, ANone,    JBk,         NULL },   // u55
         { "Sicherung: Partner verliert seine Kopie (Test)", "P102", 300, CTF_SEPWORLD | CTF_HOST | CTF_ONCE, PBkHide, QBkHide, ANone, JBkHide, NULL },
         { "Gemeinsam laden (getrennte Welten)",  "P71",    8000, CTF_SEPWORLD | CTF_LOAD, PLoad, QLoad,    ALoad,       JLoad,       CLoad },
+        { "Nach dem Laden (getrennt): Kamerafahrt gestoppt", "P136", 300, CTF_SEPWORLD | CTF_LONG, PCamLoad, QBase, ANone, JCamLoad,  NULL },   // u138
         { "Nach dem Laden (getrennt): Held erhalten", "P71", 300, CTF_SEPWORLD | CTF_LONG, PAfterLoad, QSave, ANone,    JHeroKept,   NULL },
         { "Nach dem Laden: Partner holt seine Kopie zurueck", "P102", 300, CTF_SEPWORLD | CTF_HOST | CTF_LONG, PBkRestored, QBk, ANone, JBkRestored, NULL },
         { "Nach dem Laden (getrennt): keine Figuren", "P71", 300, CTF_SEPWORLD | CTF_LONG, PAfterLoad, QBase, ANone,    JFigsAfterLoad, NULL },
@@ -5049,10 +5656,15 @@ namespace GOTHIC_ENGINE {
         // u47 (P88): Betreten - der Stand dessen gilt, der dort ist bzw. zuletzt dort war
         { "Betreten: Partner markiert seine Welt", "P88",  2000, CTF_SEPWORLD | CTF_LONG, PMarkPartner, QEnterMark, AMarkPartner, JMarkPartner, NULL },
         { "Betreten: ich komme in seine Welt",    "P88",   4000, CTF_LOAD | CTF_PARTNERWAIT, PEnter, QBase,  AEnter,      JEnter,      CLoad },
+        { "Betreten: Eintritts-Merker kamen mit", "P139",   100, 0,           PEnter,      QBase,      ANone,       JEntryVar,   NULL },   // u140
+        { "Drache aus altem Spielstand heilt",    "P140",   100, 0,           PDragonHeal, QBase,      ADragonHeal, JDragonHeal, NULL },
         { "Betreten: zurueck in meine Welt",      "P88",   3000, CTF_LOAD | CTF_PARTNERWAIT, PBack,  QBase,  ABack,       JBack,       CLoad },
+        { "Betreten: Variable aus dem Weltwechsel", "P139", 4500, CTF_SEPWORLD | CTF_LONG, PVar, QVarTest,  ANone,       JVar,        NULL },   // u140
+        { "Betreten: Variable zurueck",           "P139",  2500, CTF_SEPWORLD, PVar,       QVarTest,   AVarBack,    JVar,        NULL },
         { "Betreten: ich markiere meine Welt",    "P88",   1500, CTF_SEPWORLD | CTF_LONG, PMarkMine, QBase,   ANone,       JMarkMine,   NULL },
         { "Teleport zu mir ueber Welten",        "N2",     3000, CTF_PARTNERWAIT, PTpHere, QBase,      ATpHere,     JTpHere,     NULL },
         { "Betreten: Partner sieht meinen Stand", "P88",    500, CTF_LONG,    PMarkSeen,   QMarkChk,   ANone,       JMarkSeen,   NULL },
+        { "Eintritts-Merker in derselben Welt",   "P141",  2500, 0,           PEntrySame,  QEntrySame, AEntrySame,  JEntrySame,  CEntrySame },   // u141
         { "Ausgangslage wiederherstellen",       "P82",    3000, CTF_PARTNERWAIT, NULL,    QBase,      ARestore,    JRestore,    NULL },
     };
     static const size_t CoopTestCount = sizeof(CoopTests) / sizeof(CoopTests[0]);
@@ -5100,6 +5712,7 @@ namespace GOTHIC_ENGINE {
         "Tagebuch: Thema + Eintrag (Dialog)", "Themenstatus erfolgreich", "Themenstatus laufend", "Eintrag ausserhalb eines Dialogs",
         "Quest-EP +10 (Dialog)", "Skript-Variable (Story-Takt)", "Skript-Variable (Dialog)", "Skript-Variable zurueck",
         "Heldenvariable bleibt lokal", "Ruf +1 mit Meldung", "Ruf zurueck", "Gildenhaltung Troll/Golem", "Gildenhaltung zurueck",
+        "Gildenhaltung mit Gilde -1",   // u136 (P133)
         "Gilden: Partner in Testgilde", "Gilden: Quest gleicher Gilde", "Gilden: Quest anderer Gilde",   // u86 (P110)
         "Gilden: Aufnahme bleibt beim Helden", "Gilden: kein Story-Takt danach", "Gilden: zurueck",
         "Missions-Gegenstand gespiegelt", "Missions-Gegenstand gekennzeichnet", "Missions-Gegenstand abgegeben",   // u96 (P118), u104
@@ -5109,13 +5722,14 @@ namespace GOTHIC_ENGINE {
         "Teleport-Rune beim Partner", "Rune mit eigenem Aussehen",
         // Speichern und Laden: gerade bei getrennten Welten wichtig - danach sind beide in der Welt des Hosts
         "Auto-Sicherung alle 3 min",   // u105
+        "Kamerafahrt laeuft beim Speichern", "Nach dem Laden: Kamerafahrt gestoppt",   // u138 (P136)
         "Gemeinsam speichern", "Gemeinsam laden", "Nach dem Laden: Held erhalten", "Nach dem Laden: Figuren wie beim Speichern",
         "Nach dem Laden: Welten wie beim Speichern",
         // u39: Welten fuer den Test wechseln
         "Partner in meine Welt holen", "Partner in eine andere Welt schicken", "Teleport zu mir ueber Welten", "Ausgangslage wiederherstellen",
         "Story-Video: Ueberspringen gilt fuer beide",   // u55: das Video laeuft beim Partner in jeder Welt
         // u47 (P88): Betreten - ich wechsle in die Welt des Partners und zurueck
-        "Betreten: ich komme in seine Welt", "Betreten: zurueck in meine Welt", "Betreten: Partner sieht meinen Stand",
+        "Betreten: ich komme in seine Welt", "Betreten: Eintritts-Merker kamen mit", "Drache aus altem Spielstand heilt", "Betreten: zurueck in meine Welt", "Betreten: Partner sieht meinen Stand",
     };
 
     static bool CTAnyWorld(const CoopTestDef& t) {
@@ -5172,6 +5786,10 @@ namespace GOTHIC_ENGINE {
         { "Rune mit eigenem Aussehen",           COOP_READY_Teleport != 0 && (ENGINE == Engine_G1 || ENGINE == Engine_G2A), "Rune-Modell" },   // u17 nur G1, u21 auch G2A
         { "Mitspieler-Markierung zeigt mich",    COOP_READY_Marker != 0,     "Markierung" },
         { "Auto-Sicherung alle 3 min",           COOP_READY_Save != 0 && COOP_READY_Difficulty != 0, "Speichern/Laden" },   // u105
+        { "Kamerafahrt laeuft beim Speichern",   COOP_READY_Save != 0 && COOP_READY_World != 0, "Speichern/Laden" },   // u138
+        { "Nach dem Laden: Kamerafahrt gestoppt", COOP_READY_Save != 0 && COOP_READY_World != 0, "Speichern/Laden" },
+        { "Kamerafahrt beim Speichern (getrennte Welten)", COOP_READY_Save != 0 && COOP_READY_World != 0, "Speichern/Laden" },
+        { "Nach dem Laden (getrennt): Kamerafahrt gestoppt", COOP_READY_Save != 0 && COOP_READY_World != 0, "Speichern/Laden" },
         { "Gemeinsam speichern",                 COOP_READY_Save != 0,       "Speichern/Laden" },   // u30
         { "Gemeinsam laden",                     COOP_READY_Save != 0,       "Speichern/Laden" },
         { "Nach dem Laden: Held erhalten",       COOP_READY_Save != 0,       "Speichern/Laden" },
@@ -5259,7 +5877,13 @@ namespace GOTHIC_ENGINE {
             return i <= fetch || !strcmp(CoopTests[i].name, "Abgleich-Regeln gleich") || !strncmp(CoopTests[i].name, "Gilden: ", 8) ||
                 !strncmp(CoopTests[i].name, "Missions-Gegenstand", 19) || !strncmp(CoopTests[i].name, "Coop-Truhe", 10) ||
                 !strncmp(CoopTests[i].name, "Truhe: ", 7) || !strcmp(CoopTests[i].name, "Alle Truhen der Welt gleich") ||
+                !strncmp(CoopTests[i].name, "Mechanismus: ", 13) || !strcmp(CoopTests[i].name, "Alle Mechanismen der Welt gleich") ||   // u137 (P134)
                 !strcmp(CoopTests[i].name, "Auto-Sicherung alle 3 min") ||   // u105 (P127)
+                !strcmp(CoopTests[i].name, "Zuschau-Fenster an") || !strcmp(CoopTests[i].name, "Zuschau-Fenster aus") ||   // u135 (P132): zweite Kamera
+                !strcmp(CoopTests[i].name, "Zuschau-Fenster, Partner weit weg") || !strcmp(CoopTests[i].name, "Gemeinsam speichern, Fenster offen") ||
+                !strcmp(CoopTests[i].name, "Gildenhaltung mit Gilde -1") ||   // u136 (P133)
+                !strcmp(CoopTests[i].name, "Tagesablauf/Haltung aller NPCs") || !strcmp(CoopTests[i].name, "Zweiter Test-NPC (Fleischwanze)") ||   // u139 (P138)
+                !strncmp(CoopTests[i].name, "Fleischwanze ", 13) || !strcmp(CoopTests[i].name, "Gegenstand der Nachricht schon frei") ||   // u142 (P142)
                 i + 1 == CoopTestCount;   // u96 (P118), u97 (P119), u98 (P120: Welt-Truhen - der Partner nimmt ohne Remove heraus) mit
         return i <= fetch || i >= CTBlockFirst(CoopTestBlockCount - 1);
     }
@@ -5556,6 +6180,8 @@ namespace GOTHIC_ENGINE {
                         CTLog("Testlauf %s: Markierung NICHT moeglich: %s", CTGo.run.c_str(), why.c_str());
                         CTGo.on = false;
                     }
+                    else
+                        CTMarkMade.entryVar = CTEntryProbe();   // u140 (P139)
                     return;
                 }
                 const int r = CTMarkFinish(CTMarkMade);
@@ -5882,6 +6508,10 @@ namespace GOTHIC_ENGINE {
             else if (f == "go") {   // u39: Weltwechsel bzw. Teleport fuer den Testlauf des Partners
                 if (e.value("to", std::string()) != DialogMe())
                     return;
+                if (e.contains("evoff") && e["evoff"].is_string()) {   // u140 (P139): Probe zuruecknehmen
+                    CTEntryProbeOff(e["evoff"].get<std::string>());
+                    return;
+                }
                 CTGo = CTGoOrder();
                 CTGo.on = true;
                 CTGo.run = e.value("run", std::string());

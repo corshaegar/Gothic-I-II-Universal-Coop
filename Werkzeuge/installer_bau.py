@@ -10,9 +10,9 @@ Teile (wie in GothicCoopSetup.cpp):
   2 Coop Gothic 2      Gothic2Coop.dll, scripts\\g2, Config (nur wenn neu), Steam (App 39510), LIESMICH (makezip_g2)
   3 Coop Othello       Gothic1Coop.dll, scripts\\othello, Config von G1 (nur wenn neu), Steam (App 65540), LIESMICH-Othello
   4 Renderer G1        gd3d11\\g1_avx2-v17.9.7-coop8.dll -> system\\GD3D11\\Bin\\g1_avx2.dll
-  5 Renderer G2        gd3d11\\g2a_avx2-v17.9.7-coop8.dll -> system\\GD3D11\\Bin\\g2a_avx2.dll
+  5 Renderer G2        gd3d11\\g2a_avx2-v17.9.7-coop9.dll -> system\\GD3D11\\Bin\\g2a_avx2.dll
   6 GD3D11 v17.9.7     das offizielle Release (ZIP, nur gelesen - nichts daraus wird ausgefuehrt), alles nach system\\
-  7 Lizenzen           GothicCoop-Lizenzen\\ (AGPL, GPL, ENet, json, Hinweise, GD3D11-Patches coop6-coop8)
+  7 Lizenzen           GothicCoop-Lizenzen\\ (AGPL, GPL, ENet, json, Hinweise, GD3D11-Patches coop6-coop9)
   8 Union 1.0m         u62: die sieben Dateien von Union (UNION_FILES, docs\\UNION-DATEIEN.md) aus einem Spielordner mit Union
                        (Vorgabe: Union Vorlage\\Gothic II, sonst Gothic II) - der Installer schreibt sie, wenn bei Gothic 1/2
                        Union fehlt (Othello bringt Union selbst mit). Bis u61: Union_1.0m_26.06.2022.exe, gestartet vom Installer
@@ -198,7 +198,7 @@ def main():
     os.makedirs(OBJ, exist_ok=True)
     payload = os.path.join(OBJ, 'payload.bin')
     open(payload, 'wb').write(head.getvalue() + blob.getvalue())
-    names = {1: 'Coop Gothic 1', 2: 'Coop Gothic 2', 3: 'Coop Othello', 4: 'Renderer G1 coop8', 5: 'Renderer G2 coop8',
+    names = {1: 'Coop Gothic 1', 2: 'Coop Gothic 2', 3: 'Coop Othello', 4: 'Renderer G1 coop8', 5: 'Renderer G2 coop9',
              6: 'GD3D11 ' + a.gd3d11_ver, 7: 'Lizenzen', 8: 'Union 1.0m'}
     for comp in sorted(per):
         n, r, p = per[comp]

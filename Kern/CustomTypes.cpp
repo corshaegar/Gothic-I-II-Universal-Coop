@@ -72,6 +72,9 @@ namespace GOTHIC_ENGINE {
         SYNC_NPC_LEAD,
         // u32 gemeinsamer Weltwechsel (CoopWorlds.cpp): lvl Zielwelt, sp Startpunkt, nick Name des Ausloesers
         SYNC_WORLD_CHANGE,
+        // u137 Mechanismen (CoopWorldSync.cpp): k Lage, f/t Zustand von/nach, lk Schloss, by Benutzer; BULK: s [{k, s, lk}] im Weltbestand
+        SYNC_MOB_STATE,
+        SYNC_MOB_BULK,
     };
 
     struct PlayerHit

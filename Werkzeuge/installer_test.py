@@ -165,7 +165,7 @@ check('Skripte G2', sha(os.path.join(d, 'system', 'Autorun', 'COOP_MENU.D')) == 
 check('GD3D11 ddraw.dll', os.path.exists(os.path.join(d, 'system', 'ddraw.dll')))
 check('Coop-Renderer', sha(os.path.join(d, 'system', 'GD3D11', 'Bin', 'g2a_avx2.dll')) == sha(r2))
 check('G1-Renderer original', sha(os.path.join(d, 'system', 'GD3D11', 'Bin', 'g1_avx2.dll')) != sha(r1))
-check('Lizenzen', os.path.exists(os.path.join(d, 'GothicCoop-Lizenzen', 'GD3D11-coop8.patch')))
+check('Lizenzen', os.path.exists(os.path.join(d, 'GothicCoop-Lizenzen', 'GD3D11-coop9.patch')))
 logs = os.listdir(os.path.join(d, 'CoopLogs', 'Installer'))
 check('Protokoll', len(logs) == 1, logs)
 runs = os.listdir(os.path.join(d, 'CoopBackup'))

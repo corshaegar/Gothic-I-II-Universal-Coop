@@ -302,6 +302,35 @@ namespace GOTHIC_ENGINE {
         return Ivk_zCModel_GetProgressPercentName_Coop(_this, name);
     }
 
+    // u136 (P133): Absturz des Hosts im Testlauf (G2A, 30.10., C0000005 bei Gothic2.exe+0x300D7F = oCGuilds::GetAttitude +0x3F, Lesen von
+    // 0x0C15FFCF, Skriptzeiger in C_NpcIsBotheredByPlayerRoomGuild). INIT_SUB_OLDCAMP gibt den Raeumen EG1, EG4 und HH1 im Kastell die Gilde
+    // -1, das Skript fragt Wld_GetGuildAttitude(slf.guild, portalguild) auch dann (portalguild > GIL_NONE steht daneben, Daedalus wertet aber
+    // beide Seiten von && aus). GetAttitude prueft nur nach oben (jge) und liest attitude[-1 * size + slf.guild], also 65 Bytes vor der Tabelle;
+    // meist Datenmuell, abgestuerzt ist es, als die Tabelle am Anfang eines Speicherbereichs lag (0x0C160010). Nur G2A: G1 hat dieselbe Luecke,
+    // aber dort und in Othello gibt kein Skript einem Raum -1 (Adresse 0, kein Haken). Jetzt: negative Gilde wie zu grosse - neutral, was die
+    // Engine dort selbst liefert (+0x210). Das Ergebnis aendert nichts am Spiel: das Skript verlangt ohnehin portalguild > GIL_NONE.
+    static void CoopGuildGuardLog(int a, int b) {
+        static int left = 6;   // in diesen Raeumen fragt das Skript regelmaessig, kein Fehler: nur wenige Zeilen je Sitzung
+        if (left <= 0)
+            return;
+        left--;
+        oCPortalRoomManager* pm = ogame ? ogame->GetPortalRoomManager() : NULL;
+        OthelloCompatLog("[%lld s, %s] Absturzschutz: Gildenhaltung(%d, %d) ausserhalb der Tabelle - neutral statt Lesen davor (Raum %s, dessen Gilde %d)",
+            DiagSeconds(), DiagRole(), a, b, pm && pm->curPlayerPortal ? pm->curPlayerPortal->ToChar() : "-",
+            pm && pm->curPlayerRoom ? pm->curPlayerRoom->ownerGuild : 0);
+    }
+
+    int __fastcall oCGuilds_GetAttitude_Coop(oCGuilds* _this, void* vtable, int a, int b);
+    CInvoke<int(__thiscall*)(oCGuilds*, int, int)> Ivk_oCGuilds_GetAttitude_Coop(CoopAddr::oCGuilds_GetAttitude, &oCGuilds_GetAttitude_Coop,
+        CoopAddr::oCGuilds_GetAttitude ? COOP_IVK(HooksExt) : IVK_DISABLED);
+    int __fastcall oCGuilds_GetAttitude_Coop(oCGuilds* _this, void* vtable, int a, int b) {
+        if (a < 0 || b < 0) {
+            CoopGuildGuardLog(a, b);
+            return NPC_ATT_NEUTRAL;
+        }
+        return Ivk_oCGuilds_GetAttitude_Coop(_this, a, b);
+    }
+
     // v105 (A19): Absturz beim Client kurz nach dem Laden (Test v104, "beim ersten Start gab es einen Crash"; Windows-Ereignis
     // 22.10. 22:11:01: GothicMod.exe c0000005 bei +0x1A50F, kein Eintrag in den Coop-Logs). 0x0041A50F = zCCSManager::
     // CreateNewCutscene(zSTRING&) mit this = NULL (mov eax, [ebx]), einziger Aufrufer zCCSPlayer::StartCutscene(zSTRING&, zCVob*)

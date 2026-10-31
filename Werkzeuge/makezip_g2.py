@@ -34,7 +34,7 @@ SystemPack - Union laedt SystemPack selbst). Bequemer und rueckgaengig machbar: 
   system\\Autorun\\              GothicCoop-DLL und drei Skripte
   system\\GothicCoopConfig.json  Vorgaben (Name, Adresse, Aussehen - im Spiel unter COOP aenderbar)
   system\\steam_api.dll und steam_appid.txt (39510)   fuer "Coop ueber Steam" (Steam muss laufen)
-  system\\GD3D11\\Bin\\g2a_avx2.dll  Coop-Renderer (GD3D11 v17.9.7 + coop8) - nur wirksam, wenn GD3D11 installiert ist
+  system\\GD3D11\\Bin\\g2a_avx2.dll  Coop-Renderer (GD3D11 v17.9.7 + coop9) - nur wirksam, wenn GD3D11 installiert ist
                                   (3D-Vorschau der Figur, Zuschau-Fenster beim Mitspieler, eigenes Log im Weltprozess,
                                   ab coop8 das Bild des Weltprozesses im Zuschau-Fenster)
 
@@ -134,7 +134,8 @@ Ab u85: Gilden gelten je Held - Gilden-Dialoge teilen nur Helden derselben Gilde
 bekommt einer einen, hat ihn der Partner auch; gibt einer ihn ab, verliert ihn der Partner (Name "... (gemeinsam)"). Ab u97:
 Coop-Inventar - eine gemeinsame Truhe; die Taste (Vorgabe I, Einstellungen > COOP) oeffnet sie ohne Bewegung, beide koennen sie
 gleichzeitig offen haben, der Inhalt liegt beim Host und im Spielstand, Gegenstaende daraus zaehlen bei Quests. Ab u105: Auto-Sicherung
-auch alle 3 Minuten.
+auch alle 3 Minuten. Ab u135 (Renderer coop9): kein Absturz mehr beim Speichern mit offenem Zuschau-Fenster, wenn in den
+GD3D11-Einstellungen AtmosphericScattering aus ist; das Zuschau-Fenster zeigt dann statt des Himmels die Nebelfarbe.
 
 Spielen: Hauptmenue > COOP > Figur waehlen > "Weiter: Verbinden" > "Spiel hosten" bzw. "Ueber IP beitreten"
 (Port 9955) oder ueber Steam. Protokoll: system\\GothicCoop.log.
@@ -161,7 +162,7 @@ def main():
     ap.add_argument('fassung')
     ap.add_argument('--dll', help='Vorgabe builds\\<fassung>\\Gothic2Coop-<fassung>.dll')
     ap.add_argument('--scripts', default=pfade.SKRIPTE['g2'])
-    ap.add_argument('--renderer', default=pfade.RENDERER['g2'], help='"-" = weglassen (ab u10; u33: coop7, u38: coop8)')
+    ap.add_argument('--renderer', default=pfade.RENDERER['g2'], help='"-" = weglassen (ab u10; u33: coop7, u38: coop8, u135: coop9)')
     ap.add_argument('--union-dir', help='Spielordner mit Union 1.0m (Vorgabe wie installer_bau.py), "-" = weglassen')
     ap.add_argument('--name', help='Dateiname der ZIP (Vorgabe "Gothic-I-II-Universal-Coop Gothic II <fassung>.zip")')
     ap.add_argument('--force', action='store_true', help='vorhandene ZIP ersetzen')

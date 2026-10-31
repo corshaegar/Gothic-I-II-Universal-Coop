@@ -203,7 +203,10 @@ namespace GOTHIC_ENGINE {
         }
     }
 
+    void CoopDialogSyncLoadKind(bool levelChange);   // u140 (P139): CoopDialogSync.cpp
+
     void _Game_LoadBegin_NewGame() {
+        CoopDialogSyncLoadKind(false);
         try {
             CoopSaveSyncOnNewGame();   // v76: offene Coop-Auftraege und gemerkter Held gelten nicht fuer ein neues Spiel
             CoopTruheNeuesSpiel();     // u97: Coop-Truhe leer
@@ -228,6 +231,7 @@ namespace GOTHIC_ENGINE {
     }
 
     void _Game_LoadBegin_SaveGame() {
+        CoopDialogSyncLoadKind(false);
         try {
             if (!CoopWpIsWorld()) {          // u33: im Weltprozess kein gemeinsames Laden
                 CoopSaveSyncOnLoadBegin();   // v17: Partner laedt denselben Stand mit
@@ -255,6 +259,7 @@ namespace GOTHIC_ENGINE {
     }
 
     void _Game_LoadBegin_ChangeLevel() {
+        CoopDialogSyncLoadKind(true);
         _LoadBegin();
     }
 
@@ -281,6 +286,7 @@ namespace GOTHIC_ENGINE {
             if (logged++ < 20)
                 OthelloCompatLog("[%lld s, %s] Weltwechsel nach %s (Startpunkt %s) ohne Meldung von Union - GT laedt selbst (LoadBegin/LoadEnd)",
                     DiagSeconds(), DiagRole(), level.ToChar(), start.ToChar());
+            CoopDialogSyncLoadKind(true);
             _LoadBegin();
         }
         Ivk_oCGame_ChangeLevel_Coop(_this, level, start);

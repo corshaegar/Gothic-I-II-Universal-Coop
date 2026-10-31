@@ -414,6 +414,62 @@ namespace GOTHIC_ENGINE {
         return best;
     }
 
+    // --- u137 (P134): Mechanismen - Tueren, Schalter, Winden und alles mit Ausloeser ---------------------------------------
+    //
+    // Testlauf b54 (DLL u136): Der Client setzte den Portalring am Schloss ein (Mob OBERMEGAMASTER_IMGAME_STARTER, Zustand 1), beim Host blieb
+    // der Mob auf Zustand 0, sein Ring verschwand als Missions-Gegenstand trotzdem. Beim Laden gilt der Stand des Hosts: Portal zu, Ring weg,
+    // Sackgasse. Dasselbe bei Tempeltuer, Vinos Keller, Fokus-Sockeln, Steinplatten (zCCodeMaster zaehlte je PC) und jedem Hebel.
+    // Engine (Disassembly G2A 0x00720C80, G1 0x0067F300): oCMobInter::OnEndStateChange(npc, von, nach) schickt bei nach 1 OnTrigger, bei nach 0
+    // OnUntrigger an sich selbst (von dort an die Vobs namens triggerTarget), danach das Zustandsskript.
+    // Jetzt: benutzt der eigene Held so einen Mob, gehen Lage, von, nach und Schloss an die anderen (Client ueber den Host); dort Schloss und
+    // Zustand setzen, dann derselbe Ausloeser an dieselben Ziele. Der Zustand steht nicht im Spielstand, Mover und Trigger schon - darum
+    // bleibt das Portal nach dem Laden offen. Weltdaten G2A und G1 (tools: Vob-Baum der .ZEN): Ketten aus zCTrigger, zCTriggerList,
+    // zCMessageFilter, zCCodeMaster, zCMover, oCTriggerScript, zCCSCamera, Ton- und Effekt-Vobs.
+    //
+    // Als Ausloeser (vobInstigator) geht beim Partner NULL durch die Kette: zCTrigger::CanBeActivatedNow (G2A 0x00610220) laesst NULL immer zu,
+    // waehrend der eigene Held dort als PC, eine Figur als NPC, der Mob als Objekt gefiltert wuerde (NEWWORLD: viele Trigger ohne NPC oder Objekt).
+    // Wld_SendTrigger gibt den Vob selbst an (G2A 0x006DDEE0), ein Mover sich selbst (0x00611896) - NULL kommt also nur von hier.
+    // Daran erkennen die Haken unten die Kette: oCTriggerScript laeuft nur beim Benutzer (ADW_PORTALTEMPEL_FOCUS_FUNC nimmt dem Helden den
+    // Fokus und zaehlt hoch, EVT_ORNAMENT_* legen NPCs an - Variablen, Tagebuch, Spawns und Trigger daraus kommen schon ueber Story-Takt und
+    // Host-Ereignisse), die Kamerafahrt auch (riss den Partner sonst aus dem Kampf). Grenze: ein Skript hinter einem Mover bekommt den Mover
+    // als Ausloeser und laeuft auf beiden Seiten (nur G1 OLDMINE: EVT_TRIGGERSCRIPT_CRAWLERCAVE).
+    // Truhen laufen weiter ueber SYNC_CHEST_*; Baenke, Betten, Leitern und Herde aendern an der Welt nichts.
+    // u138 (P136): Feuerstellen auch nicht, obwohl die Fackelhalter in G1 ein Ziel tragen (WORLD.ZEN: "TORCHSCRIPT", kein solcher Vob): Die Flamme setzt
+    // oCMobFire::OnTrigger, hier stuende der Mob auf 1 ohne Flamme und liesse sich nicht mehr anzuenden.
+    bool CoopRuleQuests();   // CoopDifficulty.cpp
+
+    static long long MobChainUntilMs = 0;    // bis dahin ist ein NULL-Ausloeser die Kette eines abgeglichenen Mechanismus
+    static int CoopMobSkipScripts = 0, CoopMobSkipCams = 0;   // Testlauf (CoopSelfTest.cpp)
+    static int CoopCamStopped = 0;           // u138 (P136): Kamerafahrten, die laut Spielstand noch liefen
+    static std::map<std::string, std::vector<json>> MobPending;   // Benutzt in einer anderen Welt: Welt -> Ereignisse, bis ich dorthin komme
+
+    static bool MobSyncBase() {
+        return WorldSyncBase() && (CoopRuleWorld() || CoopRuleQuests());   // der Ring faellt unter "Quests", die Tuer unter "Gegenstaende/Truhen"
+    }
+
+    static bool MobSyncRelevant(oCMobInter* m) {
+        if (!m || zDYNAMIC_CAST<oCMobContainer>(m) || zDYNAMIC_CAST<oCMobFire>(m))
+            return false;
+        return !m->triggerTarget.IsEmpty() || zDYNAMIC_CAST<oCMobDoor>(m) || zDYNAMIC_CAST<oCMobSwitch>(m) || zDYNAMIC_CAST<oCMobWheel>(m);
+    }
+
+    static oCMobInter* FindMob(const zVEC3& p) {
+        zCArray<zCVob*> vobs = CollectVobsInRadius(p, 150);
+        oCMobInter* best = NULL;
+        float bestD = 100.f;
+        for (int i = 0; i < vobs.GetNumInList(); i++) {
+            oCMobInter* m = zDYNAMIC_CAST<oCMobInter>(vobs.GetSafe(i));
+            if (!MobSyncRelevant(m))
+                continue;
+            const float d = CoopDist(m->GetPositionWorld(), p);
+            if (d < bestD) {
+                bestD = d;
+                best = m;
+            }
+        }
+        return best;
+    }
+
     static oCItem* FindLooseItem(const std::string& inst, const zVEC3& p, float maxDist) {
         const int idx = parser->GetIndex(zSTRING(inst.c_str()));
         if (idx < 0)
@@ -483,6 +539,39 @@ namespace GOTHIC_ENGINE {
         WorldSyncSend(j, SYNC_CHEST_STATE);
     }
 
+    // u137 (P134): Stand aller Mechanismen im Weltbestand - fuer einen Client, der neu dazukommt oder sich neu abgleicht. Nur Zustand und Schloss,
+    // keine Ausloeser: Mover und Trigger bringt der Spielstand mit
+    static void SendMobBulk() {
+        zCArray<zCVob*> mobs;
+        ogame->GetGameWorld()->SearchVobListByBaseClass(oCMobInter::classDef, mobs, NULL);
+        json batch = json::array();
+        int n = 0;
+        for (int i = 0; i < mobs.GetNumInList(); i++) {
+            oCMobInter* m = zDYNAMIC_CAST<oCMobInter>(mobs.GetSafe(i));
+            if (!MobSyncRelevant(m))
+                continue;
+            json s;
+            s["k"] = CoopPosJson(m->GetPositionWorld());
+            s["s"] = (int)m->state;
+            if (oCMobLockable* l = zDYNAMIC_CAST<oCMobLockable>(m))
+                s["lk"] = l->locked ? 1 : 0;
+            batch.push_back(s);
+            n++;
+            if (batch.size() >= 40) {
+                json j;
+                j["s"] = batch;
+                WorldSyncSend(j, SYNC_MOB_BULK);
+                batch = json::array();
+            }
+        }
+        if (!batch.empty()) {
+            json j;
+            j["s"] = batch;
+            WorldSyncSend(j, SYNC_MOB_BULK);
+        }
+        WorldSyncLog("Mechanismen gesendet (%s): %d", CoopWorldName().c_str(), n);
+    }
+
     static void SendWorldBulk() {
         oCWorld* world = ogame->GetGameWorld();
 
@@ -543,6 +632,22 @@ namespace GOTHIC_ENGINE {
         }
         WorldSyncLog("Bestand gesendet (%s): %d Truhen, %d Gegenstaende am Boden in %d Teilen",
             CoopWorldName().c_str(), chests.GetNumInList(), loose, (int)parts.size());
+        SendMobBulk();   // u137
+    }
+
+    // u137 (P134): eigener Held hat einen Mechanismus benutzt (Haken unten)
+    static void MobSendUse(oCMobInter* m, int from, int to) {
+        json j;
+        j["k"] = CoopPosJson(m->GetPositionWorld());
+        j["f"] = from;
+        j["t"] = to;
+        if (oCMobLockable* l = zDYNAMIC_CAST<oCMobLockable>(m))
+            j["lk"] = l->locked ? 1 : 0;
+        if (ServerThread)
+            j["by"] = MyselfId.ToChar();
+        WorldSyncSend(j, SYNC_MOB_STATE);
+        WorldSyncLog("Mechanismus %s bei %s: Zustand %d -> %d, Ziel \"%s\" - an den Partner", m->GetObjectName().ToChar(),
+            CoopPosKey(m->GetPositionWorld()).c_str(), from, to, m->triggerTarget.ToChar());
     }
 
     // --- Eigene Handlungen (aus den Hooks) ------------------------------------------------------
@@ -870,7 +975,141 @@ namespace GOTHIC_ENGINE {
     // --- Empfang (aus ProcessCoopPacket, Hauptfaden) --------------------------------------------
 
     bool CoopWorldSyncHandles(int type) {
-        return type >= SYNC_CHEST_OPEN && type <= SYNC_NPC_LOOT;
+        return (type >= SYNC_CHEST_OPEN && type <= SYNC_NPC_LOOT) || type == SYNC_MOB_STATE || type == SYNC_MOB_BULK;   // u137
+    }
+
+    // u137 (P134): Benutzung beim Partner nachvollziehen. Benutzt der eigene Held den Mob gerade selbst, bleibt sein Zustand ihm; der Ausloeser
+    // gilt trotzdem - sonst liefen die Welten auseinander
+    static void MobApplyUse(oCMobInter* m, int from, int to, int lk, const std::string& by, const char* why) {
+        oCMobLockable* l = zDYNAMIC_CAST<oCMobLockable>(m);
+        const bool lockChanged = l && lk >= 0 && (lk != 0) != (l->locked != 0);
+        if (lockChanged)
+            l->SetLocked(lk);
+        const bool busy = m->npcsCurrent > 0;
+        const int was = m->state;
+        if (!busy && was != to) {
+            m->StartStateChange(NULL, from, to);   // nur die Animation des Mobs (ohne Benutzer wie beim Zurueckdrehen in oCMobInter::OnTick)
+            m->state = m->state_target = to;
+            if (m->rewind)
+                m->SetSleeping(FALSE);
+        }
+        int targets = 0;
+        if ((to == 0 || to == 1) && !m->triggerTarget.IsEmpty() && m->GetHomeWorld()) {
+            MobChainUntilMs = GetCurrentMs() + 300000;   // Verzoegerungen in der Kette (fireDelaySec, zCTriggerList)
+            zCArray<zCVob*> ziele;
+            m->GetHomeWorld()->SearchVobListByName(m->triggerTarget, ziele);
+            for (int i = 0; i < ziele.GetNumInList(); i++) {
+                zCVob* v = ziele.GetSafe(i);
+                if (!v)
+                    continue;
+                if (to == 1)
+                    v->GetEM()->OnTrigger(m, NULL);
+                else
+                    v->GetEM()->OnUntrigger(m, NULL);
+                targets++;
+            }
+        }
+        WorldSyncLog("Mechanismus %s bei %s von %s (%s): Zustand %d -> %d%s%s, %d Ziele (\"%s\")", m->GetObjectName().ToChar(),
+            CoopPosKey(m->GetPositionWorld()).c_str(), by.c_str(), why, was, to, busy ? " (hier gerade benutzt - Zustand bleibt)" : "",
+            lockChanged ? (lk ? " [verschlossen]" : " [aufgeschlossen]") : "", targets, m->triggerTarget.ToChar());
+    }
+
+    static void MobApplyEvent(const json& e, const std::string& by, const char* why) {
+        zVEC3 p;
+        if (!CoopPosFromJson(e.at("k"), p))
+            return;
+        oCMobInter* m = FindMob(p);
+        if (!m) {
+            WorldSyncLog("Mechanismus %s von %s: hier nicht gefunden", CoopPosKey(p).c_str(), by.c_str());
+            return;
+        }
+        MobApplyUse(m, e.at("f").get<int>(), e.at("t").get<int>(), e.contains("lk") && e.at("lk").is_number() ? e.at("lk").get<int>() : -1, by, why);
+    }
+
+    static void MobReceive(json& e, const std::string& id, int type) {
+        if (!MobSyncBase())
+            return;
+        const std::string w = e.contains("w") && e["w"].is_string() ? e["w"].get<std::string>() : std::string();
+        if (type == SYNC_MOB_BULK) {
+            if (ServerThread || w != CoopWorldName() || !e["s"].is_array())
+                return;
+            int found = 0, missing = 0, changed = 0;
+            zVEC3 p;
+            for (auto const& s : e["s"]) {
+                if (!s.is_object() || !s.contains("k") || !CoopPosFromJson(s.at("k"), p))
+                    continue;
+                oCMobInter* m = FindMob(p);
+                if (!m) {
+                    missing++;
+                    continue;
+                }
+                found++;
+                const int lk = s.contains("lk") && s.at("lk").is_number() ? s.at("lk").get<int>() : -1;
+                oCMobLockable* l = zDYNAMIC_CAST<oCMobLockable>(m);
+                if (l && lk >= 0 && (lk != 0) != (l->locked != 0)) {
+                    l->SetLocked(lk);
+                    changed++;
+                }
+                const int st = s.contains("s") && s.at("s").is_number() ? s.at("s").get<int>() : (int)m->state;
+                if (st != m->state && m->npcsCurrent <= 0) {
+                    m->state = m->state_target = st;
+                    if (zCModel* model = m->GetModel()) {
+                        const int ani = model->GetAniIDFromAniName(zSTRING(("S_S" + std::to_string(st)).c_str()));
+                        if (ani >= 0)
+                            model->StartAni(ani, 0);
+                    }
+                    if (m->rewind)
+                        m->SetSleeping(FALSE);
+                    changed++;
+                }
+            }
+            if (changed || missing)
+                WorldSyncLog("Mechanismen-Abgleich: %d zugeordnet, %d geaendert, %d hier nicht gefunden", found, changed, missing);
+            return;
+        }
+        // Client -> Host ohne "by"; der Host wendet an und verteilt mit "by". Die automatisch weitergeleitete Client-Fassung ignorieren die anderen Clients.
+        const bool relay = e.contains("by") && e["by"].is_string();
+        const std::string by = relay ? e["by"].get<std::string>() : id;
+        if ((!ServerThread && !relay) || by == MyselfId.ToChar())
+            return;
+        if (w != CoopWorldName()) {
+            auto& q = MobPending[w];
+            if (q.size() < 200) {
+                json g = e;
+                g["by"] = by;
+                q.push_back(g);
+            }
+            WorldSyncLog("Mechanismus von %s in %s, ich in %s - gilt, sobald ich dorthin komme (%d warten)", by.c_str(), w.c_str(), CoopWorldName().c_str(), (int)q.size());
+        }
+        else
+            MobApplyEvent(e, by, "Paket");
+        if (ServerThread && !relay) {
+            json j = e;
+            j["by"] = id;
+            j["type"] = type;
+            j["id"] = MyselfId.ToChar();
+            CoopTraceCount(TRACE_SENT, type);
+            ReadyToSendJsons.enqueue(j);   // "w" bleibt die Welt des Benutzers
+        }
+    }
+
+    static void MobPendingFlush() {
+        if (MobPending.empty() || IsLoadingLevel || CurrentMs < WorldLoadedMs + 3000)
+            return;
+        auto f = MobPending.find(CoopWorldName());
+        if (f == MobPending.end())
+            return;
+        const std::vector<json> q = f->second;
+        MobPending.erase(f);
+        for (const json& e : q)
+            MobApplyEvent(e, e.at("by").get<std::string>(), "nachgeholt");
+    }
+
+    // Laden eines Spielstands: was der gespeicherte Stand kennt, gilt; Warteliste verwerfen (Plugin.cpp)
+    void CoopWorldSyncSaveLoaded() {
+        if (!MobPending.empty())
+            WorldSyncLog("Mechanismen: %d Welten mit wartenden Ereignissen verworfen (Spielstand geladen)", (int)MobPending.size());
+        MobPending.clear();
     }
 
     static void ReleaseLock(const std::string& key, const std::string& owner) {
@@ -1001,6 +1240,10 @@ namespace GOTHIC_ENGINE {
     void CoopWorldSyncReceive(json& e, const std::string& id) {
         const int type = e["type"].get<int>();
         try {
+            if (type == SYNC_MOB_STATE || type == SYNC_MOB_BULK) {   // u137: eigene Regel und eigene Weltpruefung
+                MobReceive(e, id, type);
+                return;
+            }
             if (!WorldSyncAktiv())
                 return;
             const std::string w = e.contains("w") && e["w"].is_string() ? e["w"].get<std::string>() : std::string();
@@ -1254,6 +1497,8 @@ namespace GOTHIC_ENGINE {
     void CoopWorldSyncPulse() {
         CoopInstallDisableVobHook();   // einmal, im Hauptfaden, nach dem Laden aller Plugins
         ExpireWorldRemovals();
+        if (MobSyncBase())
+            MobPendingFlush();   // u137: in dieser Welt Benutztes, waehrend ich anderswo war
         // v75: Regel "Gegenstaende/Truhen" - wieder an: Bestand neu anfragen; aus: den vollen Stand (Lage, HP, Ausruestung) nach dem
         // Laden/Verbinden trotzdem anfordern (hing bisher an der Weltbestand-Anfrage)
         static bool ruleWas = true;
@@ -1497,6 +1742,77 @@ namespace GOTHIC_ENGINE {
         return Ivk_oCMobLockable_CanInteractWith_Coop(_this, npc);
     }
 
+    // u137 (P134): Mechanismus benutzt. Alle Mobs laufen hier durch (oCMobLockable::OnEndStateChange ruft das Original mit auf). Der eigene Held immer;
+    // NPCs des Hosts nur mit Ausloeser - Tueren benutzen sie je PC fuer sich, ein Hebel aendert die Welt. NPCs beim Client sind Abbilder.
+    void __fastcall oCMobInter_OnEndStateChange_Coop(oCMobInter* _this, void* vtable, oCNpc* npc, int from, int to);
+    CInvoke<void(__thiscall*)(oCMobInter*, oCNpc*, int, int)> Ivk_oCMobInter_OnEndStateChange_Coop(CoopAddr::oCMobInter_OnEndStateChange, &oCMobInter_OnEndStateChange_Coop,
+        COOP_IVK(World));
+    void __fastcall oCMobInter_OnEndStateChange_Coop(oCMobInter* _this, void* vtable, oCNpc* npc, int from, int to) {
+        Ivk_oCMobInter_OnEndStateChange_Coop(_this, npc, from, to);
+        if (!_this || !npc || from == to || !MobSyncBase() || !MobSyncRelevant(_this))
+            return;
+        if (npc == player || (ServerThread && !PlayerNpcs.count(npc) && !_this->triggerTarget.IsEmpty()))
+            MobSendUse(_this, from, to);
+    }
+
+    static bool MobChainNow(zCVob* instigator) {
+        return !instigator && MobChainUntilMs && GetCurrentMs() < MobChainUntilMs;
+    }
+
+    // Skript in der Kette beim Partner: nur weiterreichen (zCTrigger::TriggerTarget), nicht ausfuehren
+    void __fastcall oCTriggerScript_TriggerTarget_Coop(oCTriggerScript* _this, void* vtable, zCVob* instigator);
+    CInvoke<void(__thiscall*)(oCTriggerScript*, zCVob*)> Ivk_oCTriggerScript_TriggerTarget_Coop(CoopAddr::oCTriggerScript_TriggerTarget, &oCTriggerScript_TriggerTarget_Coop,
+        COOP_IVK(World));
+    void __fastcall oCTriggerScript_TriggerTarget_Coop(oCTriggerScript* _this, void* vtable, zCVob* instigator) {
+        if (MobChainNow(instigator)) {
+            CoopMobSkipScripts++;
+            WorldSyncLog("Mechanismus: Skript %s (%s) laeuft nur beim Benutzer", _this->scriptFunc.ToChar(), _this->GetObjectName().ToChar());
+            _this->zCTrigger::TriggerTarget(instigator);
+            return;
+        }
+        Ivk_oCTriggerScript_TriggerTarget_Coop(_this, instigator);
+    }
+
+    void __fastcall zCCSCamera_OnTrigger_Coop(zCCSCamera* _this, void* vtable, zCVob* other, zCVob* instigator);
+    CInvoke<void(__thiscall*)(zCCSCamera*, zCVob*, zCVob*)> Ivk_zCCSCamera_OnTrigger_Coop(CoopAddr::zCCSCamera_OnTrigger, &zCCSCamera_OnTrigger_Coop, COOP_IVK(World));
+    void __fastcall zCCSCamera_OnTrigger_Coop(zCCSCamera* _this, void* vtable, zCVob* other, zCVob* instigator) {
+        if (MobChainNow(instigator)) {
+            CoopMobSkipCams++;
+            WorldSyncLog("Mechanismus: Kamerafahrt %s nur beim Benutzer", _this->GetObjectName().ToChar());
+            return;
+        }
+        Ivk_zCCSCamera_OnTrigger_Coop(_this, other, instigator);
+    }
+
+    void __fastcall zCCSCamera_OnUntrigger_Coop(zCCSCamera* _this, void* vtable, zCVob* other, zCVob* instigator);
+    CInvoke<void(__thiscall*)(zCCSCamera*, zCVob*, zCVob*)> Ivk_zCCSCamera_OnUntrigger_Coop(CoopAddr::zCCSCamera_OnUntrigger, &zCCSCamera_OnUntrigger_Coop, COOP_IVK(World));
+    void __fastcall zCCSCamera_OnUntrigger_Coop(zCCSCamera* _this, void* vtable, zCVob* other, zCVob* instigator) {
+        if (MobChainNow(instigator)) {
+            CoopMobSkipCams++;
+            return;
+        }
+        Ivk_zCCSCamera_OnUntrigger_Coop(_this, other, instigator);
+    }
+
+    // u138 (P136): Absturz nach dem Laden - vom Test-Fenster (G2, u136 + b59, 31.10. 00:32): Der Weltprozess lud Slot 6 und stuerzte im ersten Bild ab, C0000005 bei
+    // Gothic2.exe+0xD65D8 (zCKBSpline::Interpolate0, Lesen von 0xFFFFFFF8) aus zCCSCamera::OnTick. Slot 6 entstand 6 s, nachdem der Host den Portalring eingesetzt hatte: mitten in der Kamerafahrt.
+    // zCCSCamera::Unarchive (G2A 0x004BFBC0, G1 0x004B6930) liest aus einem Spielstand "started", die Kurven posSpl/targetSpl entstehen aber nur in EV_Play; OnTick rechnet dann mit der leeren
+    // Kurve. Das Spiel selbst speichert in einer Kamerafahrt nicht, gemeinsames Speichern und Auto-Sicherung schon - und so ein Slot stuerzt bei jedem Laden ab. Beim Lesen stoppen:
+    // heilt auch vorhandene Spielstaende. Das Gleiche im Spielstand zu verhindern reichte nicht, die Slots gibt es schon.
+    void __fastcall zCCSCamera_Unarchive_Coop(zCCSCamera* _this, void* vtable, zCArchiver& arc);
+    CInvoke<void(__thiscall*)(zCCSCamera*, zCArchiver&)> Ivk_zCCSCamera_Unarchive_Coop(CoopAddr::zCCSCamera_Unarchive, &zCCSCamera_Unarchive_Coop, COOP_IVK(World));
+    void __fastcall zCCSCamera_Unarchive_Coop(zCCSCamera* _this, void* vtable, zCArchiver& arc) {
+        Ivk_zCCSCamera_Unarchive_Coop(_this, arc);
+        if (_this && _this->started) {
+            _this->started = FALSE;
+            _this->paused = FALSE;
+            _this->gotoTimeMode = FALSE;
+            CoopCamStopped++;
+            OthelloCompatLog("[%lld s, %s] Absturzschutz: Kamerafahrt %s stand im Spielstand als laufend - gestoppt (ohne ihre Kurve stuerzt sie im ersten Bild ab)", DiagSeconds(), DiagRole(),
+                _this->GetObjectName().ToChar());
+        }
+    }
+
 #else   // Modul in dieser Engine nicht freigegeben (CoopModulesReport)
     void CoopWorldSyncItemLeavesWorld(zCVob*, const void*, const char*) {}
     bool CoopWorldSyncHandles(int) { return false; }
@@ -1505,5 +1821,6 @@ namespace GOTHIC_ENGINE {
     void CoopWorldSyncWorldLoaded() {}
     void CoopWorldSyncPulse() {}
     void CoopWorldSyncRequestAgain() {}   // u12: Testlauf (G2A)
+    void CoopWorldSyncSaveLoaded() {}     // u137
 #endif
 }

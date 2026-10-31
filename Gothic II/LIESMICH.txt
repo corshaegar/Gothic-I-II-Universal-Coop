@@ -1,7 +1,7 @@
-GothicCoop u134 - Gothic 2 Die Nacht des Raben ohne Mod (Union-Coop, erste Fassung fuer Gothic 2)
+GothicCoop u142 - Gothic 2 Die Nacht des Raben ohne Mod (Union-Coop, erste Fassung fuer Gothic 2)
 
 Voraussetzung: Gothic 2 Die Nacht des Raben (Fassung 2.6). Union 1.0m (mit zParserExtender) liegt bei.
-Beide PCs brauchen dieselbe GothicCoop-Fassung (u134).
+Beide PCs brauchen dieselbe GothicCoop-Fassung (u142).
 
 Installation: den Inhalt dieser ZIP in den Gothic-2-Ordner entpacken (den Ordner, in dem "system" liegt) und
 vorhandene Dateien ersetzen. War Union noch nicht installiert: danach system\dinput.dll entfernen (der Lader von
@@ -10,7 +10,7 @@ SystemPack - Union laedt SystemPack selbst). Bequemer und rueckgaengig machbar: 
   system\Autorun\              GothicCoop-DLL und drei Skripte
   system\GothicCoopConfig.json  Vorgaben (Name, Adresse, Aussehen - im Spiel unter COOP aenderbar)
   system\steam_api.dll und steam_appid.txt (39510)   fuer "Coop ueber Steam" (Steam muss laufen)
-  system\GD3D11\Bin\g2a_avx2.dll  Coop-Renderer (GD3D11 v17.9.7 + coop8) - nur wirksam, wenn GD3D11 installiert ist
+  system\GD3D11\Bin\g2a_avx2.dll  Coop-Renderer (GD3D11 v17.9.7 + coop9) - nur wirksam, wenn GD3D11 installiert ist
                                   (3D-Vorschau der Figur, Zuschau-Fenster beim Mitspieler, eigenes Log im Weltprozess,
                                   ab coop8 das Bild des Weltprozesses im Zuschau-Fenster)
 
@@ -110,7 +110,8 @@ Ab u85: Gilden gelten je Held - Gilden-Dialoge teilen nur Helden derselben Gilde
 bekommt einer einen, hat ihn der Partner auch; gibt einer ihn ab, verliert ihn der Partner (Name "... (gemeinsam)"). Ab u97:
 Coop-Inventar - eine gemeinsame Truhe; die Taste (Vorgabe I, Einstellungen > COOP) oeffnet sie ohne Bewegung, beide koennen sie
 gleichzeitig offen haben, der Inhalt liegt beim Host und im Spielstand, Gegenstaende daraus zaehlen bei Quests. Ab u105: Auto-Sicherung
-auch alle 3 Minuten.
+auch alle 3 Minuten. Ab u135 (Renderer coop9): kein Absturz mehr beim Speichern mit offenem Zuschau-Fenster, wenn in den
+GD3D11-Einstellungen AtmosphericScattering aus ist; das Zuschau-Fenster zeigt dann statt des Himmels die Nebelfarbe.
 
 Spielen: Hauptmenue > COOP > Figur waehlen > "Weiter: Verbinden" > "Spiel hosten" bzw. "Ueber IP beitreten"
 (Port 9955) oder ueber Steam. Protokoll: system\GothicCoop.log.

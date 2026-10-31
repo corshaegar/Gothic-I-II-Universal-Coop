@@ -641,6 +641,7 @@ namespace GOTHIC_ENGINE {
     CInvoke<int(__thiscall*)(oCNpc*, oCMsgManipulate*)> Ivk_oCNpc_EV_UseItemToState_Truhe(CoopAddr::oCNpc_EV_UseItemToState,
         &oCNpc_EV_UseItemToState_Truhe, COOP_IVK(Save));
     int __fastcall oCNpc_EV_UseItemToState_Truhe(oCNpc* _this, void* vtable, oCMsgManipulate* msg) {
+        CoopMsgVobCheck(_this, msg, "EV_UseItemToState");   // u142 (P142, Helpers.cpp)
         if (_this && _this == player && msg && TruheIstGegenstand(msg->targetVob)) {
             TruheDirektZahl++;
             TruheDirekt("benutzt");

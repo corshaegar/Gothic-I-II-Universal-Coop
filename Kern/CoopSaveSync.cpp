@@ -1926,8 +1926,9 @@ namespace GOTHIC_ENGINE {
     // u39 (P81): only = nur diese Dateien (gross; Weltstand-Tausch) - dann fehlt der Rest des Manifests nicht, jede gesendete Datei
     // wird aber wie sonst gegen das Manifest geprueft; Stuecke und Ende tragen "wx"
     // u55: tag = Felder fuer jedes Stueck und das Ende (Sicherung beim Partner: "bk") - dann in die gedrosselte BkOutQueue
+    // u140 (P139): endExtra = Felder nur fuer das Ende (Eintritts-Merker der Welt)
     static bool CoopQueueSaveFiles(const std::string& dir, const std::string& sid, const std::string& to, bool zip, std::string& bad,
-        const std::set<std::string>* only = NULL, const json* tag = NULL) {
+        const std::set<std::string>* only = NULL, const json* tag = NULL, const json* endExtra = NULL) {
         std::deque<json>& outQ = tag ? BkOutQueue : FileOutQueue;
         auto addTag = [&](json& j) {
             if (tag)
@@ -2049,6 +2050,9 @@ namespace GOTHIC_ENGINE {
         if (only)
             end["wx"] = 1;   // u39
         addTag(end);
+        if (endExtra)
+            for (auto it = endExtra->begin(); it != endExtra->end(); ++it)
+                end[it.key()] = it.value();
         end["type"] = SYNC_FILE_END;
         outQ.push_back(end);
         char how[120];
@@ -2254,8 +2258,11 @@ namespace GOTHIC_ENGINE {
         CoopLastSaveMs = CurrentMs;
     }
 
+    static int CoopEntryVarsSlot = -1;   // u140 (P139): dieser Slot wird gerade geladen
+
     void CoopSaveSyncOnLoadBegin() {
         const int slot = UnionCore::SaveLoadGameInfo.slotID;
+        CoopEntryVarsSlot = slot;
         CoopMenuLoadDeferred = false;
         CoopLastLoadSid.clear();   // u30
         if (!CoopActiveRemoteSid.empty()) {   // wir laden auf Wunsch des Partners
@@ -2731,6 +2738,15 @@ namespace GOTHIC_ENGINE {
         return dot == std::string::npos ? w : w.substr(0, dot);
     }
 
+    // u140 (P139): Eintritts-Merker gehoeren zur Weltdatei (CoopDialogSync.cpp DlgWorldEntryVar). Sie kommen mit dem Ende der Uebertragung und liegen
+    // neben der Datei im Archiv und im Slot - SAVEDAT des Slots kennt sie nicht, darum beim Laden dieses Slots von dort.
+    json CoopWorldEntryVarsGet(const std::string& world);
+    int CoopWorldEntryVarsSet(const json& vars, const std::string& world, bool raiseOnly);
+
+    static std::string WxMerkerName(const std::string& world) {
+        return "COOPMERKER_" + WxWorldTag(world) + ".TXT";
+    }
+
     static std::string WxKey(const CoopWxJob& j) {
         return j.sid + "|wx|" + j.frompc + "|" + WxWorldTag(j.world);   // u47: je Welt (vor dem Betreten auch eine zweite)
     }
@@ -2814,7 +2830,41 @@ namespace GOTHIC_ENGINE {
                 why = f + " nicht ersetzbar";
         CoopWriteTextAtomic(sd + "COOPWELT.TXT", "v=1\nwelt=" + world + "\nvon=" + frompc + "\nsid=" + sid + "\nzeit=" + CoopNowText("time") +
             "\nend=1\n");
+        const std::string merker = WxMerkerName(world);   // u140 (P139)
+        if (n > 0 && CoopFileExists(dir + merker))
+            WxReplaceFile(dir + merker, sd + merker);
         return n;
+    }
+
+    // u140 (P139): Plugin.cpp nach dem Laden eines Spielstands - Merker der fremden Weltdateien dieses Slots
+    void CoopSaveSyncEntryVarsAtLoad() {
+        const int slot = CoopEntryVarsSlot;
+        CoopEntryVarsSlot = -1;
+        const std::string sd = slot >= 1 ? CoopSlotDir(slot) : std::string();
+        CoopSaveMeta sm;
+        if (sd.empty() || !CoopReadMeta(sd, sm))
+            return;
+        WIN32_FIND_DATAA fd;
+        HANDLE h = FindFirstFileA((sd + "COOPMERKER_*.TXT").c_str(), &fd);
+        if (h == INVALID_HANDLE_VALUE)
+            return;
+        do {
+            std::vector<std::uint8_t> raw;
+            if (!CoopReadWholeFile(sd + fd.cFileName, raw) || raw.empty())
+                continue;
+            try {
+                const json m = json::parse(std::string((const char*)&raw[0], raw.size()));
+                const std::string world = m.value("welt", std::string());
+                if (m.value("sid", std::string()) != sm.sid || world.empty() || world == WxWorldTag(CoopWorldName()) || !m.contains("we"))
+                    continue;   // alter Stand in diesem Slot bzw. die eigene Welt: dafuer gilt SAVEDAT
+                const int n = CoopWorldEntryVarsSet(m["we"], world, false);
+                SaveSyncLog("Slot %d: Weltdatei %s stammt vom Partner - %d Eintritts-Merker aus %s", slot, world.c_str(), n, fd.cFileName);
+            }
+            catch (std::exception& ex) {
+                SaveSyncLog("Slot %d: %s nicht lesbar (%s)", slot, fd.cFileName, ex.what());
+            }
+        } while (FindNextFileA(h, &fd));
+        FindClose(h);
     }
 
     // Laden aus dem Archiv (eigene Kopie in einen Slot): getauschte Weltdateien dieser Kennung wieder darueberlegen
@@ -2844,9 +2894,16 @@ namespace GOTHIC_ENGINE {
     }
 
     // Empfangene Weltdateien anwenden: Slot und - solange ich nicht selbst dort war - Saves\current
-    static void WxApply(const CoopWxJob& j, const std::string& dir) {
+    static void WxApply(const CoopWxJob& j, const std::string& dir, const json& entryVars) {
         CoopWriteTextAtomic(dir + "COOPWELT.TXT", "v=1\nwelt=" + j.world + "\nvon=" + j.frompc + "\nsid=" + j.sid + "\nzeit=" + CoopNowText("time") +
             "\nend=1\n");
+        if (entryVars.is_array() && !entryVars.empty()) {   // u140 (P139)
+            json m;
+            m["sid"] = j.sid;
+            m["welt"] = WxWorldTag(j.world);
+            m["we"] = entryVars;
+            CoopWriteTextAtomic(dir + WxMerkerName(j.world), m.dump());
+        }
         std::string why;
         const int inSlot = WxIntoSlot(j.slot, j.sid, j.world, j.frompc, dir, why);
         int inCur = 0;
@@ -2871,6 +2928,8 @@ namespace GOTHIC_ENGINE {
         SaveSyncLog("Weltstand %s von %s (%s) uebernommen: Slot %d %s, Saves\\current %s", j.sid.c_str(), j.from.c_str(), j.world.c_str(), j.slot,
             inSlot > 0 ? (std::to_string(inSlot) + " Dateien").c_str() : ("nicht (" + why + ")").c_str(),
             inCur > 0 ? (std::to_string(inCur) + " Dateien").c_str() : ("nicht (" + curWhy + ")").c_str());
+        if (inCur > 0)   // u140 (P139): nur wer die Datei nimmt, nimmt auch die Merker
+            CoopWorldEntryVarsSet(entryVars, WxWorldTag(j.world), false);
         if (inSlot > 0 || inCur > 0)
             ChatLog(string::Combine(CoopTr("Weltstand von %s (%s) im gemeinsamen Spielstand.", "World state of %s (%s) is now in the shared save."),
                 string((CoopPartnerNick.empty() ? j.from : CoopPartnerNick).c_str()), string(CoopWorldShow(j.world).c_str())), zCOLOR(160, 230, 160, 255));
@@ -2905,6 +2964,7 @@ namespace GOTHIC_ENGINE {
             for (const std::string& f : CoopWorldSaveFiles(j.world))
                 only.push_back(f);
             r["only"] = only;
+            r["wt"] = WxWorldTag(j.world);   // u140 (P139)
             SaveSyncSend(r, SYNC_FILE_REQ);
             j.requested = true;
             j.since = CurrentMs;
@@ -2966,7 +3026,8 @@ namespace GOTHIC_ENGINE {
         CoopArchiveIndexValid = false;
         const double secs = in.startMs ? (GetCurrentMs() - in.startMs) / 1000.0 : 0.0;
         SaveSyncLog("Weltstand %s von %s empfangen (%d Dateien, %.1f MB, %.1f s)", sid.c_str(), j.from.c_str(), files, in.raw / 1048576.0, secs);
-        WxApply(j, doneDir);
+        const json entryVars = e.contains("we") ? e["we"] : json::array();   // u140 (P139)
+        WxApply(j, doneDir, entryVars);
     }
 
     // --- u55: Sicherung beim Partner ----------------------------------------------------------------------------------------
@@ -3589,8 +3650,12 @@ namespace GOTHIC_ENGINE {
                         bad = mine ? "hier nicht vorhanden" : back ? "keine Sicherung dieses PCs hier" : "gehoert einem anderen PC";
                     else if (wx && only.empty())
                         bad = "keine Dateien genannt";
-                    else
-                        CoopQueueSaveFiles(dir, sid, id, zip, bad, wx ? &only : NULL, bk ? &tag : NULL);
+                    else {
+                        json endExtra;   // u140 (P139): meine Eintritts-Merker dieser Welt
+                        if (wx && e.contains("wt") && e["wt"].is_string())
+                            endExtra["we"] = CoopWorldEntryVarsGet(e["wt"].get<std::string>());
+                        CoopQueueSaveFiles(dir, sid, id, zip, bad, wx ? &only : NULL, bk ? &tag : NULL, endExtra.is_null() ? NULL : &endExtra);
+                    }
                     if (!bad.empty()) {   // v76: Absage, damit der Anfordernde nicht 120 s wartet
                         SaveSyncLog("%s fordert %s %s an - %s", id.c_str(), wx ? "Weltstand zu" : bk ? (back ? "seine Kopie" : "Sicherung") : "Stand",
                             sid.c_str(), bad.c_str());
@@ -5301,6 +5366,7 @@ namespace GOTHIC_ENGINE {
     void CoopSaveSyncOnLoadBegin() {}
     void CoopSaveSyncWorldLoaded() {}
     void CoopSaveSyncApplyHeroAtLoad() {}
+    void CoopSaveSyncEntryVarsAtLoad() {}   // u140
     void CoopSaveSyncPeerJoined() {}
     void CoopSaveSyncPeerLeft() {}
     int CoopSaveSyncPeers() { return 0; }

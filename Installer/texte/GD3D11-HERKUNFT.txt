@@ -1,24 +1,25 @@
-Coop-Renderer system\GD3D11\Bin\g1_avx2.dll bzw. g2a_avx2.dll – geänderte Fassung von GD3D11 („coop8“)
-========================================================================================================
+Coop-Renderer system\GD3D11\Bin\g1_avx2.dll („coop8“) bzw. g2a_avx2.dll („coop9“) – geänderte Fassung von GD3D11
+================================================================================================================
 
 Original
   GD3D11, https://github.com/Kirides/GD3D11
   Tag v17.9.7, Commit c83a4245d6d5bc249af0c6a4a91d44b127e12c82 (11.02.2026)
   Lizenz: GNU General Public License, Version 3 (GPL-3.0) – Text in GD3D11-GPL-3.0.txt (und system\COPYING)
 
-Geänderte Fassung „v17.9.7-coop8“ (19.–24.10.2026, für GothicCoop)
+Geänderte Fassung „v17.9.7-coop9“ (19.–30.10.2026, für GothicCoop; der Renderer für Gothic 1 bleibt coop8, coop9 ändert dort nichts)
   coop6: Zuschau-Fenster (zweites Bild aus der Sicht des Mitspielers, Export GDX_CoopSecondView), Figur-Vorschau im
          COOP-Menü (GDX_CoopPreviewDraw, GDX_CoopPreviewRelease, GDX_CoopPreviewVersion), Schatten im Zweitbild, Absturz bei
          fehlendem Material, Übersetzungsfehler in CalculateCascadeMatrices umgangen
   coop7: der Coop-Weltprozess (-coopwelt:) schreibt Log_CoopWelt.txt statt Log.txt
   coop8: Bild des Coop-Weltprozesses teilen (GDX_CoopFrameShare) und im Zuschau-Fenster zeigen (GDX_CoopSecondViewShared)
+  coop9: Zuschau-Fenster: ohne AtmosphericScattering in Gothic 2 kein Himmel der Engine im Zweitbild (Absturz beim Speichern)
   Die Änderungen stehen unter derselben Lizenz (GPL-3.0). Es gibt keinerlei Gewährleistung (GPL-3.0, Abschnitte 15 und 16).
   Der Coop-Renderer passt nur zu den Shadern von v17.9.7 – darum bringt der Installer GD3D11 auf diese Fassung.
 
 Quelltext
-  Vollständiger Stand der Änderungen gegen v17.9.7: GD3D11-coop6.patch, GD3D11-coop7.patch, GD3D11-coop8.patch (liegen bei,
+  Vollständiger Stand der Änderungen gegen v17.9.7: GD3D11-coop6.patch, GD3D11-coop7.patch, GD3D11-coop8.patch, GD3D11-coop9.patch (liegen bei,
   in dieser Reihenfolge anwenden).
   Bau: git clone --depth 1 --branch v17.9.7 https://github.com/Kirides/GD3D11.git
-       git apply GD3D11-coop6.patch GD3D11-coop7.patch GD3D11-coop8.patch
+       git apply --ignore-whitespace GD3D11-coop6.patch GD3D11-coop7.patch GD3D11-coop8.patch GD3D11-coop9.patch
        msbuild D3D11Engine\D3D11Engine.vcxproj /t:Rebuild /p:Configuration=Release_AVX2 /p:Platform=Win32
          /p:PlatformToolset=v142   (Visual Studio 2019 Build Tools; für Gothic 1 Release_G1_AVX2)

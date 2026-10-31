@@ -1,0 +1,39 @@
+From 869fd61121b73f36b7d384fdc9afbed19ce1d7a0 Mon Sep 17 00:00:00 2001
+From: GothicCoop <corshaegar@users.noreply.github.com>
+Date: Fri, 30 Oct 2026 15:42:36 +0100
+Subject: [PATCH] coop9: Zweitbild ohne AtmosphericScattering ohne
+ Engine-Himmel (nur G2)
+
+Mit AtmosphericScattering=0 und offenem Zuschau-Fenster stuerzte G2A beim Speichern ab (zCMesh::ClipToPlane unter
+RenderSkyPre). RenderCoopSecondView ruft DrawSky jetzt nur noch, wenn dabei nicht der Himmel der Engine gezeichnet wird.
+G1 nimmt in DrawSky einen anderen Zweig und bleibt unveraendert.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ D3D11Engine/D3D11GraphicsEngine.cpp | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/D3D11Engine/D3D11GraphicsEngine.cpp b/D3D11Engine/D3D11GraphicsEngine.cpp
+index c3d9a54..4567ed2 100644
+--- a/D3D11Engine/D3D11GraphicsEngine.cpp
++++ b/D3D11Engine/D3D11GraphicsEngine.cpp
+@@ -3170,7 +3170,15 @@ void D3D11GraphicsEngine::RenderCoopSecondView() {
+         std::swap( ShadowMaps, g_CoopSV.shadow );
+ 
+         g_CoopSecondViewPass = true;
+-        if ( s.DrawSky )
++        // coop9: ohne AtmosphericScattering zeichnet DrawSky in G2 den Himmel der Engine (RenderSkyPre) - wird mit offenem Fenster gespeichert,
++        // stuerzte er hier ab (zCMesh::ClipToPlane, Schreiben auf eine ungueltige Adresse). G1 nimmt in DrawSky einen anderen Weg und laeuft. Der
++        // Hintergrund des Zweitbilds bleibt dann die Nebelfarbe aus ClearRenderTargetView oben.
++#if defined(BUILD_GOTHIC_1_08k) && !defined(BUILD_1_12F)
++        const bool coopDrawSky = s.DrawSky;
++#else
++        const bool coopDrawSky = s.DrawSky && s.AtmosphericScattering;
++#endif
++        if ( coopDrawSky )
+             DrawSky();
+         Engine::GAPI->DrawWorldMeshNaive();
+         {
+-- 
+2.55.0.windows.5
+

@@ -4,6 +4,18 @@ Projektversion (Veröffentlichung) und je Spiel/Mod die Coop-Fassung `uNN`. Vorg
 (github.com/corshaegar/Othello-Coop, 0.1.0–0.1.2, nur Othello). Die Fassungen dazwischen (u1–u61) stehen im Entwicklungsverlauf;
 hier beginnt der Verlauf mit u62.
 
+## 0.4.0 – Türen und Mechanismen gemeinsam, Weltwechsel ohne doppelte NPCs, Drachen auf beiden PCs (Gothic I u142, Gothic II u142, Othello u142)
+
+**Neu**
+
+- **Mechanismen gemeinsam** (u137): Türen, Hebel, Steinplatten und Portale gelten jetzt für beide, samt den Skripten und Kamerafahrten dahinter. Bisher blieb zum Beispiel ein Portal beim Partner zu; nach dem Laden war es für beide wieder zu und der eingesetzte Gegenstand trotzdem weg. Feuerstellen bleiben je PC (u138).
+
+**Korrekturen**
+
+- **Weltwechsel** (u140, u141, Gothic 2): Wer eine Welt als Zweiter betrat, holte die Weltdatei des Partners, und das Einzugs-Skript lief trotzdem noch einmal. Im Minental standen dann NPCs doppelt, und die Doppelten liefen nicht im Abgleich. Die Merker kommen jetzt mit der Weltdatei, und was der Einzug setzt, bekommt auch der Partner. Spielstände, in denen schon doppelte NPCs stehen, bleiben so.
+- **Drachen** (u139, u140): Das Gespräch macht einen Drachen sterblich, das galt aber nur auf dem PC des Sprechenden. Schutz, Gilde und Typ der NPCs laufen jetzt mit. Spielstände, in denen ein Drache dadurch unsterblich blieb, heilen beim Laden.
+- **Abstürze:** Speichern bei offenem Zuschau-Fenster ohne `AtmosphericScattering` (u135, Gothic 2, Renderer coop9); Kastell im Minental, Raum mit Gilde -1 (u136, Gothic 2); Laden eines Spielstands, der während einer Kamerafahrt entstand (u138); Gegenstand einer laufenden Nachricht schon freigegeben, vor allem beim Client in Gothic 1 und Othello (u142, abgefangen); Kamera des Weltprozesses im ersten Bild nach einem Weltwechsel (u142).
+
 ## 0.3.1 – Gothic 1 und Othello automatisch geprüft, Korrekturen am Weltprozess (Gothic I u134, Gothic II u134, Othello u134)
 
 Erstmals läuft der automatische Testlauf (Host und Client auf einem PC) auch in Gothic 1 und Othello: Ergebnisse im [README](README.md#teststand). Was er dabei gefunden hat:

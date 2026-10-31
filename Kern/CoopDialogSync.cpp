@@ -340,12 +340,55 @@ namespace GOTHIC_ENGINE {
         std::vector<std::string> e;
     };
 
+    // u139 (P138): Felder, die Skripte am NPC direkt setzen. Vom Test-Fenster (b74, Kapitel 4): DIA_DRAGON_SWAMP_EXIT_INFO setzt
+    // SWAMPDRAGON.flags = 0, gesprochen hatte der Host. Der Client hoert das Gespraech nie (die Info ist als gehoert abgeglichen), sein
+    // Drache blieb unsterblich: Fuehrte er den Kampf, traf er ohne Wirkung ("Schaden 0, HP 750 -> 750"), der Drache konnte nicht sterben.
+    // Betroffen: flags (Skripte G2A 74 Stellen, G1 18: Drachen, Begleiter, Sekob, Garond, Gomez, Dusty), Gilde und wahre Gilde (G1: Gomez,
+    // Bartholo, Bullit, Stone, Skip, Dusty), npctype, noFocus (G2A: Golem). Felder wie Haltung und Tagesablauf: Dialog (DlgSendDiff),
+    // Takt (StoryTick), RESYNC (CoopStorySendAllNpcs). Betritt der Partner die Welt spaeter, holt er ihren Stand samt Feldern (P88).
+    // Die wahre Gilde nur ueber die Funktionen - Othello verlegt das Feld (0x7A6 -> 0xA34). Allgemein.
+    struct CoopNpcFields {
+        int flags, guild, guildTrue, npcType, noFocus;
+    };
+
+    static CoopNpcFields DlgNpcFields(oCNpc* n) {
+        CoopNpcFields f;
+        f.flags = n->variousFlags;
+        f.guild = n->guild;
+        f.guildTrue = n->GetTrueGuild();
+        f.npcType = n->npcType;
+#if ENGINE == Engine_G2A
+        f.noFocus = n->noFocus;
+#else
+        f.noFocus = 0;
+#endif
+        return f;
+    }
+
+    static bool DlgNpcFieldsSame(const CoopNpcFields& a, const CoopNpcFields& b) {
+        return a.flags == b.flags && a.guild == b.guild && a.guildTrue == b.guildTrue && a.npcType == b.npcType && a.noFocus == b.noFocus;
+    }
+
+    static void DlgNpcFieldsDiff(const CoopNpcFields& a, const CoopNpcFields& b, json& jn) {
+        if (a.flags != b.flags)
+            jn["fl"] = b.flags;
+        if (a.guild != b.guild)
+            jn["gu"] = b.guild;
+        if (a.guildTrue != b.guildTrue)
+            jn["gt"] = b.guildTrue;
+        if (a.npcType != b.npcType)
+            jn["nt"] = b.npcType;
+        if (a.noFocus != b.noFocus)
+            jn["nf"] = b.noFocus;
+    }
+
     struct CoopDlgNpc {
         oCNpc* npc = NULL;
         int aiv[COOP_AIV_MAX];   // u3: G1 50, G2 100
         int att = 0;
         int tatt = 0;
         int rtn = 0;
+        CoopNpcFields f;   // u139
     };
 
     struct CoopDlgSnap {
@@ -369,6 +412,8 @@ namespace GOTHIC_ENGINE {
     // --- Story-Abgleich (v28): Stand, gegen den jede Sekunde verglichen wird ---------------------------
     // Was vom Partner kommt, wird auch hier eingetragen (kein Echo). Nach dem Laden neu aufgenommen.
     static bool StoryReady = false;
+    static bool StoryLevelChange = false;   // u140 (P139): Weltwechsel laeuft, der Vergleichsstand von davor gilt noch fuer die Skriptvariablen
+    static std::map<std::string, int> StoryEntryBase;   // u141 (P141): Eintritts-Merker meiner Welt, zuletzt verglichen
     static bool StorySyncOn = true;
     static bool StoryCfgRead = false;
     static long long StoryNextMs = 0;
@@ -382,6 +427,7 @@ namespace GOTHIC_ENGINE {
     struct CoopStoryNpcBase {
         int rtn;
         int att;
+        CoopNpcFields f;   // u139
     };
     static std::map<std::string, CoopStoryNpcBase> StoryBaseNpc;   // GT-Name -> Stand
     static std::map<std::string, std::deque<long long>> StoryNpcTimes;
@@ -755,13 +801,78 @@ namespace GOTHIC_ENGINE {
     // seine eigene Kopie der Welt erst spaeter betritt (seit u29 getrennte Welten).
     // u134 (P130, G1/Othello; Welten-Testlauf G1: "ENTEREDFREEMINE: hier 0, Partner 1"): dasselbe in Gothic 1 - STARTUP_OLDMINE und
     // STARTUP_FREEMINE setzen EnteredOldMine/EnteredFreeMine, wenn dieser PC die Mine zum ersten Mal laedt.
+    // u140 (P139; Testlauf u136 + b74, Minental in Kapitel 4): Seit P88/P81 kommt die Weltdatei oft vom Partner, samt allem, was dessen
+    // B_Enter_* dort eingesetzt hat - der eigene Merker stand aber auf 0, das Skript lief ein zweites Mal auf derselben Welt: zwei Sylvios am
+    // selben Wegpunkt, 1111 statt 820 NPCs, und weil die Namen dadurch verschieden wurden, liefen auch diese NPCs nicht mehr im Abgleich.
+    // Die Merker gehoeren also zur Datei: Wer die Weltdatei eines Partners nimmt, nimmt auch dessen Merker dieser Welt (CoopSaveSync.cpp
+    // WxApply, im Slot COOPMERKER_<Welt>.TXT). Wer seine eigene Datei behaelt, behaelt seine eigenen.
+    static const char* DlgWorldEntryVarWorld(const char* nm) {   // Welt wie WxWorldTag (ohne Pfad und Endung), NULL = kein Merker
+        static const struct { const char* name; const char* world; } list[] = {
+            { "ENTEROW_KAPITEL", "OLDWORLD" }, { "ENTER_OLDWORLD_FIRSTTIME_TRIGGER_ONETIME", "OLDWORLD" }, { "ENTERNW_KAPITEL", "NEWWORLD" },
+            { "ENTERADW_KAPITEL", "ADDONWORLD" }, { "ENTER_ADDONWORLD_FIRSTTIME_TRIGGER_ONETIME", "ADDONWORLD" }, { "ENTERDI_KAPITEL", "DRAGONISLAND" },
+            { "ENTEREDOLDMINE", "OLDMINE" }, { "ENTEREDFREEMINE", "FREEMINE" } };
+        for (auto& e : list)
+            if (!strncmp(nm, e.name, strlen(e.name)))
+                return e.world;
+        return NULL;
+    }
+
     static bool DlgWorldEntryVar(const char* nm) {
-        static const char* const prefixes[] = { "ENTEROW_KAPITEL", "ENTERNW_KAPITEL", "ENTERADW_KAPITEL", "ENTERDI_KAPITEL" };
-        for (const char* p : prefixes)
-            if (!strncmp(nm, p, strlen(p)))
-                return true;
-        return !strcmp(nm, "ENTER_OLDWORLD_FIRSTTIME_TRIGGER_ONETIME") || !strcmp(nm, "ENTER_ADDONWORLD_FIRSTTIME_TRIGGER_ONETIME") ||
-            !strcmp(nm, "ENTEREDOLDMINE") || !strcmp(nm, "ENTEREDFREEMINE");
+        return DlgWorldEntryVarWorld(nm) != NULL;
+    }
+
+    // u140 (P139): Merker einer Welt als [[Name, Wert], ...]; u141: je Sekunde gefragt (StoryEntryTick), darum die Liste nur einmal bilden
+    static std::vector<std::pair<zCPar_Symbol*, const char*>> DlgEntrySyms;
+    static int DlgEntrySymCount = -1;
+
+    json CoopWorldEntryVarsGet(const std::string& world) {
+        json out = json::array();
+        const int cnt = parser ? parser->symtab.table.GetNum() : 0;
+        if (cnt != DlgEntrySymCount) {
+            DlgEntrySymCount = cnt;
+            DlgEntrySyms.clear();
+            for (int i = 0; i < cnt; i++) {
+                zCPar_Symbol* s = parser->symtab.table[i];
+                if (!s || s->type != zPAR_TYPE_INT || (s->flags & (zPAR_FLAG_CONST | zPAR_FLAG_CLASSVAR)) || s->ele > 1)
+                    continue;
+                if (const char* w = DlgWorldEntryVarWorld(s->name.ToChar()))
+                    DlgEntrySyms.push_back(std::make_pair(s, w));
+            }
+        }
+        for (auto& e : DlgEntrySyms)
+            if (world == e.second) {
+                int v = 0;
+                e.first->GetValue(v, 0);
+                out.push_back({ e.first->name.ToChar(), v });
+            }
+        return out;
+    }
+
+    // Anzahl geaenderter Merker; nur Merker dieser Welt. raiseOnly (u141): der Partner in derselben Welt - nur von 0 auf gesetzt
+    int CoopWorldEntryVarsSet(const json& vars, const std::string& world, bool raiseOnly) {
+        int n = 0;
+        std::string names;
+        if (parser && vars.is_array())
+            for (auto& v : vars) {
+                if (!v.is_array() || v.size() != 2 || !v.at(0).is_string() || !v.at(1).is_number_integer())
+                    continue;
+                const std::string nm = v.at(0).get<std::string>();
+                const char* w = DlgWorldEntryVarWorld(nm.c_str());
+                zCPar_Symbol* s = w && world == w ? parser->GetSymbol(zSTRING(nm.c_str())) : NULL;
+                if (!s || s->type != zPAR_TYPE_INT || (s->flags & zPAR_FLAG_CONST))
+                    continue;
+                int old = 0;
+                s->GetValue(old, 0);
+                const int val = v.at(1).get<int>();
+                if (old == val || (raiseOnly && val < old))
+                    continue;
+                s->SetValue(val, 0);
+                n++;
+                names += (names.empty() ? "" : ", ") + nm + "=" + std::to_string(val);
+            }
+        if (n)
+            DialogLog("Eintritts-Merker von %s %s uebernommen: %s", world.c_str(), raiseOnly ? "vom Partner in derselben Welt" : "mit der Weltdatei", names.c_str());
+        return n;
     }
 
     // u97: COOP_TRUHE_OEFFNEN - Merker "Coop-Truhe benutzt" (COOP_ITEMS.D) gilt nur auf diesem PC
@@ -847,6 +958,7 @@ namespace GOTHIC_ENGINE {
             n.att = npc->attitude;
             n.tatt = npc->tmp_attitude;
             n.rtn = npc->daily_routine;
+            n.f = DlgNpcFields(npc);
             s.npcs.push_back(n);
         }
     }
@@ -938,6 +1050,7 @@ namespace GOTHIC_ENGINE {
                 if (rs)
                     jn["r"] = rs->name.ToChar();
             }
+            DlgNpcFieldsDiff(o.f, n.f, jn);
             if (jn.empty())
                 continue;
             jn["n"] = DialogNpcName(n.npc);
@@ -986,7 +1099,7 @@ namespace GOTHIC_ENGINE {
                 continue;
             const std::string n = DialogNpcName(npc);
             if (!n.empty())
-                StoryBaseNpc[n] = { npc->daily_routine, npc->attitude };
+                StoryBaseNpc[n] = { npc->daily_routine, npc->attitude, DlgNpcFields(npc) };
         }
     }
 
@@ -1013,11 +1126,11 @@ namespace GOTHIC_ENGINE {
             na[n.npc] = &n;
         for (auto& n : b.npcs) {
             auto f = na.find(n.npc);
-            if (f == na.end() || (f->second->rtn == n.rtn && f->second->att == n.att))
+            if (f == na.end() || (f->second->rtn == n.rtn && f->second->att == n.att && DlgNpcFieldsSame(f->second->f, n.f)))
                 continue;
             const std::string nm = DialogNpcName(n.npc);
             if (!nm.empty())
-                StoryBaseNpc[nm] = { n.rtn, n.att };
+                StoryBaseNpc[nm] = { n.rtn, n.att, n.f };
         }
         for (size_t i = 0; i < b.ints.size(); i++)
             if (a.ints[i] != b.ints[i])
@@ -1563,7 +1676,29 @@ namespace GOTHIC_ENGINE {
         }
     }
 
-    // NPC-Zustand des Partners (aivar, Haltung, Tagesablauf) anwenden; false = NPC hier (noch) unbekannt
+    // u139 (P138): Skriptfelder des Partners; nur Abweichendes (Gesamtliste beim RESYNC)
+    static void DialogApplyNpcFields(oCNpc* npc, const std::string& n, const json& jn) {
+        const CoopNpcFields was = DlgNpcFields(npc);
+        if (jn.contains("fl"))
+            npc->variousFlags = jn["fl"].get<int>();
+        if (jn.contains("gu"))
+            npc->guild = jn["gu"].get<int>();
+        if (jn.contains("gt") && was.guildTrue != jn["gt"].get<int>())
+            npc->SetTrueGuild(jn["gt"].get<int>());
+        if (jn.contains("nt"))
+            npc->npcType = jn["nt"].get<int>();
+#if ENGINE == Engine_G2A
+        if (jn.contains("nf"))
+            npc->noFocus = jn["nf"].get<int>();
+#endif
+        const CoopNpcFields now = DlgNpcFields(npc);
+        static CoopDiagBudget budget = { 0, 0 };
+        if (!DlgNpcFieldsSame(was, now) && CoopDiagAllow(budget, 20))
+            DialogLog("Felder von %s wie beim Partner: Schutz %d -> %d, Gilde %d -> %d, wahre Gilde %d -> %d, Typ %d -> %d, ohne Fokus %d -> %d", n.c_str(),
+                was.flags, now.flags, was.guild, now.guild, was.guildTrue, now.guildTrue, was.npcType, now.npcType, was.noFocus, now.noFocus);
+    }
+
+    // NPC-Zustand des Partners (aivar, Haltung, Tagesablauf, u139 Skriptfelder) anwenden; false = NPC hier (noch) unbekannt
     static bool DialogApplyNpcEntry(json& jn) {
         const std::string n = jn.at("n").get<std::string>();
         oCNpc* npc = DialogNpcByName(n);
@@ -1594,8 +1729,9 @@ namespace GOTHIC_ENGINE {
             if (idx > 0)
                 rtnNow = idx;
         }
+        DialogApplyNpcFields(npc, n, jn);
         if (StoryReady)   // v31: kein Echo im Story-Takt
-            StoryBaseNpc[n] = { rtnNow, npc->attitude };
+            StoryBaseNpc[n] = { rtnNow, npc->attitude, DlgNpcFields(npc) };
         return true;
     }
 
@@ -1661,6 +1797,12 @@ namespace GOTHIC_ENGINE {
                 if (zCPar_Symbol* rs = parser->GetSymbol(npc->daily_routine))
                     jn["r"] = rs->name.ToChar();
             jn["at"] = npc->attitude;
+            const CoopNpcFields f = DlgNpcFields(npc);   // u139 (P138)
+            jn["fl"] = f.flags;
+            jn["gu"] = f.guild;
+            jn["gt"] = f.guildTrue;
+            jn["nt"] = f.npcType;
+            jn["nf"] = f.noFocus;
             p.push_back(jn);
         }
         if (p.empty())
@@ -1670,7 +1812,7 @@ namespace GOTHIC_ENGINE {
         j["full"] = 1;
         j["p"] = p;
         DialogSend(j, SYNC_DIALOG_STATE);
-        DialogLog("Story-Abgleich: Tagesablauf/Haltung aller %u NPCs an die Clients (%s)", (unsigned)p.size(), why);
+        DialogLog("Story-Abgleich: Tagesablauf/Haltung/Felder aller %u NPCs an die Clients (%s)", (unsigned)p.size(), why);
     }
 
     // --- u96: Missions-Gegenstaende spiegeln ---------------------------------------------------------------------------------
@@ -2003,7 +2145,7 @@ namespace GOTHIC_ENGINE {
             json f = json::object();
             for (auto it = e.begin(); it != e.end(); ++it) {
                 const std::string k = it.key();
-                if ((!quests && (k == "i" || k == "v" || k == "p" || k == "g" || k == "xp" || k == "ch" || k == "mi")) || (!diary && k == "l"))
+                if ((!quests && (k == "i" || k == "v" || k == "p" || k == "g" || k == "xp" || k == "ch" || k == "mi" || k == "we")) || (!diary && k == "l"))
                     continue;
                 f[k] = it.value();
             }
@@ -2012,6 +2154,16 @@ namespace GOTHIC_ENGINE {
                 DialogLog("Fortschritt von %s: %s%s nicht uebernommen (Einstellung Abgleich)", by.c_str(), quests ? "" : "Quest-Teil ",
                     diary ? "" : "Tagebuch");
             e = f;
+        }
+        if (e.contains("we")) {   // u141 (P141): Eintritts-Merker des Partners - gelten nur in derselben Welt, eigenes Paket
+            if (sameWorld && e.contains("wt") && e["wt"].is_string()) {
+                const std::string w = e["wt"].get<std::string>();
+                CoopWorldEntryVarsSet(e["we"], w, true);
+                for (auto& v : e["we"])   // kein Echo im Story-Takt - nur die gemeldeten, eine eigene Aenderung im selben Moment geht noch hinaus
+                    if (v.is_array() && v.size() == 2 && v.at(0).is_string() && v.at(1).is_number_integer())
+                        StoryEntryBase[v.at(0).get<std::string>()] = v.at(1).get<int>();
+            }
+            return;
         }
         if (e.contains("mi"))   // u96: Missions-Gegenstaende des Partners
             MiApply(e["mi"], by);
@@ -2076,7 +2228,7 @@ namespace GOTHIC_ENGINE {
                     varNames += (varNames.empty() ? "" : ", ") + std::string(sym->name.ToChar()) + (ele > 1 ? "[" + std::to_string(k) + "]" : "")
                         + "=" + std::to_string(val);
                 auto slot = DlgSlotIndex.find(std::make_pair(sym, k));   // kein Echo im Story-Takt
-                if (StoryReady && slot != DlgSlotIndex.end() && slot->second < (int)StoryBaseInts.size())
+                if ((StoryReady || StoryLevelChange) && slot != DlgSlotIndex.end() && slot->second < (int)StoryBaseInts.size())
                     StoryBaseInts[slot->second] = val;
             }
         // v92: Kapitel-Bildschirm des Partners (IntroduceChapter, siehe CoopExtIntroduceChapter)
@@ -2094,7 +2246,7 @@ namespace GOTHIC_ENGINE {
             DialogPlayVideo(e["vid"], e.contains("vidno") && e["vidno"].is_number_integer() ? (long)e["vidno"].get<long long>() : 0, by);
         if (e.contains("l")) {
             logs = DialogApplyLog(e["l"]);
-            if (StoryReady)
+            if (StoryReady || StoryLevelChange)
                 for (auto& jt : e["l"]) {
                     const std::string t = jt.at("t").get<std::string>();
                     if (oCLogTopic* tp = DialogFindTopic(t))
@@ -2235,13 +2387,143 @@ namespace GOTHIC_ENGINE {
             StoryBaseLog[t.t] = t;
         StorySnapNpcs();
         StorySnapGuilds();
+        StoryEntryBase.clear();   // u141 (P141): im naechsten Takt gehen die gesetzten Merker dieser Welt hinaus
         StoryReady = true;
         DialogLog("Story-Abgleich: Vergleichsstand aufgenommen (%u Variablen, %u Tagebuch-Themen)",
             (unsigned)StoryBaseInts.size(), (unsigned)StoryBaseLog.size());
     }
 
+    // Tagebuch gegen den Vergleichsstand, der Stand rueckt nach; Anzahl der Themen mit Unterschied
+    static int StoryLogDiff(json& l) {
+        int nl = 0;
+        oCLogManager& lm = oCLogManager::GetLogManager();
+        for (auto* it = lm.m_lstTopics.GetNextInList(); it; it = it->GetNextInList()) {
+            oCLogTopic* tp = it->GetData();
+            if (!tp)
+                continue;
+            const std::string name = tp->m_strDescription.ToChar();
+            auto f = StoryBaseLog.find(name);
+            if (f != StoryBaseLog.end() && f->second.st == (int)tp->m_enuStatus
+                && (int)f->second.e.size() == tp->m_lstEntries.GetNumInList())
+                continue;   // unveraendert (Status und Anzahl) - Eintraege nicht einzeln kopieren
+            const CoopDlgTopic t = StoryTopicNow(tp);
+            json jt;
+            if (DlgTopicDiff(f == StoryBaseLog.end() ? NULL : &f->second, t, jt)) {
+                l.push_back(jt);
+                nl++;
+            }
+            StoryBaseLog[name] = t;
+        }
+        return nl;
+    }
+
+    // u141 (P141): Der Merker der Welt, in der ich stehe, gilt auch fuer den Partner in derselben Welt: Sie teilen ihren Stand. Kapitelwechsel im Gespraech: B_Kapitelwechsel
+    // ruft B_Enter_* nur beim Sprechenden, die NPCs kommen ueber den Host zu beiden, der Merker des anderen blieb aber 0 - bei seinem naechsten Laden lief das Skript
+    // dort noch einmal. Nur gesetzte Merker, der Empfaenger hebt nur an; ist der Partner in einer anderen Welt, verwirft er das Paket (P72, seine Kopie ist eine andere).
+    static void StoryEntryTick() {
+        if (!CoopRuleQuests())
+            return;
+        const std::string world = WxWorldTag(CoopWorldName());
+        json ch = json::array();
+        for (auto& v : CoopWorldEntryVarsGet(world)) {
+            const std::string n = v.at(0).get<std::string>();
+            const int val = v.at(1).get<int>();
+            auto f = StoryEntryBase.find(n);
+            if (f != StoryEntryBase.end() && f->second == val)
+                continue;
+            StoryEntryBase[n] = val;
+            if (val)
+                ch.push_back(v);
+        }
+        if (ch.empty())
+            return;
+        json j;
+        j["q"] = 1;
+        j["wt"] = world;
+        j["we"] = ch;
+        DialogSend(j, SYNC_DIALOG_STATE);
+        DialogLog("Eintritts-Merker von %s -> Partner: %s", world.c_str(), ch.dump().c_str());
+    }
+
+    // u140 (P139; Pruefrunde b74: "ENGROMISGONE: hier 1, Partner 0", "SENGRATH_MISSING"): Der Vergleichsstand wird nach jedem Laden neu aufgenommen
+    // und schluckt, was die Init-Skripte setzen. Beim Laden eines Spielstands ist das richtig, beim Weltwechsel gehen so echte Geschichtswerte
+    // verloren: Was B_Enter_*/INIT_* beim Ersten setzen (ENGROMISGONE, KAPITEL, MIS_RESCUEBILGOT, B_CHAPTER4_ONETIME ...), kam beim Partner nie an, und
+    // der Zweite setzte es selbst nicht mehr, weil er die Welt schon im Stand des Ersten fand. Jetzt geht beim Weltwechsel erst der Unterschied
+    // zum Stand davor hinaus. Allgemein (G2A viele, G1 ENTEREDTEMPLE).
+    static void StorySendLevelChange() {
+        if (!StoryLevelChange)
+            return;
+        StoryLevelChange = false;
+        DlgBuildIntSlots();
+        if (StoryBaseInts.size() != DlgIntSlots.size())
+            return;
+        json v = json::array();
+        std::string names;
+        for (size_t i = 0; i < DlgIntSlots.size(); i++) {
+            int cur = 0;
+            DlgIntSlots[i].sym->GetValue(cur, DlgIntSlots[i].idx);
+            const int old = StoryBaseInts[i];
+            const char* nm = DlgIntSlots[i].sym->name.ToChar();
+            if (cur == old || (i < StoryNoisy.size() && StoryNoisy[i]) || StoryIgnored(nm) || DlgGuildVars.count(DlgIntSlots[i].sym) ||
+                !StoryValueOk(cur) || !StoryValueOk(old))
+                continue;
+            v.push_back({ nm, DlgIntSlots[i].idx, cur });
+            if (names.size() < 300)
+                names += (names.empty() ? "" : ", ") + std::string(nm) + "=" + std::to_string(cur);
+        }
+        json l = json::array();   // u141 (P141): auch das Tagebuch - der Zweite fuehrt das Einzugs-Skript seit P139 nicht mehr aus ("Die Drachenjaeger")
+        const int nl = StoryLogDiff(l);
+        if (v.empty() && !nl)
+            return;
+        json j;
+        j["q"] = 1;
+        if (!v.empty())
+            j["v"] = v;
+        if (nl)
+            j["l"] = l;
+        DialogSend(j, SYNC_DIALOG_STATE);
+        DialogLog("Story-Abgleich: %u Variablen (%s), %d Tagebuch-Themen aus dem Weltwechsel -> Partner", (unsigned)v.size(), names.c_str(), nl);
+    }
+
+    // u140 (P140): Spielstaende von vor P138. Vom Test-Fenster (b74, 05:13): Der Client sprach mit dem Drachen, die gemeinsame Sicherung enthielt die Welt des
+    // Hosts mit flags = 2, abgeglichen waren die Infos und DRAGONTALK_EXIT_FREE = 0. Nach dem Laden war der Drache auf beiden PCs unsterblich, ein Gespraech
+    // nicht mehr moeglich, die Hauptgeschichte hing. Wer DIA_DRAGON_*_EXIT gehoert hat, hat den Schutz aufgehoben (das Skript setzt flags = 0) - steht er noch,
+    // hebt GT ihn auf. Nach jedem Laden und Weltwechsel, nur fuer die NPCs dieser Infos. Allgemein (die Infos gibt es nur in G2).
+    static int DlgDragonsHeal() {
+        if (!parser || !ogame || !ogame->GetInfoManager() || !ogame->GetGameWorld())
+            return 0;
+        std::set<int> done;
+        for (auto* l = ogame->GetInfoManager()->infoList.GetNextInList(); l; l = l->GetNextInList()) {
+            oCInfo* info = l->GetData();
+            if (!info || !info->told)
+                continue;
+            const char* nm = info->name.ToChar();
+            const size_t len = strlen(nm);
+            if (len > 16 && !strncmp(nm, "DIA_DRAGON_", 11) && !strcmp(nm + len - 5, "_EXIT"))   // Instanz aus dem Namen: pd.npc setzt erst ein Skript des Drachen
+                done.insert(parser->GetIndex(zSTRING(std::string(nm + 4, len - 9).c_str())));
+        }
+        int n = 0;
+        if (!done.empty())
+            for (auto* l = CoopWorldNpcListFirst(ogame->GetGameWorld()); l; l = l->next) {
+                oCNpc* npc = l->data;
+                if (!npc || !(npc->variousFlags & NPC_FLAG_IMMORTAL) || !done.count(npc->GetInstance()))
+                    continue;
+                npc->variousFlags &= ~NPC_FLAG_IMMORTAL;
+                n++;
+                DialogLog("Drache %s: Abschluss-Gespraech gehoert, aber noch unsterblich - Schutz aufgehoben", npc->GetObjectName().ToChar());
+            }
+        return n;
+    }
+
+    // UnionHooks.cpp: Beginn eines Ladevorgangs - Weltwechsel (true) bzw. Spielstand oder neues Spiel (false)
+    void CoopDialogSyncLoadKind(bool levelChange) {
+        StoryLevelChange = levelChange && StoryReady && DialogSyncAktiv();
+    }
+
     static void StoryTick() {
         if (!StoryReady) {
+            StorySendLevelChange();   // u140 (P139)
+            DlgDragonsHeal();         // u140 (P140): vor dem Vergleichsstand - jeder PC heilt selbst
             StoryTakeBaseline();
             return;
         }
@@ -2250,6 +2532,7 @@ namespace GOTHIC_ENGINE {
             StoryTakeBaseline();
             return;
         }
+        StoryEntryTick();   // u141 (P141)
         json v = json::array();
         int nv = 0;
         for (size_t i = 0; i < DlgIntSlots.size(); i++) {
@@ -2282,25 +2565,7 @@ namespace GOTHIC_ENGINE {
             nv++;
         }
         json l = json::array();
-        int nl = 0;
-        oCLogManager& lm = oCLogManager::GetLogManager();
-        for (auto* it = lm.m_lstTopics.GetNextInList(); it; it = it->GetNextInList()) {
-            oCLogTopic* tp = it->GetData();
-            if (!tp)
-                continue;
-            const std::string name = tp->m_strDescription.ToChar();
-            auto f = StoryBaseLog.find(name);
-            if (f != StoryBaseLog.end() && f->second.st == (int)tp->m_enuStatus
-                && (int)f->second.e.size() == tp->m_lstEntries.GetNumInList())
-                continue;   // unveraendert (Status und Anzahl) - Eintraege nicht einzeln kopieren
-            const CoopDlgTopic t = StoryTopicNow(tp);
-            json jt;
-            if (DlgTopicDiff(f == StoryBaseLog.end() ? NULL : &f->second, t, jt)) {
-                l.push_back(jt);
-                nl++;
-            }
-            StoryBaseLog[name] = t;
-        }
+        const int nl = StoryLogDiff(l);
         // v31: Tagesablauf und dauerhafte Haltung der Welt-NPCs (aendern nur Skripte: Npc_ExchangeRoutine, Npc_SetPermAttitude
         // - auch ausserhalb von Dialogen, z. B. B_Kapitelwechsel, B_CheckDeadMissionNPCs, Story-Funktionen)
         json p = json::array();
@@ -2314,12 +2579,13 @@ namespace GOTHIC_ENGINE {
             if (name.empty())
                 continue;
             const int rtn = npc->daily_routine, att = npc->attitude;
+            const CoopNpcFields fields = DlgNpcFields(npc);   // u139 (P138)
             auto f = StoryBaseNpc.find(name);
             if (f == StoryBaseNpc.end()) {   // neu in der Liste (z. B. gerade eingefuegt) - nur merken
-                StoryBaseNpc[name] = { rtn, att };
+                StoryBaseNpc[name] = { rtn, att, fields };
                 continue;
             }
-            if (f->second.rtn == rtn && f->second.att == att)
+            if (f->second.rtn == rtn && f->second.att == att && DlgNpcFieldsSame(f->second.f, fields))
                 continue;
             json jn;
             if (f->second.rtn != rtn)
@@ -2327,7 +2593,8 @@ namespace GOTHIC_ENGINE {
                     jn["r"] = rs->name.ToChar();
             if (f->second.att != att)
                 jn["at"] = att;
-            f->second = { rtn, att };
+            DlgNpcFieldsDiff(f->second.f, fields, jn);
+            f->second = { rtn, att, fields };
             if (jn.empty() || StoryNpcNoisy.count(name))
                 continue;
             auto& times = StoryNpcTimes[name];
@@ -3340,6 +3607,9 @@ namespace GOTHIC_ENGINE {
     void CoopDialogSyncWorldLoaded() {}
     void CoopDialogSyncPulse() {}
     void CoopStorySendAllNpcs(const char*) {}
+    void CoopDialogSyncLoadKind(bool) {}   // u140
+    json CoopWorldEntryVarsGet(const std::string&) { return json::array(); }
+    int CoopWorldEntryVarsSet(const json&, const std::string&, bool) { return 0; }
     void CoopMissionReset(int) {}
     int CoopMissionTestMark(const char*) { return -1; }   // u104
 #endif

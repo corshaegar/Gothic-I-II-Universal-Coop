@@ -633,6 +633,8 @@ namespace GOTHIC_ENGINE {
             return;
         }
         LoadEnd();
+        CoopWorldSyncSaveLoaded();       // u137: wartende Mechanismen anderer Welten verwerfen
+        CoopSaveSyncEntryVarsAtLoad();   // u140: Eintritts-Merker der fremden Weltdateien dieses Slots
 
         auto coopFriendInstanceId = GetFriendDefaultInstanceId();
         auto* list = CoopWorldNpcListFirst(ogame->GetGameWorld());

@@ -2453,6 +2453,16 @@ namespace GOTHIC_ENGINE {
         }
         oCNpc* fig = (r && r->npc && r->hasModel) ? r->npc : NULL;
         zCAICamera* cam = zCAICamera::GetCurrent();
+        // u142 (P143, Testlaeufe u134 und u136: zweimal in 30 Auftraegen, erstes Bild nach dem Weltwechsel: Gothic2.exe+0xA437C in
+        // zCAICamera::AI_Normal, Lesen von camVob+0x68 mit camVob = NULL). Wie die lebende KI dazu kommt, ist offen: SetVob verlangt
+        // einen Vob, sonst schreiben nur Konstruktor und Destruktor, und in den Weltdateien steht keine Kamera-KI. Die Zeile nennt die Zeiger
+        if (cam && !cam->camVob) {
+            zCVob* camVob = ogame->GetCameraVob();
+            WpLog("Kamera-KI %p ohne Kamera-Vob (Zaehler %d; oCGame: KI %p, Vob %p, dessen KI %p)%s", (void*)cam, cam->refCtr, (void*)ogame->GetCameraAI(),
+                (void*)camVob, camVob ? (void*)camVob->callback_ai : NULL, camVob ? " - neu gesetzt" : "");
+            if (camVob)
+                cam->SetVob(camVob);
+        }
         zCVob* want = fig ? (zCVob*)fig : (zCVob*)player;
         if (cam && cam->target != want) {
             cam->SetTarget(want);
