@@ -24,13 +24,71 @@ namespace GOTHIC_ENGINE {
     // drei erfolglosen Versuchen oCInformationManager::Exit() (Dialog beenden, Held wieder frei).
     // Dazu Protokoll, wer ClearEM auf den Gespraechspartner eines offenen Dialogs ruft (Ruecksprung +
     // Modul), damit die eigentliche Ursache gefunden werden kann. Ausgabe system\GothicCoopOthello.log.
+    //
+    // u155 (P160, Testinstanz b156/b159 2.11., G2A-Client): Der Host lud, waehrend der Client mit Andre sprach. Gothic setzt den
+    // oCInformationManager beim Laden nicht zurueck (aus dem Esc-Menue laedt man nie im Dialog): Npc und Player zeigten danach auf
+    // den alten Andre und den alten Helden, IsDone blieb 0 - SetNpc tut dann nichts, mit niemandem mehr ein Gespraech. Der
+    // Waechter reihte EV_PROCESSINFOS beim alten Andre ein und rief Exit; ab da ruft oCGame::Render in jedem Bild Update (G2A
+    // 0x00660BB0), und Update las die Warteschlange des freigegebenen Helden: Absturz C0000005 an einer Adresse im Heap.
+    // Jetzt: Beginnt ein Ladevorgang (Spielstand, neues Spiel, Weltwechsel) mitten in einem Dialog, beendet GT ihn, solange beide
+    // Figuren noch leben, mit Gothics eigenem Abschluss - Exit (Auswahl- und Handelsfenster zu; fasst weder NPC noch Held an) und
+    // OnTermination (Statusanzeige, Kamera, Bewegungssperre des Helden, Npc/Player leer, IsDone 1; G2A 0x006631A0, G1 0x0072E430;
+    // der NPC wird nicht angefasst). Und der Waechter prueft vor jedem Zugriff, ob der Dialog noch zu dieser Welt gehoert (Player
+    // ist der Held, der NPC steht in der NPC-Liste der Welt); sonst beendet er ihn ebenso, ohne die alten Figuren.
 
 #if COOP_BUILD(DialogWatch)   // u3: bis u2 nur G1 - Freigabe je Engine in CoopCore.cpp
 
     static unsigned long DialogWatchLines = 0;
+    int CoopDialogLoadEnds = 0;          // u155 (P160): beim Ladebeginn beendete Dialoge (Testlauf)
+    int CoopDialogStaleEnds = 0;         //              vom Waechter beendete Dialoge, deren Figuren nicht mehr zur Welt gehoeren
+    std::string CoopDialogLastEnded;     //              NPC des zuletzt beim Ladebeginn beendeten Dialogs (CDiagName)
 
     static bool DialogWatchDarfLoggen() {
         return DialogWatchLines++ < 200;
+    }
+
+    // u155 (P160): gehoert der offene Dialog noch zu dieser Welt? heldWeg: Player ist nicht der Held (neu geladen)
+    static bool DialogWatchVeraltet(const oCInformationManager& im, bool& heldWeg) {
+        heldWeg = im.Player != player;
+        if (heldWeg)
+            return true;
+        if (im.Npc == player || !ogame || !ogame->GetGameWorld())
+            return false;   // Herstellung (AI_ProcessInfos(hero)) bzw. ohne Welt nicht beurteilbar
+        for (auto* l = CoopWorldNpcListFirst(ogame->GetGameWorld()); l; l = l->next)
+            if (l->data == im.Npc)
+                return false;
+        return true;
+    }
+
+    // u155 (P160): Dialog mit Gothics eigenem Abschluss beenden; ohne den alten Helden, wenn er nicht mehr der Held ist
+    static void DialogWatchEnd(oCInformationManager& im, bool heldWeg) {
+        im.Exit();
+        if (heldWeg)
+            im.Player = NULL;   // OnTermination ruft SetMovLock und GetInteractMob nur mit Player
+        im.OnTermination();
+        im.IsWaitingForScript = im.IsWaitingForOpen = im.IsWaitingForClose = im.IsWaitingForSelection = 0;
+    }
+
+    // UnionHooks.cpp _LoadBegin: vor dem Abbau der Welt
+    void CoopDialogWatchLoadBegin() {
+        oCInformationManager& im = oCInformationManager::GetInformationManager();
+        if (im.IsDone || (!im.Npc && !im.Player))
+            return;
+        bool heldWeg = false;
+        const bool veraltet = DialogWatchVeraltet(im, heldWeg);   // z. B. ein zweites Laden: die alten Figuren nicht anfassen
+        char name[64] = "-";
+        if (im.Npc && !veraltet)
+            CDiagName(im.Npc, name, sizeof(name));
+        char flags[96];
+        _snprintf(flags, sizeof(flags), "WartetSkript=%d WartetEnde=%d WartetAuswahl=%d%s", im.IsWaitingForScript, im.IsWaitingForEnd,
+            im.IsWaitingForSelection, veraltet ? " - Figuren schon veraltet" : "");
+        flags[sizeof(flags) - 1] = 0;
+        DialogWatchEnd(im, heldWeg || !im.Player);
+        CoopDialogLoadEnds++;
+        CoopDialogLastEnded = name;
+        if (DialogWatchDarfLoggen())
+            OthelloCompatLog("[%lld s, %s] Dialog-Waechter: Laden beginnt mitten im Dialog mit %s (%s) - beendet (Exit, OnTermination)",
+                DiagSeconds(), DiagRole(), name, flags);
     }
 
     static bool DialogWatchHatProcessInfos(oCNpc* npc) {
@@ -52,7 +110,23 @@ namespace GOTHIC_ENGINE {
         static int tries = 0;
 
         oCInformationManager& im = oCInformationManager::GetInformationManager();
-        if (!im.Npc || !im.Player || im.IsDone || DialogWatchHatProcessInfos(im.Npc)) {
+        if (!im.Npc || !im.Player || im.IsDone) {
+            watchNpc = NULL;
+            tries = 0;
+            return;
+        }
+        bool heldWeg = false;
+        if (DialogWatchVeraltet(im, heldWeg)) {   // u155 (P160): vor jedem Zugriff auf NPC und Held
+            DialogWatchEnd(im, heldWeg);
+            CoopDialogStaleEnds++;
+            if (DialogWatchDarfLoggen())
+                OthelloCompatLog("[%lld s, %s] Dialog-Waechter: offener Dialog gehoert nicht mehr zu dieser Welt (%s) - beendet, ohne die alten Figuren anzufassen",
+                    DiagSeconds(), DiagRole(), heldWeg ? "Player ist nicht der Held" : "NPC nicht in der NPC-Liste");
+            watchNpc = NULL;
+            tries = 0;
+            return;
+        }
+        if (DialogWatchHatProcessInfos(im.Npc)) {
             watchNpc = NULL;
             tries = 0;
             return;
@@ -110,6 +184,10 @@ namespace GOTHIC_ENGINE {
     }
 
 #else   // Modul in dieser Engine nicht freigegeben (CoopModulesReport)
+    int CoopDialogLoadEnds = 0;
+    int CoopDialogStaleEnds = 0;
+    std::string CoopDialogLastEnded;
     void CoopDialogWatchPulse() {}
+    void CoopDialogWatchLoadBegin() {}
 #endif
 }

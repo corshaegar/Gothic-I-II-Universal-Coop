@@ -24,6 +24,12 @@ namespace GOTHIC_ENGINE {
         return name == "HOST" || name.StartWith("FRIEND_");
     }
 
+    // u149 (P152, Testlauf b118, Gothic 1, ITARSCROLLTRFMEATBUG): Verwandelt oder fremdgesteuert ist player das neue Wesen, der Held liegt ausserhalb der Welt (oCSpell::saveNpc). Das Spiel speichert dann nicht
+    // (CGameManager::MenuEnabled, G2A 0x0042AAF0, dieselben drei Bits), GTs eigene Wege kannten das nicht
+    bool CoopHeroSwapped() {
+        return player && (player->HasBodyStateModifier(BS_MOD_TRANSFORMED) || player->HasBodyStateModifier(BS_MOD_CONTROLLED) || player->HasBodyStateModifier(BS_MOD_CONTROLLING));
+    }
+
     oCItem* CreateCoopItem(int insIndex) {
         return zfactory->CreateItem(insIndex);
     }
@@ -522,6 +528,24 @@ namespace GOTHIC_ENGINE {
         return false;
     }
 
+    // u150 (P153): Reihenfolge fuer die Nummern gleichnamiger NPCs. Bis u149 zaehlte die Weltliste, und deren Reihenfolge weicht nach dem Laden
+    // zwischen den PCs ab, weil jeder seine eigene Weltdatei laedt (Testlauf: 71 % der Gruppen in Gothic 1, 18 % in Othello, 22 % in Gothic 2
+    // vertauscht). Derselbe Name meinte dann zwei verschiedene Figuren: Der Tod eines Monsters traf beim Partner sein Gegenstueck, und das blieb
+    // in dessen Spielstand. Jetzt zaehlen Lebende zuerst, danach die Lage. Allgemein.
+    void CoopNpcNameOrder(std::vector<oCNpc*>& order) {
+        std::stable_sort(order.begin(), order.end(), [](oCNpc* a, oCNpc* b) {
+            const bool deadA = a->IsDead(), deadB = b->IsDead();
+            if (deadA != deadB)
+                return deadB;
+            const zVEC3 pa = a->GetPositionWorld(), pb = b->GetPositionWorld();
+            if (pa.n[0] != pb.n[0])
+                return pa.n[0] < pb.n[0];
+            if (pa.n[2] != pb.n[2])
+                return pa.n[2] < pb.n[2];
+            return pa.n[1] < pb.n[1];
+        });
+    }
+
     void BuildGlobalNpcList() {
         PluginState = "BuildGlobalNpcList";
 
@@ -548,15 +572,17 @@ namespace GOTHIC_ENGINE {
             }
         }
 
-        list = CoopWorldNpcListFirst(ogame->GetGameWorld());
-        while (list) {
-            auto npc = list->data;
+        std::vector<oCNpc*> order;
+        for (list = CoopWorldNpcListFirst(ogame->GetGameWorld()); list; list = list->next)
+            order.push_back(list->data);
+        if (firstRun)
+            CoopNpcNameOrder(order);
+
+        for (oCNpc* npc : order) {
             diagWorldNpcs++;
 
-            if (npc->IsAPlayer() || IsCoopPlayer(npc->GetObjectName()) || IgnoredSyncNpc(npc) || NpcToUniqueNameList.count(npc)) {
-                list = list->next;
+            if (npc->IsAPlayer() || IsCoopPlayer(npc->GetObjectName()) || IgnoredSyncNpc(npc) || NpcToUniqueNameList.count(npc))
                 continue;
-            }
 
             auto objectName = string(npc->GetObjectName());
             CStringA name = "";
@@ -579,8 +605,6 @@ namespace GOTHIC_ENGINE {
             UniqueNameToNpcList[uniqueName] = npc;
             NpcToUniqueNameList[npc] = uniqueName;
             CoopDiagNameAssigned(uniqueName, npc, firstRun);
-
-            list = list->next;
         }
 
         CoopDiagListBuilt(firstRun, diagWorldNpcs, diagRtnEntries);

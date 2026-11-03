@@ -13,13 +13,13 @@ abgeglichen. Ein Union-Plugin auf Grundlage von [GothicCoop / Gothic Together](h
 
 ## Versionen
 
-Projektversion **0.4.1** – je Spiel/Mod die Coop-Fassung (sie zählt nur hoch, wenn sich an diesem Spiel etwas ändert):
+Projektversion **0.5.0** – je Spiel/Mod die Coop-Fassung (sie zählt nur hoch, wenn sich an diesem Spiel etwas ändert):
 
 | Spiel / Mod | Coop-Fassung |
 |---|---|
-| Gothic I | u143 |
-| Gothic II | u143 |
-| Othello | u143 |
+| Gothic I | u160 |
+| Gothic II | u160 |
+| Othello | u160 |
 
 **Beide PCs brauchen dieselbe Coop-Fassung** – beim Verbinden wird sie verglichen. Sie steht im Hauptmenü unten
 („GothicCoop uNN“). Änderungen je Version: [`CHANGELOG.md`](CHANGELOG.md).
@@ -40,17 +40,24 @@ Projektversion **0.4.1** – je Spiel/Mod die Coop-Fassung (sie zählt nur hoch,
 **Geschichte**
 - **Dialoge:** einer spricht mit einem NPC, der andere hört zu; Fortschritt, Tagebuch, Kapitel und Quest-Erfahrung gelten
   für beide. Story-Videos laufen bei beiden; überspringt einer, endet es bei beiden.
-- **Gilden je Held:** Gilden-Dialoge teilen nur Helden derselben Gilde (samt Belohnung).
+- **Gilden je Held:** Gilden-Dialoge teilen nur Helden derselben Gilde (samt Belohnung). Der Gildenfortschritt (Werte,
+  Gespräche, Tagebuch-Themen, Haltungen von NPCs aus Gilden-Quests und Beitritten) bleibt beim eigenen Helden, auch beim
+  gemeinsamen Laden.
 - Was ein Dialog an NPCs ändert (Tagesablauf, Haltung, Schutz, Gilde) gilt für beide.
 - Skript-Ereignisse (Gegenstände aus Skripten, Spawns, Uhrzeit und Spieltag) kommen vom Host.
+- **Spielende** (Gothic 2): Nach dem Abspann stehen beide im Hauptmenü.
 
 **Welt und Gegenstände**
 - Truhen, Gegenstände am Boden und Plündern – der Host führt den Bestand, nichts verdoppelt sich.
+- **Gegenstände der NPCs:** Was NPCs fallen lassen oder werfen (Waffen bei Tod oder Bewusstlosigkeit, Werkzeuge), liegt bei
+  beiden an derselben Stelle. Pfeile und Bolzen bleiben je PC (sie stecken im Ziel oder verschwinden nach Sekunden).
 - **Coop-Inventar:** eine gemeinsame Truhe, die Taste (Vorgabe I, Einstellungen › COOP) öffnet sie direkt und ohne Bewegung. Beide können
   sie gleichzeitig offen haben; der Inhalt liegt beim Host und im Spielstand, Gegenstände daraus zählen bei Quests.
 - **Gemeinsame Missions-Gegenstände:** bekommt einer einen, hat ihn der Partner auch; gibt einer ihn ab, verliert ihn der Partner.
   Im Namen steht „(gemeinsam)“.
-- **Mechanismen:** Türen, Hebel, Steinplatten und Portale, die ein Held benutzt, gelten für beide, samt den Skripten und Kamerafahrten dahinter. NPCs benutzen Türen je PC.
+- **Mechanismen:** Türen, Hebel, Steinplatten und Portale, die ein Held benutzt, gelten für beide, samt den Skripten und Kamerafahrten dahinter; ziehen beide zugleich am selben Hebel, zählt das einmal. NPCs benutzen Türen je PC.
+- **Auslöser**, die ein Held, ein NPC oder ein Pfeil oder Zauber berührt (Tore, Fallen, die Brücke auf Irdorath, der
+  Schläfertempel in Gothic 1), lösen bei beiden aus. Im automatischen Testlauf geprüft, im echten Spielablauf noch nicht gesehen.
 - **Getrennte Welten:** jeder kann in einer anderen Welt sein (Khorinis, Minental, Jharkendar, Irdorath bzw. die Welten von
   Gothic 1). **Gemeinsamer Weltwechsel** auf Wunsch (Übergang bestätigen, der Partner kommt nach).
 - **Weltprozess und Zuschau-Fenster:** ist der Partner in einer anderen Welt, zeigt ein unsichtbares zweites Gothic dessen Welt;
@@ -59,7 +66,8 @@ Projektversion **0.4.1** – je Spiel/Mod die Coop-Fassung (sie zählt nur hoch,
 
 **Spielstände**
 - **Gemeinsames Speichern und Laden:** der Host wählt, beide laden denselben Stand, jeder mit seinem Helden; fehlende Weltdateien
-  werden geprüft übertragen. Vorschau beider PCs in der Liste.
+  werden geprüft übertragen. Vorschau beider PCs in der Liste. Wer einen Stand mit der Welt des Partners allein lädt (etwa nach
+  einem Neustart), bekommt ebenfalls seinen eigenen Helden.
 - **Sicherung beim Partner:** jeder bekommt den Stand des anderen als Kopie; fehlt einem sein Stand (Saves verloren), holt er
   ihn vom Partner zurück.
 - **Gemeinsames neues Spiel:** Intro für beide, Start nebeneinander.
@@ -75,17 +83,19 @@ Projektversion **0.4.1** – je Spiel/Mod die Coop-Fassung (sie zählt nur hoch,
 
 | | Stand |
 |---|---|
-| **Gothic 2 Die Nacht des Raben** (2.6) | Hauptspiel der Entwicklung. Automatischer Testlauf auf einem PC (Host und Client): Gilden, Coop-Inventar, Truhen, Türen und Mechanismen 52/52 auf beiden Seiten; getrennte Welten und Weltprozess Host 55/55, Client 52 OK, 0 Fehler (3 Schritte nur am Host). Lange automatische Läufe mit Prüfrunden (Vergleich beider Seiten), inzwischen bis in Kapitel 5 samt Drachenkampf – meist ohne Abweichung, gelegentlich einzelne Abweichungen. Das Coop-Inventar ist vor allem automatisch geprüft; ein Spieltest mit zwei Personen über das echte Netz steht noch aus. |
-| **Gothic 1** (1.08k, Steam/GOG) | Derselbe automatische Testlauf: Gilden, Coop-Inventar und Türen je 41 OK, 0 Fehler (11 Schritte übersprungen, am Test-Spielstand stehen keine Truhe und kein passender Hebel); getrennte Welten und Weltprozess Host 51 OK, Client 48 OK, 0 Fehler (4 bzw. 7 übersprungen). Hebel sind in Gothic 1 damit noch nicht im Spiel geprüft. Von Hand zuletzt mit u44 gespielt; die Neuerungen seitdem (Coop-Inventar, Missions-Gegenstände, Mechanismen) noch nicht von Hand und nicht über das echte Netz. |
-| **Othello** 4.x (Gothic 1) | Derselbe automatische Testlauf: Gilden, Coop-Inventar, Truhen, Türen und Mechanismen Host 49 OK, Client 42 OK, je 1 Fehler (siehe unten); getrennte Welten und Weltprozess Host 51 OK, Client 48 OK, 0 Fehler. Von Hand zuletzt mit dem Othello-Coop v106 (= Othello-Coop 0.1.2) gespielt; seitdem sind die allgemeinen Änderungen dazugekommen. |
+| **Gothic 2 Die Nacht des Raben** (2.6) | Hauptspiel der Entwicklung. Automatischer Testlauf auf einem PC (Host und Client) mit genau der Release-DLL: Gilden, Coop-Inventar, Truhen, Türen, Mechanismen, Auslöser, Gegenstände der NPCs, Speichern und Laden Host 91 OK, Client 88 OK, 0 Fehler (2 bzw. 5 Schritte nur auf der anderen Seite); getrennte Welten und Weltprozess Host 57 OK, Client 52 OK, 0 Fehler (5 Schritte nur am Host). Lange automatische Läufe mit Prüfrunden (Vergleich beider Seiten), inzwischen bis zum Spielende (mit erhöhtem Leben, also kein echter Test der Kämpfe) – meist ohne Abweichung, gelegentlich einzelne Abweichungen. Das Coop-Inventar ist vor allem automatisch geprüft; ein Spieltest mit zwei Personen über das echte Netz steht noch aus. |
+| **Gothic 1** (1.08k, Steam/GOG) | Derselbe automatische Testlauf mit genau der Release-DLL: Gilden, Coop-Inventar, Türen, Gegenstände der NPCs, Speichern und Laden Host 68 OK, Client 65 OK, 0 Fehler (25 bzw. 28 Schritte übersprungen, am Test-Spielstand stehen keine Truhe und kein passender Hebel oder Auslöser); getrennte Welten und Weltprozess Host 53 OK, Client 48 OK, 0 Fehler (4 bzw. 9 übersprungen). Hebel und Auslöser sind in Gothic 1 damit noch nicht im Spiel geprüft. Von Hand zuletzt mit u44 gespielt; die Neuerungen seitdem (Coop-Inventar, Missions-Gegenstände, Mechanismen, Auslöser) noch nicht von Hand und nicht über das echte Netz. |
+| **Othello** 4.x (Gothic 1) | Derselbe automatische Testlauf mit genau der Release-DLL: Gilden, Coop-Inventar, Truhen, Türen, Mechanismen, Auslöser, Gegenstände der NPCs, Speichern und Laden Host 85 OK, Client 82 OK, 3 bzw. 3 Fehler (alle an einem Tor, siehe unten); getrennte Welten und Weltprozess Host 53 OK, Client 48 OK, 0 Fehler. Von Hand zuletzt mit dem Othello-Coop v106 (= Othello-Coop 0.1.2) gespielt; seitdem sind die allgemeinen Änderungen dazugekommen. |
 | **Mods** | Gothic 1/2 mit anderen Mods lassen sich installieren (der Installer erlaubt es), sind aber nicht gezielt geprüft. |
 
 Bekannte Grenzen:
 - Der **Weltprozess** braucht ein NTFS-Laufwerk (Verknüpfungen statt Kopien) und ein vorhandenes Speicherspiel.
 - Zuschau-Fenster und 3D-Vorschau brauchen den **Coop-Renderer** (GD3D11 v17.9.7 + Coop-Patch) und einen Prozessor mit AVX2.
 - „Über IP beitreten“ braucht beim Host einen offenen **UDP-Port 9955** (Router-Weiterleitung/Firewall) – oder Steam.
-- **Othello, Tore mit Hebel:** Wird der Hebel ein zweites Mal umgelegt, während das Tor noch aufgeht, kehrte es beim Partner im Testlauf meist nicht um (`PSI_DOOR_TEMPLE_NYRAS_SECRECT_*`, 5 von 6 Durchgängen). Das Tor kann dann auf den beiden PCs verschieden stehen.
+- **Othello, Tore mit Hebel:** Wird ein Tor bewegt, während es noch fährt (Hebel ein zweites Mal umgelegt, beide zugleich am Hebel, ein Pfeil an seinem Auslöser), steht es im Testlauf danach auf den beiden PCs verschieden (`PSI_DOOR_TEMPLE_NYRAS_SECRECT_2`, 3 Schritte je Seite).
 - **Gothic 2, alte Spielstände:** Stände aus Fassungen vor u140 können doppelte NPCs enthalten. Die bleiben; neue entstehen nicht mehr.
+- **Bewegliche Teile, die selbst auf Berührung reagieren** (die Zielsteine im Schläfertempel in Gothic 1, Vinos Kellertür in
+  Gothic 2), bewegen sich weiter nur auf dem PC dessen, der sie berührt.
 - Bitte jeden Absturz und jede Abweichung melden: Protokoll `system\GothicCoop.log` beider PCs.
 
 ## Installation
@@ -95,7 +105,7 @@ mit Patch 2.6) oder Gothic 1 mit Othello 4.x. Union 1.0m bringen Installer und Z
 
 ### Mit dem Installer (empfohlen)
 
-1. Unter [Releases](../../releases) `Gothic-I-II-Universal-Coop-0.4.1-Setup.exe` laden und starten.
+1. Unter [Releases](../../releases) `Gothic-I-II-Universal-Coop-0.5.0-Setup.exe` laden und starten.
 2. Spiel wählen (Gothic 1, Gothic 2, Othello) und den **Spielordner** (den Ordner, in dem `system` liegt; Steam- und GOG-Ordner
    werden gesucht). Der Installer prüft am Inhalt, dass es wirklich dieses Spiel ist, und installiert in einen falschen Ordner nichts.
 3. „Installieren“. Er schreibt den Coop, bringt GD3D11 v17.9.7 mit (falls es fehlt) und legt den Coop-Renderer darüber
@@ -171,7 +181,7 @@ Uhrzeit, Tagebuch und legt eine Sicherung an) · **Shift+F12** Weltprozess aus/a
 - Gothic 1 und Othello von Hand und über das echte Netz prüfen (der automatische Testlauf läuft dort jetzt).
 - Erkennung einzelner Mods mit eigenen Anpassungen (bisher: Gothic 1/2 mit Mods installierbar, aber nicht gezielt unterstützt).
 - Union für Gothic 1 vollständig mitliefern (Unions Setup schreibt dort zusätzlich `binkw32.dll`/`Mss32.dll`).
-- Weitere Abgleich-Feinheiten aus den langen Testläufen (z. B. fallen gelassene Waffen getöteter Gegner).
+- Bewegliche Teile, die selbst auf Berührung reagieren (siehe bekannte Grenzen), und weitere Abgleich-Feinheiten aus den langen Testläufen.
 
 ## Selbst bauen
 

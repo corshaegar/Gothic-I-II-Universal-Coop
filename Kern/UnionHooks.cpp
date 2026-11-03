@@ -166,6 +166,12 @@ namespace GOTHIC_ENGINE {
             return;
         }
         try {
+            CoopDialogWatchLoadBegin();   // u155 (P160): offenen Dialog beenden, solange NPC und Held noch leben
+        }
+        catch (...) {
+            CoopErrorLog("Dialog-Waechter LoadBegin", "Zugriffsfehler (SEH) oder unbekannte Ausnahme", PluginState.c_str());
+        }
+        try {
             CoopMenuMouseHide();   // v57: kein Zeiger ueber dem Ladebild
             CoopRuneLookInit();    // v106: vor dem Anlegen der Gegenstaende aus dem Spielstand
             LoadBegin();

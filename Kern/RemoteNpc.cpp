@@ -658,6 +658,10 @@ namespace GOTHIC_ENGINE {
                 {
                     auto selectedSpell = book->GetSelectedSpell();
                     if (selectedSpell) {
+                        // u146 (P148, Testlauf b107, Host, Dementor, "C0000005 bei Gothic2.exe+0x3A205E ... TYPE: 12"; ebenso u142, u143 beim Client): Der Zauber wurde doppelt freigegeben. DoDropVob nimmt
+                        // die aktive Rune ab, oCMag_Book::DeRegister gibt den Zauber dabei frei, und Kill (G2A 0x00485700) gibt ihn am Ende noch einmal frei. Der Block lag danach zweimal in der Freiliste,
+                        // der naechste neue Zauber teilte sich den Speicher mit einer anderen Belegung: Spell_Stop las "Zauber-Nummer" 0x554C3FB0, einen Zeiger. Darum eine eigene Referenz fuer Kill
+                        selectedSpell->AddRef();
                         auto selectedSpellItem = book->GetSpellItem(selectedSpell);
                         // v97 (A14): kann NULL sein (Upstream: Gothic-Workshop 0a5bb2f); u88 (P112): wie UpdateHand
                         if (selectedSpellItem && CoopSlotVobAlive(npc, selectedSpellItem, "UpdateMagicSetup")) {
@@ -667,11 +671,17 @@ namespace GOTHIC_ENGINE {
                                 selectedSpellItem->RemoveVobFromWorld();
                             CoopDropRelease(npc, selectedSpellItem, "UpdateMagicSetup");   // u90 (P114)
                         }
+                        bool stillInBook = false;
+                        for (int i = 0; i < book->spells.GetNumInList(); i++)
+                            stillInBook = stillInBook || book->spells[i] == selectedSpell;
                         selectedSpell->Kill();
+                        if (stillInBook)
+                            selectedSpell->Release();   // die Referenz des Buchs: EmptyList unten gibt nichts frei
                     }
 
                     book->spellitems.EmptyList();
                     book->spells.EmptyList();
+                    book->keys = 0;   // u146 (P148): Register sucht das erste freie Bit; ohne DeRegister liefen sie voll, bei 32 kaeme es aus der Suche nicht mehr heraus
                 }
 
                 if (spellInstanceName.compare("NULL") != 0) {
@@ -1238,7 +1248,18 @@ namespace GOTHIC_ENGINE {
             }
         }
 
+        // u144 (P145, Testlauf b98 auf Irdorath: "FRIEND_1 haengt fest - 1054.8 m neben dem Ziel", "steht -19469/-112398/7634", 340 s lang): Die Physik der Figur lief seit dem
+        // Einsetzen und fand keinen Boden. SetPositionWorld setzt nur die Lage, die Geschwindigkeit blieb und wuchs mit der Schwerkraft weiter, zuletzt um 1 km je Bild. Wo eine
+        // Partner-Figur steht, sagen die Pakete; eine eigene Fallgeschwindigkeit darf sie nicht haben
+        void HoldFigureVelocity() {
+            if (!npc->physicsEnabled || !IsCoopPlayer(name))
+                return;
+            if (zCRigidBody* rb = npc->GetRigidBody())
+                rb->SetVelocity(zVEC3(0.f, 0.f, 0.f));
+        }
+
         void UpdateNpcPosition(float dt) {
+            HoldFigureVelocity();
             auto currentPosition = npc->GetPositionWorld();
             auto pos = *lastPositionFromServer;
             if (SmoothOn()) {

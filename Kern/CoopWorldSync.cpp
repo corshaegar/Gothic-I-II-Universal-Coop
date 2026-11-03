@@ -218,6 +218,23 @@ namespace GOTHIC_ENGINE {
         return it && it->GetObjectName().StartWith("RX_DROPPED_ITEM_");
     }
 
+    // u157 (P162): Geschoss - von oCAIArrow::SetupAIVob gemerkt (Haken unten), bis es die Welt verlaesst, oder noch mit Pfeil-KI.
+    // Es bleibt nie liegen: Trifft es, legt Gothic es ins Inventar des Getroffenen, sonst blendet die KI es aus und
+    // zCVob::DoFrameActivity nimmt es aus der Welt. Der Partner hat es nie - weder melden noch als Aufheben werten.
+    static std::map<oCItem*, long long> Projectiles;   // je mit AddRef gehalten
+    static long long ProjectilesCheckMs = 0;
+    int CoopProjectileSkips = 0;                       // Testlauf: Geschosse, die nicht als Aufheben galten
+
+    static bool CoopItemIsProjectile(oCItem* it) {
+        return it && (Projectiles.count(it) || (it->callback_ai && zDYNAMIC_CAST<oCAIArrowBase>(it->callback_ai)));
+    }
+
+    static void ProjectilesClear() {
+        for (auto const& kv : Projectiles)
+            kv.first->Release();
+        Projectiles.clear();
+    }
+
     // Liegt der Gegenstand frei in der Welt? Nicht: ausserhalb der Welt, in einem NPC-Slot oder als Kind
     // eines NPCs im Vob-Baum. slots: vorab gesammelt (Bestand/Abgleich), sonst wird die NPC-Liste durchsucht.
     // allowDropped: von Spielern fallen gelassene (RX_DROPPED_ITEM_<Zufall>, GT benennt sie beim Fallenlassen,
@@ -442,6 +459,33 @@ namespace GOTHIC_ENGINE {
     static int CoopMobSkipScripts = 0, CoopMobSkipCams = 0;   // Testlauf (CoopSelfTest.cpp)
     static int CoopCamStopped = 0;           // u138 (P136): Kamerafahrten, die laut Spielstand noch liefen
     static std::map<std::string, std::vector<json>> MobPending;   // Benutzt in einer anderen Welt: Welt -> Ereignisse, bis ich dorthin komme
+    // u145 (P146, Testlauf b102, ISLE_INVISIBLEWALL_CODEMASTER_01, zwei Schalter in fester Reihenfolge): Griffen beide zum selben Hebel, loeste er auf jedem PC zweimal aus. Client: "SWITCH_01 von HOST
+    // (Paket): Zustand 0 -> 1 (hier gerade benutzt - Zustand bleibt), 1 Ziele", dann das Ende der eigenen Benutzung; Host: "SWITCH_01 von FRIEND_1 (Paket): Zustand 1 -> 1, 1 Ziele".
+    // zCCodeMaster::OnTrigger (G2A 0x00619300) traegt jeden Ausloeser ungeprueft ein; der zweite passt nicht zur Liste, der Meister meldet den Fehlschlag und setzt zurueck. Danach standen beide Hebel
+    // auf 1, der Zaehler auf 0, die Wand blieb zu. Ein Tor mit 2STATE_TOGGLE ginge auf und gleich wieder zu. Jetzt zaehlen beide Griffe als einer:
+    // - Steht der eigene Held am Mob, wartet die Benutzung des Partners bis zum Ende seiner. Endet die in denselben Zustand, hat die Engine hier ausgeloest und der Partner dort: nichts senden.
+    //   Bricht er ab, gilt sie danach wie sonst.
+    // - Haben sich die Griffe gekreuzt, steht der Mob hier schon so und hat den Zustand eben erst bekommen: kein Ausloeser, nicht weiterreichen.
+    // Steht er ohne frische Aenderung schon so (auseinandergelaufen, oder er dreht hier noch zurueck), loest das Paket weiter aus, damit die Ketten gleich bleiben.
+    static const long long MOB_BOTH_MS = 10000;
+    static std::vector<json> MobBusyQueue;   // kam, waehrend der eigene Held am Mob stand
+    static std::map<oCMobInter*, std::pair<int, long long>> MobChanged;   // Mob (nur als Schluessel) -> letzter Zustand, Zeit
+
+    static void MobNoteChanged(oCMobInter* m, int to) {
+        const long long now = GetCurrentMs();
+        for (auto it = MobChanged.begin(); it != MobChanged.end();) {
+            if (now - it->second.second > MOB_BOTH_MS)
+                it = MobChanged.erase(it);
+            else
+                ++it;
+        }
+        MobChanged[m] = std::make_pair(to, now);
+    }
+
+    static bool MobBothAtOnce(oCMobInter* m, int to) {
+        auto f = MobChanged.find(m);
+        return m->state == to && f != MobChanged.end() && f->second.first == to && GetCurrentMs() - f->second.second <= MOB_BOTH_MS;
+    }
 
     static bool MobSyncBase() {
         return WorldSyncBase() && (CoopRuleWorld() || CoopRuleQuests());   // der Ring faellt unter "Quests", die Tuer unter "Gegenstaende/Truhen"
@@ -643,6 +687,8 @@ namespace GOTHIC_ENGINE {
         j["t"] = to;
         if (oCMobLockable* l = zDYNAMIC_CAST<oCMobLockable>(m))
             j["lk"] = l->locked ? 1 : 0;
+        if (!m->triggerTarget.IsEmpty())
+            j["z"] = m->triggerTarget.ToChar();   // u147 (P150)
         if (ServerThread)
             j["by"] = MyselfId.ToChar();
         WorldSyncSend(j, SYNC_MOB_STATE);
@@ -696,6 +742,8 @@ namespace GOTHIC_ENGINE {
         WorldSyncLog("Truhe %s geschlossen, Aenderung: %s", key.c_str(), diff.empty() ? "-" : diff.c_str());
     }
 
+    int CoopHostNpcGoneSent = 0;   // u157: Testlauf - Aufheben durch NPCs des Hosts, an alle gemeldet
+
     // Ein NPC hat einen Gegenstand aus der Welt genommen: Spieler -> melden (Client an den Host, Host an
     // alle), NPC auf dem Host -> an alle. NPCs auf dem Client und Coop-Figuren: nichts (Abbilder).
     static void ReportPickup(oCNpc* owner, const CoopWorldGone& g, const char* via) {
@@ -714,6 +762,8 @@ namespace GOTHIC_ENGINE {
         if (ServerThread) {
             j["by"] = selbst ? std::string(MyselfId.ToChar()) : std::string("HOST_NPC");
             WorldSyncSend(j, SYNC_ITEM_GONE);
+            if (!selbst)
+                CoopHostNpcGoneSent++;
         }
         else {
             WorldSyncSend(j, SYNC_ITEM_TAKE);
@@ -721,6 +771,8 @@ namespace GOTHIC_ENGINE {
         if (selbst)
             WorldSyncLog("aufgehoben (%s): %s bei %s", via, g.inst.c_str(), CoopPosKey(g.pos).c_str());
     }
+
+    static bool NpcDropTakenEarly(oCItem* it);   // u158: unten bei den NPC-Gegenstaenden
 
     // Aus dem RemoveVob-Hook (Hooks.cpp) bzw. dem DisableVob-Platz, vor dem Original: freien Gegenstand
     // vormerken (AddRef).
@@ -736,6 +788,17 @@ namespace GOTHIC_ENGINE {
             it->Release();
             return;
         }
+        if (CoopItemIsProjectile(it)) {   // u157 (P162): Geschoss im Ziel (Inventar des Getroffenen) oder ausgeblendet - kein Aufheben
+            auto pr = Projectiles.find(it);
+            if (pr != Projectiles.end()) {
+                Projectiles.erase(pr);
+                it->Release();
+            }
+            CoopProjectileSkips++;
+            return;
+        }
+        if (NpcDropTakenEarly(it))   // u158: NPC-Gegenstand vor der Meldung aufgehoben - der Partner hatte ihn nie
+            return;
         if (!CoopItemLiegtFrei(it, NULL, true) || RecentWorldRemovals.count(it))
             return;
         CoopWorldGone g;
@@ -757,6 +820,10 @@ namespace GOTHIC_ENGINE {
     static void ItemIntoInventory(oCNpc* owner, oCItem* item, const char* via, const void* ret, bool checkWorld) {
         if (!item || !owner || WorldSyncApplying)
             return;
+        if (CoopItemIsProjectile(item) && !RecentWorldRemovals.count(item)) {   // u157 (P162): Geschoss im Ziel - der Partner hatte es nie
+            CoopProjectileSkips++;
+            return;
+        }
         auto f = RecentWorldRemovals.find(item);
         if (f != RecentWorldRemovals.end()) {
             const CoopWorldGone g = f->second;
@@ -768,6 +835,8 @@ namespace GOTHIC_ENGINE {
         if (!checkWorld || !WorldSyncAktiv())
             return;
         char mod[96];
+        if (CoopItemLiegtFrei(item, NULL, true) && NpcDropTakenEarly(item))   // u158: erst ins Inventar, dann aus der Welt
+            return;
         if (CoopItemLiegtFrei(item, NULL, true)) {
             CoopWorldGone g;
             g.inst = CoopItemInst(item);
@@ -975,16 +1044,22 @@ namespace GOTHIC_ENGINE {
     // --- Empfang (aus ProcessCoopPacket, Hauptfaden) --------------------------------------------
 
     bool CoopWorldSyncHandles(int type) {
-        return (type >= SYNC_CHEST_OPEN && type <= SYNC_NPC_LOOT) || type == SYNC_MOB_STATE || type == SYNC_MOB_BULK;   // u137
+        return (type >= SYNC_CHEST_OPEN && type <= SYNC_NPC_LOOT) || type == SYNC_MOB_STATE || type == SYNC_MOB_BULK ||   // u137
+            type == SYNC_ITEM_SPAWN;   // u156
     }
 
-    // u137 (P134): Benutzung beim Partner nachvollziehen. Benutzt der eigene Held den Mob gerade selbst, bleibt sein Zustand ihm; der Ausloeser
-    // gilt trotzdem - sonst liefen die Welten auseinander
-    static void MobApplyUse(oCMobInter* m, int from, int to, int lk, const std::string& by, const char* why) {
+    static bool MobApplyLock(oCMobInter* m, int lk) {
         oCMobLockable* l = zDYNAMIC_CAST<oCMobLockable>(m);
-        const bool lockChanged = l && lk >= 0 && (lk != 0) != (l->locked != 0);
-        if (lockChanged)
-            l->SetLocked(lk);
+        if (!l || lk < 0 || (lk != 0) == (l->locked != 0))
+            return false;
+        l->SetLocked(lk);
+        return true;
+    }
+
+    // u137 (P134): Benutzung beim Partner nachvollziehen. Benutzt jemand anderes den Mob gerade (der eigene Held wartet in MobApplyEvent, u145), bleibt der Zustand ihm; der
+    // Ausloeser gilt trotzdem - sonst liefen die Welten auseinander
+    static void MobApplyUse(oCMobInter* m, int from, int to, int lk, const std::string& by, const char* why) {
+        const bool lockChanged = MobApplyLock(m, lk);
         const bool busy = m->npcsCurrent > 0;
         const int was = m->state;
         if (!busy && was != to) {
@@ -1009,21 +1084,217 @@ namespace GOTHIC_ENGINE {
                 targets++;
             }
         }
+        MobNoteChanged(m, to);   // u145 (P146)
         WorldSyncLog("Mechanismus %s bei %s von %s (%s): Zustand %d -> %d%s%s, %d Ziele (\"%s\")", m->GetObjectName().ToChar(),
             CoopPosKey(m->GetPositionWorld()).c_str(), by.c_str(), why, was, to, busy ? " (hier gerade benutzt - Zustand bleibt)" : "",
             lockChanged ? (lk ? " [verschlossen]" : " [aufgeschlossen]") : "", targets, m->triggerTarget.ToChar());
     }
 
-    static void MobApplyEvent(const json& e, const std::string& by, const char* why) {
+    static int MobEventLock(const json& e) {
+        return e.contains("lk") && e.at("lk").is_number() ? e.at("lk").get<int>() : -1;
+    }
+
+    // u147 (P150, Testlauf b112, Irdorath: "Mechanismus -17455_1658_28652 von HOST: hier nicht gefunden", davor "bei -17455_2162_28652 ... Zustand 0 -> 1"): Das Schloss der letzten Tuer sitzt auf dem Mover
+    // EVT_FINAL_DOOR_MOBSI_MOVER_01 und faehrt beim Benutzen 5 m nach unten. Das zweite Paket traegt die neue Lage; beim Partner ist es noch unterwegs, sein Mob blieb auf Zustand 1. Daher auch ueber das Ziel suchen
+    static oCMobInter* MobOfEvent(const json& e, const zVEC3& p) {
+        oCMobInter* m = FindMob(p);
+        if (m || !e.contains("z") || !e.at("z").is_string())
+            return m;
+        const std::string target = e.at("z").get<std::string>();
+        zCArray<zCVob*> vobs = CollectVobsInRadius(p, 1500);
+        float bestD = 1500.f;
+        for (int i = 0; i < vobs.GetNumInList(); i++) {
+            oCMobInter* c = zDYNAMIC_CAST<oCMobInter>(vobs.GetSafe(i));
+            if (!MobSyncRelevant(c) || target != c->triggerTarget.ToChar())
+                continue;
+            const float d = CoopDist(c->GetPositionWorld(), p);
+            if (d < bestD) {
+                bestD = d;
+                m = c;
+            }
+        }
+        return m;
+    }
+
+    // --- u146 (P147): Ausloeser, die ein Geschoss beruehrt -------------------------------------------------------------------
+    //
+    // Testlauf b107, Irdorath: Der Client schiesst durch ISLE_BIGBRIDGE_FAR_TRIGGER_01 und _02, seine Bruecke ISLE_BIGBRIDGE_01 faehrt aus, beim Host keine Zeile, die Luecke zwischen DI_DRACONIANAREA_21 und _18
+    // bleibt, und die Figur des Clients laeuft dort durch die Luft. Nach dem Laden gilt der Stand des Hosts. Diese Ausloeser sind keine Mobs: Der Pfeil beruehrt sie (zCTrigger::OnTouch, G2A 0x00610640, Filter
+    // respondToObject), das geschieht nur auf dem PC des Schuetzen.
+    // Jetzt: Beruehrt ein eigenes Geschoss (Pfeil, Zauber) so einen Ausloeser, gehen Lage und Name ueber das Mechanismus-Paket an die anderen (Client ueber den Host, andere Welt wartet); dort ActivateTrigger(NULL).
+    // NULL laesst CanBeActivatedNow immer zu, und die Haken unten erkennen daran die Kette (Skript und Kamera nur beim Benutzer). Ist der Ausloeser dort schon verbraucht, weil der Partner selbst getroffen hat,
+    // loest er nicht noch einmal aus. Geschosse von NPCs des Hosts gelten wie bei den Mobs mit: Die Welt ist dieselbe, beim Client sind sie Abbilder.
+    // Levelwechsel und Teleport bleiben je PC: In G1 reagiert OLDMINE_2_WORLD auch auf Objekte, beim Partner wuerde er die Welt wechseln. Eine Figur oder ein Held, der einen Ausloeser betritt, bleibt je PC (Liste 6e).
+    static bool HitTriggerRelevant(zCTrigger* t) {
+        if (!t || t->triggerTarget.IsEmpty())
+            return false;
+        zCClassDef* c = t->_GetClassDef();
+        return c == zCTrigger::classDef || c == zCTriggerList::classDef || c == oCTriggerScript::classDef;
+    }
+
+    static zCVob* HitTriggerShooter(zCVob* other) {
+        if (oCVisualFX* fx = zDYNAMIC_CAST<oCVisualFX>(other))
+            return fx->GetOrigin();
+        oCAIArrow* a = other->callback_ai ? zDYNAMIC_CAST<oCAIArrow>(other->callback_ai) : NULL;
+        return a ? (zCVob*)a->owner : NULL;
+    }
+
+    static zCTrigger* HitTriggerFind(const zVEC3& p, const std::string& name) {
+        zCArray<zCVob*> vobs;
+        if (name.empty())
+            vobs = CollectVobsInRadius(p, 150);
+        else
+            ogame->GetGameWorld()->SearchVobListByName(zSTRING(name.c_str()), vobs);
+        zCTrigger* best = NULL;
+        float bestD = 100.f;
+        for (int i = 0; i < vobs.GetNumInList(); i++) {
+            zCTrigger* t = zDYNAMIC_CAST<zCTrigger>(vobs.GetSafe(i));
+            if (!HitTriggerRelevant(t))
+                continue;
+            const float d = CoopDist(t->GetPositionWorld(), p);
+            if (d < bestD) {
+                bestD = d;
+                best = t;
+            }
+        }
+        return best;
+    }
+
+    static void HitTriggerSend(zCTrigger* t, const char* wie) {
+        json j;
+        j["k"] = CoopPosJson(t->GetPositionWorld());
+        j["hit"] = t->GetObjectName().ToChar();
+        if (ServerThread)
+            j["by"] = MyselfId.ToChar();
+        WorldSyncSend(j, SYNC_MOB_STATE);
+        WorldSyncLog("Ausloeser %s bei %s: %s, Ziel \"%s\", noch %d - an den Partner", t->GetObjectName().ToChar(), CoopPosKey(t->GetPositionWorld()).c_str(), wie,
+            t->triggerTarget.ToChar(), (int)t->countCanBeActivated);
+    }
+
+    // u158 (P163, Liste 6e): Betritt ein Held einen Ausloeser (reactToOnTouch, respondToPC), lief die Kette nur auf seinem PC, und was ein NPC
+    // des Hosts ausloest (respondToNPC), nur beim Host: GT setzt Figuren und Abbilder mit SetPositionWorld bei ausgeschalteter Kollision
+    // (RemoteNpc::UpdatePosition), sie beruehren beim Partner nichts. Betroffen sind vor allem Tore und Fallen - Gothic II: Haupttor des Alten
+    // Lagers (OLDWORLD, EVT_OC_MAINGATE_TRIGGER), Geheimkammer der Paladine und Speerfalle der Diebesinsel (NEWWORLD), Fallen im Adanos-Tempel
+    // (ADDONWORLD, 19 Ausloeser); Liste aus den .zen (zen_ausloeser.py). Jetzt meldet der Haken auf zCTrigger::OnTouch auch die Beruehrung durch
+    // den eigenen Helden und beim Host durch NPCs wie ein Geschoss (beim Partner ActivateTrigger(NULL), Skript und Kamera der Kette nur beim
+    // Ausloesenden). Beruehrt eine Figur oder ein Abbild einen solchen Ausloeser doch (Animation), loest das nichts aus: Das meldet der PC des
+    // Helden bzw. der Host - sonst feuerte er doppelt. Ist der Client allein in seiner Welt, sind seine NPCs echt.
+    int CoopTouchSent = 0, CoopTouchSkips = 0;   // Testlauf
+
+    static void HitTriggerApply(const json& e, const std::string& by, const char* why) {
         zVEC3 p;
         if (!CoopPosFromJson(e.at("k"), p))
             return;
-        oCMobInter* m = FindMob(p);
-        if (!m) {
-            WorldSyncLog("Mechanismus %s von %s: hier nicht gefunden", CoopPosKey(p).c_str(), by.c_str());
+        const std::string name = e.at("hit").get<std::string>();
+        zCTrigger* t = HitTriggerFind(p, name);
+        if (!t) {
+            WorldSyncLog("Ausloeser %s bei %s von %s: hier nicht gefunden", name.c_str(), CoopPosKey(p).c_str(), by.c_str());
             return;
         }
-        MobApplyUse(m, e.at("f").get<int>(), e.at("t").get<int>(), e.contains("lk") && e.at("lk").is_number() ? e.at("lk").get<int>() : -1, by, why);
+        const int was = t->countCanBeActivated;
+        const bool can = !t->IsOnTimer() && t->CanBeActivatedNow(NULL);
+        if (can) {
+            MobChainUntilMs = GetCurrentMs() + 300000;   // wie beim Mob
+            t->ActivateTrigger(NULL);
+        }
+        WorldSyncLog("Ausloeser %s bei %s von %s (%s): %s, noch %d -> %d, Ziel \"%s\"", name.c_str(), CoopPosKey(p).c_str(), by.c_str(), why, can ? "ausgeloest" : "hier schon verbraucht oder gesperrt",
+            was, (int)t->countCanBeActivated, t->triggerTarget.ToChar());
+    }
+
+    // Einmal je Welt, fuer den Dauerlauf: Was kann ein Geschoss hier ausloesen?
+    static void HitTriggerList() {
+        static std::string seen;
+        const std::string w = CoopWorldName();
+        if (seen == w || IsLoadingLevel || CurrentMs < WorldLoadedMs + 3000 || !ogame->GetGameWorld())
+            return;
+        seen = w;
+        zCArray<zCVob*> vobs;
+        ogame->GetGameWorld()->SearchVobListByBaseClass(zCTrigger::classDef, vobs, NULL);
+        int synced = 0, other = 0;
+        std::string names;
+        for (int i = 0; i < vobs.GetNumInList(); i++) {
+            zCTrigger* t = zDYNAMIC_CAST<zCTrigger>(vobs.GetSafe(i));
+            if (!t || !t->filterFlags.reactToOnTouch || !t->filterFlags.respondToObject || t->triggerTarget.IsEmpty())
+                continue;
+            if (!HitTriggerRelevant(t)) {
+                other++;
+                continue;
+            }
+            if (synced++ < 12)
+                names += std::string(names.empty() ? "" : ", ") + t->GetObjectName().ToChar();
+        }
+        WorldSyncLog("Ausloeser fuer Geschosse in %s: %d im Abgleich (%s), %d andere Klassen", w.c_str(), synced, names.c_str(), other);
+    }
+
+    // u145 (P146): false, wenn die Benutzung nur die eigene wiederholt - dann auch nicht weiterreichen
+    static bool MobApplyEvent(const json& e, const std::string& by, const char* why) {
+        if (e.contains("hit")) {   // u146 (P147)
+            HitTriggerApply(e, by, why);
+            return true;
+        }
+        zVEC3 p;
+        if (!CoopPosFromJson(e.at("k"), p))
+            return true;
+        oCMobInter* m = MobOfEvent(e, p);
+        if (!m) {
+            WorldSyncLog("Mechanismus %s von %s: hier nicht gefunden", CoopPosKey(p).c_str(), by.c_str());
+            return true;
+        }
+        const int from = e.at("f").get<int>(), to = e.at("t").get<int>();
+        if (MobBothAtOnce(m, to)) {
+            MobApplyLock(m, MobEventLock(e));
+            WorldSyncLog("Mechanismus %s bei %s von %s (%s): Zustand %d -> %d, hier eben genauso - beide zugleich, kein zweiter Ausloeser", m->GetObjectName().ToChar(),
+                CoopPosKey(m->GetPositionWorld()).c_str(), by.c_str(), why, from, to);
+            return false;
+        }
+        if (player && player->interactMob == m) {
+            json g = e;
+            g["by"] = by;
+            g["w"] = CoopWorldName();
+            MobBusyQueue.push_back(g);
+            WorldSyncLog("Mechanismus %s bei %s von %s (%s): Zustand %d -> %d, eigener Held steht daran - wartet bis zum Ende", m->GetObjectName().ToChar(),
+                CoopPosKey(m->GetPositionWorld()).c_str(), by.c_str(), why, from, to);
+            return true;
+        }
+        MobApplyUse(m, from, to, MobEventLock(e), by, why);
+        return true;
+    }
+
+    // u145 (P146): Die eigene Benutzung endet wie die wartende des Partners. true: Die Engine hat hier ausgeloest, der Partner dort, also nichts senden
+    static bool MobBusyTake(oCMobInter* m, int to) {
+        zVEC3 p;
+        for (size_t i = 0; i < MobBusyQueue.size(); i++) {
+            const json e = MobBusyQueue[i];
+            if (e.at("t").get<int>() != to || !CoopPosFromJson(e.at("k"), p) || MobOfEvent(e, p) != m)
+                continue;
+            MobBusyQueue.erase(MobBusyQueue.begin() + i);
+            MobApplyLock(m, MobEventLock(e));
+            WorldSyncLog("Mechanismus %s bei %s: eigene Benutzung endet wie die von %s (Zustand %d) - ein Ausloeser, nichts an den Partner", m->GetObjectName().ToChar(),
+                CoopPosKey(m->GetPositionWorld()).c_str(), e.at("by").get<std::string>().c_str(), to);
+            return true;
+        }
+        return false;
+    }
+
+    // u145 (P146): Der eigene Held ist fort, ohne dass seine Benutzung so endete: Jetzt gilt die des Partners
+    static void MobBusyFlush() {
+        if (MobBusyQueue.empty() || IsLoadingLevel)
+            return;
+        std::vector<json> q;
+        q.swap(MobBusyQueue);
+        for (const json& e : q) {
+            const std::string w = e.at("w").get<std::string>();
+            if (w != CoopWorldName()) {
+                MobPending[w].push_back(e);
+                continue;
+            }
+            zVEC3 p;
+            oCMobInter* m = CoopPosFromJson(e.at("k"), p) ? MobOfEvent(e, p) : NULL;
+            if (m && player && player->interactMob == m)
+                MobBusyQueue.push_back(e);
+            else
+                MobApplyEvent(e, e.at("by").get<std::string>(), "nach der eigenen Benutzung");
+        }
     }
 
     static void MobReceive(json& e, const std::string& id, int type) {
@@ -1072,6 +1343,7 @@ namespace GOTHIC_ENGINE {
         const std::string by = relay ? e["by"].get<std::string>() : id;
         if ((!ServerThread && !relay) || by == MyselfId.ToChar())
             return;
+        bool passOn = true;
         if (w != CoopWorldName()) {
             auto& q = MobPending[w];
             if (q.size() < 200) {
@@ -1082,8 +1354,8 @@ namespace GOTHIC_ENGINE {
             WorldSyncLog("Mechanismus von %s in %s, ich in %s - gilt, sobald ich dorthin komme (%d warten)", by.c_str(), w.c_str(), CoopWorldName().c_str(), (int)q.size());
         }
         else
-            MobApplyEvent(e, by, "Paket");
-        if (ServerThread && !relay) {
+            passOn = MobApplyEvent(e, by, "Paket");
+        if (ServerThread && !relay && passOn) {
             json j = e;
             j["by"] = id;
             j["type"] = type;
@@ -1110,6 +1382,8 @@ namespace GOTHIC_ENGINE {
         if (!MobPending.empty())
             WorldSyncLog("Mechanismen: %d Welten mit wartenden Ereignissen verworfen (Spielstand geladen)", (int)MobPending.size());
         MobPending.clear();
+        MobBusyQueue.clear();   // u145 (P146)
+        MobChanged.clear();
     }
 
     static void ReleaseLock(const std::string& key, const std::string& owner) {
@@ -1235,6 +1509,163 @@ namespace GOTHIC_ENGINE {
                 WorldSyncLog("Gegenstaende: nur %d von %d Teilen empfangen - kein Abgleich", ItemBulk.received, of);
             ItemBulk = CoopItemBulk();
         }
+    }
+
+    // --- u156 (P161): Gegenstaende, die NPCs in die Welt bringen ---------------------------------------------------------------
+    //
+    // Befund (Liste 6i, Testlaeufe u150-u155): "HOST_NPC nahm ITAMBOLT ... hier nicht gefunden" 99-mal in Gothic 1, dazu Pfeile und
+    // Schwerter, in Gothic II Bauernknueppel - beim Client lag nichts. Geschosse der NPCs gibt es nur beim Host: NPCs schiessen ueber
+    // die KI-Nachricht (oCNpc::EV_ShootAt -> DoShootArrow -> oCAIArrow::SetupAIVob), die Abbilder beim Client spielen nur die
+    // Animation. Was aus der Hand faellt (oCNpc::DropFromSlot: K.o., Tod, Fackel beim Waffeziehen, Animations-Ereignisse, belegter
+    // Slot; dazu DoDropVob, DoThrowVob), fiel bei Host und Client je fuer sich, verschieden weit - beim Abbild auch Werkzeuge aus
+    // abgebrochenen Mob-Animationen (Schmiedehammer, bis 9 Stueck nur beim Client), und der Client hob zwei Orkaexte auf, wo der
+    // Host eine hatte. Jetzt fuehrt der Host auch hier den Bestand: Was ein NPC (kein Spieler, keine Figur) beim Host in die Welt
+    // bringt, meldet er, sobald es liegt, mit Lage an die Clients seiner Welt (SYNC_ITEM_SPAWN); dort entsteht es an derselben
+    // Stelle. Was ein Abbild beim Client fallen laesst oder wirft, nimmt der Client im naechsten Takt wieder aus der Welt (nicht in
+    // der Funktion selbst - RemoveFromSlot gibt den Gegenstand an seine Aufrufer zurueck). Ist der Client allein in seiner Welt,
+    // sind seine NPCs echt - dann nichts davon. Allgemein (G1/G2).
+    // u157 (P162): Geschosse nicht - u156 meldete auch sie (Haken auf oCAIArrow::SetupAIVob). Testlauf b174 und die Diagnose der
+    // G1-Laeufe u150-u155: Ein Pfeil bleibt nie liegen. Trifft er, legt Gothic ihn ins Inventar des Getroffenen (oCNpc::PutInInv,
+    // DisableVob aus 0x006A5138 - 16-mal), verfehlt er, blendet oCAIArrowBase::DoAI ihn aus und zCVob::DoFrameActivity nimmt ihn
+    // aus der Welt (0x005D778E - 8-mal). Ein gemeldeter Fehlschuss waere beim Client fuer immer liegen geblieben. Und die Treffer
+    // galten als "Aufheben": "HOST_NPC nahm ITAMBOLT ... hier nicht gefunden" - siehe CoopItemIsProjectile.
+    struct CoopNpcDrop {
+        std::string by, how;
+        long long sinceMs = 0;
+        zVEC3 last;
+        int still = 0;
+        bool puppet = false;   // Client: Abbild - wieder aus der Welt
+        bool taken = false;    // u158: vor der Meldung aufgehoben
+    };
+    static std::map<oCItem*, CoopNpcDrop> NpcDrops;   // je mit AddRef gehalten
+    int CoopNpcDropsSent = 0, CoopNpcDropsRemoved = 0, CoopNpcDropsSpawned = 0;   // Testlauf
+
+    // u158: Hebt jemand beim Host einen NPC-Gegenstand auf, bevor er liegt (und gemeldet ist), hatte der Partner ihn nie - kein Aufheben
+    // melden (Testlauf b174, Gothic 1: "HOST_NPC nahm ITMW_1H_SWORD_02 ... hier nicht gefunden" mitten unter vier gemeldeten Schwertern).
+    // Freigegeben wird er im Takt (NpcDropsPulse), nicht hier mitten im Aufheben.
+    int CoopNpcDropTakenEarly = 0;   // Testlauf
+
+    static bool NpcDropTakenEarly(oCItem* it) {
+        auto f = ServerThread ? NpcDrops.find(it) : NpcDrops.end();
+        if (f == NpcDrops.end() || f->second.puppet || f->second.taken)
+            return false;
+        f->second.taken = true;
+        CoopNpcDropTakenEarly++;
+        WorldSyncLog("%s: %s (%s) aufgehoben, bevor es lag - nicht an den Partner (er hatte es nie)", f->second.by.c_str(), CoopItemInst(it).c_str(), f->second.how.c_str());
+        return true;
+    }
+
+    static void NpcDropsClear() {
+        for (auto const& kv : NpcDrops)
+            kv.first->Release();
+        NpcDrops.clear();
+    }
+
+    // Haken (Hooks.cpp DoDropVob; unten DropFromSlot, DoThrowVob): npc hat vob eben in die Welt gebracht
+    void CoopNpcDropNote(oCNpc* npc, zCVob* vob, const char* how) {
+        oCItem* it = vob ? zDYNAMIC_CAST<oCItem>(vob) : NULL;
+        if (!it || !npc || npc == player || WorldSyncApplying || NpcDrops.count(it) || !WorldSyncAktiv() || CoopItemIsProjectile(it))
+            return;
+        if (PlayerNpcs.count(npc) || IsCoopPlayer(npc->GetObjectName()) || CoopItemIsDropped(it))
+            return;   // Spieler und Figuren: eigene Wege (SYNC_DROPITEM)
+        const bool puppet = !ServerThread;
+        if (puppet && CoopClientAlone())
+            return;
+        char name[64];
+        CDiagName(npc, name, sizeof(name));
+        CoopNpcDrop d;
+        d.by = name;
+        d.how = how;
+        d.sinceMs = CurrentMs;
+        d.last = it->GetPositionWorld();
+        d.puppet = puppet;
+        it->AddRef();
+        NpcDrops[it] = d;
+    }
+
+    // Host: liegt der Gegenstand (0,5 s ohne Bewegung, spaetestens nach 15 s), geht er an die Clients; Client: Abbild-Gegenstand weg
+    static void NpcDropsPulse() {
+        static long long next = 0;
+        if (NpcDrops.empty() || CurrentMs < next)
+            return;
+        next = CurrentMs + 250;
+        zCWorld* w = ogame->GetGameWorld();
+        for (auto i = NpcDrops.begin(); i != NpcDrops.end();) {
+            oCItem* it = i->first;
+            CoopNpcDrop& d = i->second;
+            bool done = false;
+            if (it->GetHomeWorld() != w || d.taken)
+                done = true;   // aufgehoben oder zerstoert
+            else if (d.puppet) {
+                if (CoopItemLiegtFrei(it)) {
+                    const std::string inst = CoopItemInst(it);
+                    const zVEC3 p = it->GetPositionWorld();
+                    RemoveWorldItem(it);
+                    CoopNpcDropsRemoved++;
+                    WorldSyncLog("%s: %s (%s) beim Abbild bei %s - hier wieder entfernt, der Host meldet seinen", d.by.c_str(), inst.c_str(),
+                        d.how.c_str(), CoopPosKey(p).c_str());
+                }
+                done = true;
+            }
+            else if (!CoopItemLiegtFrei(it))
+                done = CurrentMs > d.sinceMs + 15000;   // noch in der Hand bzw. steckt im Ziel
+            else {
+                const zVEC3 p = it->GetPositionWorld();
+                if (CoopDist(p, d.last) < 2.f)
+                    d.still++;
+                else {
+                    d.still = 0;
+                    d.last = p;
+                }
+                if (d.still >= 2 || CurrentMs > d.sinceMs + 15000) {
+                    json j;
+                    j["i"] = CoopItemInst(it);
+                    j["n"] = CoopItemAmount(it);
+                    j["p"] = CoopPosJson(p);
+                    j["by"] = d.by;
+                    WorldSyncSend(j, SYNC_ITEM_SPAWN);
+                    CoopNpcDropsSent++;
+                    WorldSyncLog("%s: %s (%s) liegt bei %s - an den Partner", d.by.c_str(), CoopItemInst(it).c_str(), d.how.c_str(), CoopPosKey(p).c_str());
+                    done = true;
+                }
+            }
+            if (done) {
+                it->Release();
+                i = NpcDrops.erase(i);
+            }
+            else
+                ++i;
+        }
+    }
+
+    // Client: Gegenstand an der Stelle des Hosts anlegen - wie Wld_InsertItem (G2A 0x006E0520): erst die Lage, dann AddVob (sonst steht
+    // er im BSP dort, wo AddVob ihn einfuegte, und CollectVobsInBBox3D findet ihn an seiner Stelle nicht), eigenen Verweis frei
+    static void ReceiveItemSpawn(json& e) {
+        zVEC3 p;
+        if (ServerThread || !CoopPosFromJson(e["p"], p) || !e.contains("i") || !e["i"].is_string())
+            return;
+        const std::string inst = e["i"].get<std::string>();
+        const std::string by = e.contains("by") && e["by"].is_string() ? e["by"].get<std::string>() : std::string();
+        const int amount = e.contains("n") && e["n"].is_number() ? e["n"].get<int>() : 1;
+        oCItem* da = FindLooseItem(inst, p, 50.f);
+        if (da && !NpcDrops.count(da)) {
+            WorldSyncLog("%s: %s bei %s vom Host - liegt hier schon", by.c_str(), inst.c_str(), CoopPosKey(p).c_str());
+            return;
+        }
+        const int idx = parser->GetIndex(zSTRING(inst.c_str()));
+        oCItem* it = idx >= 0 ? CreateCoopItem(idx) : NULL;
+        if (!it) {
+            WorldSyncLog("%s: %s bei %s vom Host - Instanz hier unbekannt", by.c_str(), inst.c_str(), CoopPosKey(p).c_str());
+            return;
+        }
+        it->amount = amount > 1 ? amount : 1;
+        WorldSyncApplying++;
+        it->SetPositionWorld(p);
+        ogame->GetGameWorld()->AddVob(it);
+        WorldSyncApplying--;
+        it->Release();
+        CoopNpcDropsSpawned++;
+        WorldSyncLog("%s: %s bei %s vom Host - hier angelegt", by.c_str(), inst.c_str(), CoopPosKey(p).c_str());
     }
 
     void CoopWorldSyncReceive(json& e, const std::string& id) {
@@ -1401,6 +1832,9 @@ namespace GOTHIC_ENGINE {
                     ReceiveItemBulk(e);
                 break;
             }
+            case SYNC_ITEM_SPAWN:   // u156 (P161)
+                ReceiveItemSpawn(e);
+                break;
             case SYNC_NPC_LOOT:
             {
                 // Client -> Host ohne "by"; der Host wendet an und verteilt mit "by". Die automatisch
@@ -1480,6 +1914,8 @@ namespace GOTHIC_ENGINE {
         ChestPendingDiffs.clear();
         ItemBulk = CoopItemBulk();
         PendingGone.clear();   // u70: der geladene Stand gilt, der Weltbestand gleicht gleich ab
+        NpcDropsClear();       // u156: Gegenstaende der alten Welt
+        ProjectilesClear();    // u157
         WorldRequestSent = false;
         WorldLoadedMs = GetCurrentMs();
         WorldBulkAtMs = ServerThread ? WorldLoadedMs + 3000 : 0;
@@ -1497,8 +1933,11 @@ namespace GOTHIC_ENGINE {
     void CoopWorldSyncPulse() {
         CoopInstallDisableVobHook();   // einmal, im Hauptfaden, nach dem Laden aller Plugins
         ExpireWorldRemovals();
-        if (MobSyncBase())
+        if (MobSyncBase()) {
             MobPendingFlush();   // u137: in dieser Welt Benutztes, waehrend ich anderswo war
+            MobBusyFlush();      // u145 (P146)
+            HitTriggerList();    // u146 (P147)
+        }
         // v75: Regel "Gegenstaende/Truhen" - wieder an: Bestand neu anfragen; aus: den vollen Stand (Lage, HP, Ausruestung) nach dem
         // Laden/Verbinden trotzdem anfordern (hing bisher an der Weltbestand-Anfrage)
         static bool ruleWas = true;
@@ -1515,10 +1954,25 @@ namespace GOTHIC_ENGINE {
             ChestDirty.clear();
             LootRemovals.clear();
             PlayerReceived.clear();
+            NpcDropsClear();   // u156
+            ProjectilesClear();   // u157
             return;
         }
         FlushChestDirty();
         FlushNpcLoot();
+        NpcDropsPulse();   // u156 (P161)
+        if (!Projectiles.empty() && CurrentMs >= ProjectilesCheckMs) {   // u157 (P162): ohne Abschied aus der Welt (Laden, Fehler): nach 60 s vergessen
+            ProjectilesCheckMs = CurrentMs + 2000;
+            zCWorld* w = ogame->GetGameWorld();
+            for (auto i = Projectiles.begin(); i != Projectiles.end();) {
+                if (i->first->GetHomeWorld() != w || CurrentMs > i->second + 60000) {
+                    i->first->Release();
+                    i = Projectiles.erase(i);
+                }
+                else
+                    ++i;
+            }
+        }
         if (!PendingGone.empty() && CurrentMs >= PendingGoneCheckMs && !IsLoadingLevel) {   // u70: verspaetete Entfernungen
             PendingGoneCheckMs = CurrentMs + 2000;
             for (size_t i = PendingGone.size(); i-- > 0;) {
@@ -1747,8 +2201,11 @@ namespace GOTHIC_ENGINE {
     static void MobEndStateChange(oCMobInter* m, oCNpc* npc, int from, int to) {
         if (!m || !npc || from == to || !MobSyncBase() || !MobSyncRelevant(m))
             return;
-        if (npc == player || (ServerThread && !PlayerNpcs.count(npc) && !m->triggerTarget.IsEmpty()))
-            MobSendUse(m, from, to);
+        if (npc == player || (ServerThread && !PlayerNpcs.count(npc) && !m->triggerTarget.IsEmpty())) {
+            if (npc != player || !MobBusyTake(m, to))   // u145 (P146)
+                MobSendUse(m, from, to);
+            MobNoteChanged(m, to);
+        }
     }
 
     void __fastcall oCMobInter_OnEndStateChange_Coop(oCMobInter* _this, void* vtable, oCNpc* npc, int from, int to);
@@ -1767,6 +2224,55 @@ namespace GOTHIC_ENGINE {
     void __fastcall oCMobLockable_OnEndStateChange_Coop(oCMobLockable* _this, void* vtable, oCNpc* npc, int from, int to) {
         Ivk_oCMobLockable_OnEndStateChange_Coop(_this, npc, from, to);
         MobEndStateChange(_this, npc, from, to);
+    }
+
+    // u148 (P151, Testlauf b116, Othello, Weltprozess von Host und Client, erstes Bild nach OLDMINE -> WORLD: "C0000005 bei GothicMod.exe+0x9C9B9 (Lesen von 0x00000068)" in zCAICamera::AI_Normal, camVob = NULL): Der Fall
+    // aus P143, aber WpGhost (CoopWorldProcess.cpp) sah nichts, denn zCAICamera::GetCurrent hatte ihren Vob; es rechnet also eine andere Kamera-KI. Darum am Eingang von DoAI: ohne Vob dieses Bild auslassen. Die Zeile
+    // nennt die Zeiger, die Ursache ist weiter offen
+    int CoopCamNoVobSkips = 0;   // Testlauf (CoopSelfTest.cpp)
+
+    void __fastcall zCAICamera_DoAI_Coop(zCAICamera* _this, void* vtable, zCVob* vob, int& deleted);
+    CInvoke<void(__thiscall*)(zCAICamera*, zCVob*, int&)> Ivk_zCAICamera_DoAI_Coop(CoopAddr::zCAICamera_DoAI, &zCAICamera_DoAI_Coop, COOP_IVK(World));
+    void __fastcall zCAICamera_DoAI_Coop(zCAICamera* _this, void* vtable, zCVob* vob, int& deleted) {
+        if (_this->camVob) {
+            Ivk_zCAICamera_DoAI_Coop(_this, vob, deleted);
+            return;
+        }
+        if (CoopCamNoVobSkips++ < 5)
+            OthelloCompatLog("[%lld s, %s] Absturzschutz: Kamera-KI %p ohne Kamera-Vob, Bild ausgelassen (Zaehler %d, ihr Vob %p, aktuelle KI %p; oCGame: KI %p, Vob %p)", DiagSeconds(), DiagRole(), (void*)_this, _this->refCtr, (void*)vob,
+                (void*)zCAICamera::GetCurrent(), ogame ? (void*)ogame->GetCameraAI() : NULL, ogame ? (void*)ogame->GetCameraVob() : NULL);
+    }
+
+    // u146 (P147): Vor dem Original pruefen, denn danach ist der Ausloeser womoeglich verbraucht
+    void __fastcall zCTrigger_OnTouch_Coop(zCTrigger* _this, void* vtable, zCVob* other);
+    CInvoke<void(__thiscall*)(zCTrigger*, zCVob*)> Ivk_zCTrigger_OnTouch_Coop(CoopAddr::zCTrigger_OnTouch, &zCTrigger_OnTouch_Coop, COOP_IVK(World));
+    void __fastcall zCTrigger_OnTouch_Coop(zCTrigger* _this, void* vtable, zCVob* other) {
+        bool send = false;
+        const char* wie = "Geschoss";
+        if (other && _this->filterFlags.reactToOnTouch && player && MobSyncBase() && HitTriggerRelevant(_this)) {
+            if (zCVob* shooter = HitTriggerShooter(other)) {
+                oCNpc* npc = zDYNAMIC_CAST<oCNpc>(shooter);
+                send = npc && (npc == player || (ServerThread && !PlayerNpcs.count(npc))) && !_this->IsOnTimer() && _this->CanBeActivatedNow(other);
+            }
+            else if (oCNpc* npc = zDYNAMIC_CAST<oCNpc>(other)) {   // u158 (P163): Held oder NPC betritt den Ausloeser
+                if (npc != player && (PlayerNpcs.count(npc) || (!ServerThread && !CoopClientAlone()))) {
+                    CoopTouchSkips++;   // Figur bzw. Abbild: das meldet der PC des Helden bzw. der Host
+                    static CoopDiagBudget budget = { 0, 0 };
+                    if (CoopDiagAllow(budget, 20))
+                        WorldSyncLog("Ausloeser %s: von %s %s betreten - hier nicht, das meldet %s", _this->GetObjectName().ToChar(),
+                            PlayerNpcs.count(npc) ? "der Figur" : "dem Abbild", npc->GetObjectName().ToChar(), PlayerNpcs.count(npc) ? "sein PC" : "der Host");
+                    return;
+                }
+                send = (npc == player || ServerThread) && !_this->IsOnTimer() && _this->CanBeActivatedNow(other);
+                wie = npc == player ? "vom Helden betreten" : "von einem NPC betreten";
+            }
+        }
+        Ivk_zCTrigger_OnTouch_Coop(_this, other);
+        if (send) {
+            HitTriggerSend(_this, wie);
+            if (strcmp(wie, "Geschoss"))
+                CoopTouchSent++;
+        }
     }
 
     static bool MobChainNow(zCVob* instigator) {
@@ -1827,7 +2333,48 @@ namespace GOTHIC_ENGINE {
         }
     }
 
+    // u156 (P161): aus der Hand in die Welt - aus DropAllInHand (K.o., Tod) und RemoveFromSlot mit Fallenlassen (Fackel beim
+    // Waffeziehen, Animations-Ereignisse, belegter Slot); DropFromSlot( zSTRING const& ) springt hierher
+    oCVob* __fastcall oCNpc_DropFromSlot_Coop(oCNpc* _this, void* vtable, TNpcSlot* slot);
+    CInvoke<oCVob*(__thiscall*)(oCNpc*, TNpcSlot*)> Ivk_oCNpc_DropFromSlot_Coop(CoopAddr::oCNpc_DropFromSlot, &oCNpc_DropFromSlot_Coop, COOP_IVK(World));
+    oCVob* __fastcall oCNpc_DropFromSlot_Coop(oCNpc* _this, void* vtable, TNpcSlot* slot) {
+        oCVob* v = Ivk_oCNpc_DropFromSlot_Coop(_this, slot);
+        CoopNpcDropNote(_this, v, "aus der Hand");
+        return v;
+    }
+
+    // u157 (P162): Geschoss merken, bis es die Welt verlaesst (CoopItemIsProjectile). Einziger Aufrufer ist oCNpc::DoShootArrow
+    // (G1 0x006A0CC8, G2A 0x00744971) - NPCs und Spieler; der Schuetze ist das zweite Argument.
+    void __fastcall oCAIArrow_SetupAIVob_Coop(oCAIArrow* _this, void* vtable, zCVob* arrow, zCVob* shooter, zCVob* target);
+    CInvoke<void(__thiscall*)(oCAIArrow*, zCVob*, zCVob*, zCVob*)> Ivk_oCAIArrow_SetupAIVob_Coop(CoopAddr::oCAIArrow_SetupAIVob, &oCAIArrow_SetupAIVob_Coop,
+        COOP_IVK(World));
+    void __fastcall oCAIArrow_SetupAIVob_Coop(oCAIArrow* _this, void* vtable, zCVob* arrow, zCVob* shooter, zCVob* target) {
+        Ivk_oCAIArrow_SetupAIVob_Coop(_this, arrow, shooter, target);
+        oCItem* it = arrow ? zDYNAMIC_CAST<oCItem>(arrow) : NULL;
+        if (it && WorldSyncAktiv() && !Projectiles.count(it)) {
+            it->AddRef();
+            Projectiles[it] = CurrentMs;
+        }
+    }
+
+    int __fastcall oCNpc_DoThrowVob_Coop(oCNpc* _this, void* vtable, zCVob* vob, float force);
+    CInvoke<int(__thiscall*)(oCNpc*, zCVob*, float)> Ivk_oCNpc_DoThrowVob_Coop(CoopAddr::oCNpc_DoThrowVob, &oCNpc_DoThrowVob_Coop, COOP_IVK(World));
+    int __fastcall oCNpc_DoThrowVob_Coop(oCNpc* _this, void* vtable, zCVob* vob, float force) {
+        if (vob)
+            vob->AddRef();   // wie bei DoDropVob (P114): stirbt er darin, nicht unter den Haenden
+        const int r = Ivk_oCNpc_DoThrowVob_Coop(_this, vob, force);
+        if (r)
+            CoopNpcDropNote(_this, vob, "geworfen");
+        if (vob)
+            vob->Release();
+        return r;
+    }
+
 #else   // Modul in dieser Engine nicht freigegeben (CoopModulesReport)
+    int CoopNpcDropsSent = 0, CoopNpcDropsRemoved = 0, CoopNpcDropsSpawned = 0;   // u156
+    int CoopHostNpcGoneSent = 0;                                                    // u157
+    int CoopTouchSent = 0, CoopTouchSkips = 0, CoopNpcDropTakenEarly = 0;           // u158
+    void CoopNpcDropNote(oCNpc*, zCVob*, const char*) {}
     void CoopWorldSyncItemLeavesWorld(zCVob*, const void*, const char*) {}
     bool CoopWorldSyncHandles(int) { return false; }
     void CoopWorldSyncReceive(json&, const std::string&) {}

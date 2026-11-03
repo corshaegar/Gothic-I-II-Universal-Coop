@@ -1,5 +1,5 @@
-// Generiert von tools\hooktable.py - nicht von Hand aendern (Quellen, G2-Addon-SDK, GT-Build Gothic2Coop-u143.dll).
-// 8600 Funktionsanfaenge, 62 GT-Haken, 402 von GT aufgerufene Engine-Funktionen.
+// Generiert von tools\hooktable.py - nicht von Hand aendern (Quellen, G2-Addon-SDK, GT-Build Gothic2Coop-u149.dll).
+// 8600 Funktionsanfaenge, 64 GT-Haken, 414 von GT aufgerufene Engine-Funktionen.
 static const DWORD CoopFnStarts[] = {
     0x004010C0, 0x00401160, 0x00401550, 0x00401600, 0x00401D60, 0x00401EC0, 0x00401ED0, 0x00401EE0,
     0x00401F20, 0x00401F30, 0x00401F40, 0x00401F50, 0x00401F60, 0x00401F70, 0x00401F80, 0x00401F90,
@@ -1113,6 +1113,7 @@ static const CoopFnName CoopFnNames[] = {
     { 0x0041D240, 1, "zCCSPlayer::StartCutscene" },   // Ivk_zCCSPlayer_StartCutscene_Coop
     { 0x0041D540, 1, "zCCSPlayer::CreateNewOutputUnit" },   // Ivk_zCCSPlayer_CreateNewOutputUnit_Coop
     { 0x0041D850, 1, "zCCSPlayer::StartOutputUnit" },   // Ivk_zCCSPlayer_StartOutputUnit_Coop
+    { 0x00425790, 0, "CGameManager::ExitSession" },
     { 0x0042A040, 0, "CGameManager::Read_Savegame" },
     { 0x0042A2D0, 0, "CGameManager::Write_Savegame" },
     { 0x0042B7E0, 0, "CGameManager::IntroduceChapter" },
@@ -1154,6 +1155,7 @@ static const CoopFnName CoopFnNames[] = {
     { 0x004A0D40, 0, "zCAICamera::GetMode" },
     { 0x004A0E60, 0, "zCAICamera::SetVob" },
     { 0x004A1120, 0, "zCAICamera::SetTarget" },
+    { 0x004A4FB0, 1, "zCAICamera::DoAI" },   // Ivk_zCAICamera_DoAI_Coop
     { 0x004BFBC0, 1, "zCCSCamera::Unarchive" },   // Ivk_zCCSCamera_Unarchive_Coop
     { 0x004C3270, 1, "zCCSCamera::OnTrigger" },   // Ivk_zCCSCamera_OnTrigger_Coop
     { 0x004C3AC0, 1, "zCCSCamera::OnUntrigger" },   // Ivk_zCCSCamera_OnUntrigger_Coop
@@ -1203,15 +1205,23 @@ static const CoopFnName CoopFnNames[] = {
     { 0x005A9CE0, 0, "zCObject::SetObjectName" },
     { 0x005AAEB0, 0, "zCClassDef::ObjectCreated" },
     { 0x005AAFD0, 0, "zCClassDef::ObjectDeleted" },
+    { 0x005B66D0, 0, "zCRigidBody::SetVelocity" },
+    { 0x005B6770, 0, "zCRigidBody::SetMode" },
+    { 0x005FD940, 0, "zCVob::_CreateNewInstance" },
     { 0x005FE940, 0, "zCVob::SetVobPresetName" },
+    { 0x005FE960, 0, "zCVob::GetRigidBody" },
     { 0x005FFDD0, 0, "zCVob::SetVobName" },
     { 0x005FFE10, 0, "zCVob::GetEM" },
     { 0x00601C40, 0, "zCVob::RemoveVobFromWorld" },
     { 0x00602930, 0, "zCVob::SetSleeping" },
+    { 0x00602C10, 0, "zCVob::IsOnTimer" },
     { 0x006057C0, 0, "zCEventMessage::Archive" },
     { 0x006059C0, 0, "zCEventMessage::Unarchive" },
     { 0x00606AD0, 0, "zCVisual::LoadVisual" },
+    { 0x0060C9E0, 0, "zCTrigger::_CreateNewInstance" },
     { 0x00610340, 0, "zCTrigger::TriggerTarget" },
+    { 0x006104D0, 0, "zCTrigger::ActivateTrigger" },
+    { 0x00610640, 1, "zCTrigger::OnTouch" },   // Ivk_zCTrigger_OnTouch_Coop
     { 0x00612070, 0, "zCModel::GetAniIDFromAniName" },
     { 0x00616B20, 0, "zCVob::GetVisual" },
     { 0x0061B830, 0, "zCVob::RotateWorldY" },
@@ -1222,6 +1232,7 @@ static const CoopFnName CoopFnNames[] = {
     { 0x0061DA80, 0, "zCVob::BeginMovement" },
     { 0x0061E650, 0, "zCVob::GetCollisionObject" },
     { 0x00621FA0, 0, "zCWorld::TraceRayNearestHit" },
+    { 0x00624810, 0, "zCWorld::AddVob" },
     { 0x006370B0, 0, "zCTimer::SetMotionFactor" },
     { 0x0065F790, 0, "oCInformationManager::GetInformationManager" },
     { 0x00661240, 0, "oCInformationManager::Exit" },
@@ -1263,6 +1274,7 @@ static const CoopFnName CoopFnNames[] = {
     { 0x0068F440, 0, "zCViewDialogChoice::Select" },
     { 0x0068F550, 0, "zCViewDialogChoice::GetSelectedText" },
     { 0x00698EA0, 1, "oCAIHuman::StandActions" },   // Ivk_oCAIHuman_StandActions
+    { 0x006A2DC0, 0, "oCAIArrow::_CreateNewInstance" },
     { 0x006A4010, 0, "oCAniCtrl_Human::InitAnimations" },
     { 0x006A4D20, 0, "oCAniCtrl_Human::SearchStandAni" },
     { 0x006ADEE0, 0, "oCAniCtrl_Human::IsStanding" },
@@ -1377,6 +1389,8 @@ static const CoopFnName CoopFnNames[] = {
     { 0x0075E3C0, 0, "oCNpc::HasPerception" },
     { 0x0075E920, 0, "oCNpc::SetBodyState" },
     { 0x0075EAE0, 0, "oCNpc::GetBodyState" },
+    { 0x0075EBF0, 0, "oCNpc::HasBodyStateModifier" },
+    { 0x0075EF50, 0, "oCNpc::ModifyBodyState" },
     { 0x0075F040, 0, "oCNpc::MakeSpellBook" },
     { 0x0075F4D0, 0, "oCNpc::UseStandAI" },
     { 0x00762410, 0, "oCNpc::CloseInventory" },

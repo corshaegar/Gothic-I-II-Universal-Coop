@@ -473,7 +473,7 @@ namespace GOTHIC_ENGINE {
     }
 
     static void TpEnsureRune(const char* why) {
-        if (!player || player->IsDead() || TpRune() < 0)
+        if (!player || player->IsDead() || TpRune() < 0 || CoopHeroSwapped())   // u149 (P152): nicht dem Tier
             return;
         if (oCItem* have = player->IsInInv(TpRuneIdx, 1)) {
             if (TpLookState != 1)

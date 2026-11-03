@@ -1231,6 +1231,11 @@ namespace Gothic_I_Classic {
 
   template <class T>
   class zCList {
+  public:
+    // Coop u153 (P158): Knoten aus Gothics Speicher-Pool wie im G2-SDK - ohne das gab DeleteList/Remove Pool-Knoten an den Heap
+    zMEMPOOL_DECLARATION_TEMPLATE( zCList, 0x00873640 );
+
+  private:
     T *data;
     zCList *next;
   public:

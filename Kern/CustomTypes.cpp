@@ -75,6 +75,8 @@ namespace GOTHIC_ENGINE {
         // u137 Mechanismen (CoopWorldSync.cpp): k Lage, f/t Zustand von/nach, lk Schloss, by Benutzer; BULK: s [{k, s, lk}] im Weltbestand
         SYNC_MOB_STATE,
         SYNC_MOB_BULK,
+        // u156 Gegenstand, den ein NPC beim Host in die Welt gebracht hat (CoopWorldSync.cpp): i Instanz, n Menge, p Lage, by NPC
+        SYNC_ITEM_SPAWN,
     };
 
     struct PlayerHit

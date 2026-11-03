@@ -14,13 +14,13 @@ plugin based on [GothicCoop / Gothic Together](https://gitlab.com/gothiccoop/got
 
 ## Versions
 
-Project version **0.4.1** – for each game/mod the coop version (it only goes up when something changes for that game):
+Project version **0.5.0** – for each game/mod the coop version (it only goes up when something changes for that game):
 
 | Game / mod | Coop version |
 |---|---|
-| Gothic I | u143 |
-| Gothic II | u143 |
-| Othello | u143 |
+| Gothic I | u160 |
+| Gothic II | u160 |
+| Othello | u160 |
 
 **Both PCs need the same coop version** – it is compared when connecting. It is shown at the bottom of the main menu
 ("GothicCoop uNN"). Changes per version: [`CHANGELOG.md`](CHANGELOG.md) (in German).
@@ -41,18 +41,25 @@ Project version **0.4.1** – for each game/mod the coop version (it only goes u
 **Story**
 - **Dialogues:** one player talks to an NPC, the other listens; progress, diary, chapters and quest experience count for
   both. Story videos play for both; if one player skips, the video ends for both.
-- **Guilds per hero:** guild dialogues are only shared between heroes of the same guild (including the reward).
+- **Guilds per hero:** guild dialogues are only shared between heroes of the same guild (including the reward). Guild
+  progress (values, dialogues, diary topics, NPC attitudes from guild quests and joining) stays with your own hero, also
+  when loading together.
 - What a dialogue changes on NPCs (daily routine, attitude, protection, guild) applies to both.
 - Script events (items from scripts, spawns, time of day and game day) come from the host.
+- **End of the game** (Gothic 2): after the credits both players are back in the main menu.
 
 **World and items**
 - Chests, items on the ground and looting – the host keeps the record, nothing is duplicated.
+- **Items of NPCs:** what NPCs drop or throw (weapons when they die or are knocked out, tools) lies at the same spot for
+  both. Arrows and bolts stay per PC (they stick in the target or disappear after a few seconds).
 - **Coop inventory:** a shared chest. The key (default I, Settings › COOP) opens it directly and without moving. Both players
   can have it open at the same time; its contents are kept on the host and in the save, and items from it count for quests.
 - **Shared mission items:** if one player gets one, the partner has it too; if one hands it in, the partner loses it.
   The name says "(shared)".
 - **Mechanisms:** doors, levers, stone plates and portals used by a hero apply to both, including the scripts and camera
-  runs behind them. NPCs use doors per PC.
+  runs behind them; if both pull the same lever at once, it counts once. NPCs use doors per PC.
+- **Triggers** that a hero, an NPC or an arrow or spell touches (gates, traps, the bridge on Irdorath, the Sleeper temple in
+  Gothic 1) fire for both. Checked in the automated test run, not yet seen in a real playthrough.
 - **Separate worlds:** each player can be in a different world (Khorinis, Valley of Mines, Jharkendar, Irdorath, or the
   worlds of Gothic 1). **Joint world change** on request (confirm the transition, the partner follows).
 - **World process and watch window:** if the partner is in another world, an invisible second Gothic shows that world;
@@ -62,7 +69,8 @@ Project version **0.4.1** – for each game/mod the coop version (it only goes u
 
 **Saves**
 - **Shared saving and loading:** the host chooses, both load the same save, each with their own hero; missing world files
-  are transferred and verified. Preview of both PCs in the list.
+  are transferred and verified. Preview of both PCs in the list. Loading a save that holds the partner's world on your own
+  (for example after a restart) also gives you your own hero.
 - **Backup at the partner:** everyone gets a copy of the other player's save; if a player's save is missing (lost saves),
   they get it back from the partner.
 - **Shared new game:** intro for both, start side by side.
@@ -78,19 +86,19 @@ Project version **0.4.1** – for each game/mod the coop version (it only goes u
 
 | | Status |
 |---|---|
-| **Gothic 2 Night of the Raven** (2.6) | Main game of development. Automated test run on one PC (host and client): guilds, coop inventory, chests, doors and mechanisms 52/52 on both sides; separate worlds and world process host 55/55, client 52 OK, 0 errors (3 steps host only). Long automated runs with check rounds (comparing both sides), by now into chapter 5 including a dragon fight – mostly without deviation, occasionally single deviations. The coop inventory has mainly been tested automatically; a play test with two people over a real network is still outstanding. |
-| **Gothic 1** (1.08k, Steam/GOG) | The same automated test run: guilds, coop inventory and doors 41 OK each, 0 errors (11 steps skipped, the test save has no chest and no suitable lever); separate worlds and world process host 51 OK, client 48 OK, 0 errors (4 and 7 skipped). So levers have not been tested in play in Gothic 1 yet. Last played by hand with u44; the additions since then (coop inventory, mission items, mechanisms) have not been tested by hand or over a real network. |
-| **Othello** 4.x (Gothic 1) | The same automated test run: guilds, coop inventory, chests, doors and mechanisms host 49 OK, client 42 OK, 1 error each (see below); separate worlds and world process host 51 OK, client 48 OK, 0 errors. Last played by hand with Othello Coop v106 (= Othello Coop 0.1.2); the general changes have been added since. |
+| **Gothic 2 Night of the Raven** (2.6) | Main game of development. Automated test run on one PC (host and client) with exactly the release DLL: guilds, coop inventory, chests, doors, mechanisms, triggers, items of NPCs, saving and loading host 91 OK, client 88 OK, 0 errors (2 and 5 steps only on the other side); separate worlds and world process host 57 OK, client 52 OK, 0 errors (5 steps host only). Long automated runs with check rounds (comparing both sides), by now up to the end of the game (with boosted health, so not a real test of the fights) – mostly without deviation, occasionally single deviations. The coop inventory has mainly been tested automatically; a play test with two people over a real network is still outstanding. |
+| **Gothic 1** (1.08k, Steam/GOG) | The same automated test run with exactly the release DLL: guilds, coop inventory, doors, items of NPCs, saving and loading host 68 OK, client 65 OK, 0 errors (25 and 28 steps skipped, the test save has no chest and no suitable lever or trigger); separate worlds and world process host 53 OK, client 48 OK, 0 errors (4 and 9 skipped). Levers and triggers have therefore not been tested in play in Gothic 1 yet. Last played by hand with u44; the additions since then (coop inventory, mission items, mechanisms, triggers) have not been tested by hand or over a real network. |
+| **Othello** 4.x (Gothic 1) | The same automated test run with exactly the release DLL: guilds, coop inventory, chests, doors, mechanisms, triggers, items of NPCs, saving and loading host 85 OK, client 82 OK, 3 and 3 errors (all at one gate, see below); separate worlds and world process host 53 OK, client 48 OK, 0 errors. Last played by hand with Othello Coop v106 (= Othello Coop 0.1.2); the general changes have been added since. |
 | **Mods** | Gothic 1/2 with other mods can be installed (the installer allows it), but they are not specifically tested. |
 
 Known limits:
 - The **world process** needs an NTFS drive (links instead of copies) and an existing save.
 - Watch window and 3D preview need the **coop renderer** (GD3D11 v17.9.7 + coop patch) and a CPU with AVX2.
 - "Join via IP" needs an open **UDP port 9955** on the host (router forwarding/firewall) – or Steam.
-- **Othello, gates with levers:** if the lever is flipped a second time while the gate is still opening, the gate mostly did
-  not reverse on the partner's PC in the test run (`PSI_DOOR_TEMPLE_NYRAS_SECRECT_*`, 5 of 6 runs). The gate can then be in
-  different positions on the two PCs.
+- **Othello, gates with levers:** if a gate is moved again while it is still moving (lever flipped a second time, both players at the lever at once, an arrow at its trigger), it ends up in different positions on the two PCs in the test run (`PSI_DOOR_TEMPLE_NYRAS_SECRECT_2`, 3 steps per side).
 - **Gothic 2, old saves:** saves from versions before u140 can contain duplicate NPCs. Those stay; no new ones appear.
+- **Movers that react to being touched themselves** (the target stones in the Sleeper temple in Gothic 1, Vino's cellar
+  door in Gothic 2) still move only on the PC of the player who touches them.
 - Please report every crash and every deviation, with the log `system\GothicCoop.log` from both PCs.
 
 ## Installation
@@ -100,7 +108,7 @@ patch 2.6) or Gothic 1 with Othello 4.x. Installer and ZIPs bring Union 1.0m for
 
 ### With the installer (recommended)
 
-1. Download `Gothic-I-II-Universal-Coop-0.4.1-Setup.exe` from [Releases](../../releases) and start it.
+1. Download `Gothic-I-II-Universal-Coop-0.5.0-Setup.exe` from [Releases](../../releases) and start it.
 2. Choose the game (Gothic 1, Gothic 2, Othello) and the **game folder** (the folder containing `system`; Steam and GOG folders
    are searched). The installer checks by content that it really is this game and installs nothing into a wrong folder.
 3. "Install". It writes the coop, brings GD3D11 v17.9.7 (if missing) and puts the coop renderer on top (can be deselected);
@@ -177,7 +185,7 @@ day and the diary and creates a backup) · **Shift+F12** world process off/on.
 - Detection of individual mods with their own adjustments (so far: Gothic 1/2 with mods can be installed, but are not
   specifically supported).
 - Ship Union for Gothic 1 completely (Union's setup additionally writes `binkw32.dll`/`Mss32.dll` there).
-- More sync details from the long test runs (e.g. dropped weapons of killed enemies).
+- Movers that react to being touched themselves (see known limits), and more sync details from the long test runs.
 
 ## Building it yourself
 

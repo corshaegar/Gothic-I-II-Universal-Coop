@@ -613,6 +613,67 @@ namespace GOTHIC_ENGINE {
     //   Regel. Allgemein (G1/G2).
     static std::map<int, std::vector<int>> DlgGuildOfCond;   // Bedingungsfunktion -> verglichene Gilden (leer = keine Gilden-Info)
     static std::set<zCPar_Symbol*> DlgGuildVars;
+    static std::set<std::string> DlgGuildInfos;              // u150 (P154): Aufnahme-Infos - ihre Bedingung fragt keine Gilde ab, sie gelten trotzdem je Held
+    static std::set<std::string> DlgGuildTopics;             // u150 (P154): Tagebuch-Themen aus Gilden-Infos und Aufnahmen
+    static std::map<std::string, std::set<int>> DlgGuildNpcs;   // u152 (P156): NPCs, deren Haltung (und diese Merker) aus Gilden-Infos und Aufnahmen stammen
+
+    // u154 (P159): Stand vor dem ersten Gilden-Info - Wert je Variable und Index, Haltung, Zwischenhaltung und Merker je NPC. Ein Partner, der nie dabei war, bekommt ihn
+    // beim Uebernehmen des Host-Stands (CoopHeroGuildMerge). Beim Laden gilt der des geladenen Stands (CoopHeroGuildBaseReset, danach aus COOPHERO.TXT)
+    static std::map<std::pair<zCPar_Symbol*, int>, int> DlgGuildVarBase;
+    struct CoopGuildNpcBase {
+        int att = 0, tatt = 0;
+        std::map<int, int> aiv;
+    };
+    static std::map<std::string, CoopGuildNpcBase> DlgGuildNpcBase;
+
+    static void DlgGuildNpcBaseKeep(const json& jn, int att, int tatt, const int* aiv) {
+        if (!jn.is_object() || !jn.contains("n") || !jn["n"].is_string() || !(jn.contains("at") || jn.contains("tt") || jn.contains("a")))
+            return;
+        auto r = DlgGuildNpcBase.emplace(jn["n"].get<std::string>(), CoopGuildNpcBase());
+        if (r.second) {
+            r.first->second.att = att;
+            r.first->second.tatt = tatt;
+        }
+        if (jn.contains("a") && jn["a"].is_array())
+            for (auto& x : jn["a"])
+                if (x.is_array() && !x.empty() && x.at(0).is_number_integer() && x.at(0).get<int>() >= 0 && x.at(0).get<int>() < COOP_AIV_MAX)
+                    r.first->second.aiv.emplace(x.at(0).get<int>(), aiv[x.at(0).get<int>()]);
+    }
+
+    // u152 (P156): Tritt einer einer Gilde bei, aendert das Gespraech die Haltung ganzer Lager zu seinem Helden (Testlauf Gothic 1: 96 NPCs). Beim Partner gilt das nicht (P110), die Haltung
+    // haengt also am Helden. Bis u151 holte der Gesamtstand des Hosts nach jedem Laden sie beim Client wieder auf seinen Stand, und beim Uebernehmen eines Host-Stands kam sie ohnehin von dort.
+    static bool DlgGuildNpcHas(const std::string& n) {
+        return DlgGuildNpcs.count(n) != 0;
+    }
+
+    static void DlgGuildNpcNote(const json& jn) {
+        if (!jn.is_object() || !jn.contains("n") || !jn["n"].is_string() || !(jn.contains("at") || jn.contains("tt") || jn.contains("a")))
+            return;
+        std::set<int>& s = DlgGuildNpcs[jn["n"].get<std::string>()];
+        if (jn.contains("a") && jn["a"].is_array())
+            for (auto& x : jn["a"])
+                if (x.is_array() && !x.empty() && x.at(0).is_number_integer())
+                    s.insert(x.at(0).get<int>());
+    }
+
+    // Story- und Gesamtstand des Partners lassen die Haltung je Held und die Merker aus Gilden-Infos hier stehen
+    static void DlgGuildNpcStrip(json& jn) {
+        auto f = DlgGuildNpcs.find(jn.value("n", std::string()));
+        if (f == DlgGuildNpcs.end())
+            return;
+        jn.erase("at");
+        jn.erase("tt");
+        if (jn.contains("a") && jn["a"].is_array()) {
+            json keep = json::array();
+            for (auto& x : jn["a"])
+                if (!(x.is_array() && !x.empty() && x.at(0).is_number_integer() && f->second.count(x.at(0).get<int>())))
+                    keep.push_back(x);
+            if (keep.empty())
+                jn.erase("a");
+            else
+                jn["a"] = keep;
+        }
+    }
     static std::vector<int> DlgFuncStarts;                   // Code-Anfaenge aller Funktionen/Instanzen (Ende einer Bedingung)
 
     static std::vector<int> DlgGuildCheck(int cond) {
@@ -1003,8 +1064,12 @@ namespace GOTHIC_ENGINE {
             }
         if (!gi.empty() || join)   // ihre Variablen gelten je Held - nie im Story-Abgleich
             for (size_t i = 0; i < b.ints.size() && i < a.ints.size() && i < DlgIntSlots.size(); i++)
-                if (a.ints[i] != b.ints[i])
+                if (a.ints[i] != b.ints[i]) {
                     DlgGuildVars.insert(DlgIntSlots[i].sym);
+                    DlgGuildVarBase.emplace(std::make_pair(DlgIntSlots[i].sym, DlgIntSlots[i].idx), a.ints[i]);   // u154 (P159)
+                }
+        if (join && !info.empty())
+            DlgGuildInfos.insert(info);
         json j;
         int nv = 0, nl = 0, np = 0;
         json v = json::array();
@@ -1022,6 +1087,8 @@ namespace GOTHIC_ENGINE {
             json jt;
             if (!DlgTopicDiff(f == before.end() ? NULL : f->second, t, jt))
                 continue;
+            if (!gi.empty() || join)
+                DlgGuildTopics.insert(t.t);
             l.push_back(jt);
             nl++;
         }
@@ -1054,6 +1121,10 @@ namespace GOTHIC_ENGINE {
             if (jn.empty())
                 continue;
             jn["n"] = DialogNpcName(n.npc);
+            if (!gi.empty() || join) {   // u152 (P156), u154 (P159): mit dem Stand davor
+                DlgGuildNpcNote(jn);
+                DlgGuildNpcBaseKeep(jn, o.att, o.tatt, o.aiv);
+            }
             p.push_back(jn);
             np++;
         }
@@ -1566,6 +1637,426 @@ namespace GOTHIC_ENGINE {
         return s;
     }
 
+    // u150 (P154): Gildenfortschritt je Held auch beim Laden. Nutzer: "Wenn man einen Savegame laedt dann wird ja der vom Host geladen, aber das wuerde ja heissen, dass auch seine
+    // Gildenquests etc. geladen werden". Beim gemeinsamen Laden uebernimmt der Partner den ganzen Stand des Hosts. Zurueck kamen bis u149 Gilde, Werte und Inventar, nicht aber Werte aus
+    // Gilden-Infos, erzaehlte Gilden-Infos und deren Tagebuch-Themen: Trat der Host bei, galt die Aufnahme nach dem Laden beim Partner als erzaehlt, und er kam nicht mehr in die Gilde.
+    // Jetzt stehen sie in COOPHERO.TXT ("gs=...") und gelten mit dem eigenen Helden. Staende ohne die Zeile "G 1" bleiben wie bisher. Allgemein (G1/G2).
+    static std::string DlgGsText(std::string s) {
+        for (char& c : s)
+            if (c == '\r' || c == '\n')
+                c = ' ';
+        if (s.size() > 900)   // CoopHeroRead liest Zeilen bis 1024 Zeichen
+            s.resize(900);
+        return s;
+    }
+
+    void CoopHeroGuildCapture(std::vector<std::string>& out) {
+        out.clear();
+        if (!parser || !ogame || !ogame->GetInfoManager())
+            return;
+        out.push_back("G 1");
+        DlgBuildIntSlots();
+        for (auto& slot : DlgIntSlots)
+            if (DlgGuildVars.count(slot.sym)) {
+                int v = 0;
+                slot.sym->GetValue(v, slot.idx);
+                out.push_back(std::string("V ") + slot.sym->name.ToChar() + " " + std::to_string(slot.idx) + " " + std::to_string(v));
+            }
+        for (auto& b : DlgGuildVarBase)   // u154 (P159): B Name Index Wert vor dem ersten Gilden-Info
+            if (b.first.first)
+                out.push_back(std::string("B ") + b.first.first->name.ToChar() + " " + std::to_string(b.first.second) + " " + std::to_string(b.second));
+        for (auto& n : DlgGuildInfos)
+            out.push_back("J " + DlgGsText(n));
+        for (auto* l = ogame->GetInfoManager()->infoList.GetNextInList(); l; l = l->GetNextInList()) {
+            oCInfo* info = l->GetData();
+            if (info && info->told && (!DlgGuildOfInfo(info).empty() || DlgGuildInfos.count(info->name.ToChar())))
+                out.push_back(std::string("I ") + info->name.ToChar());
+        }
+        for (auto& n : DlgGuildTopics)
+            out.push_back("N " + DlgGsText(n));
+        for (auto& g : DlgGuildNpcs) {   // u152 (P156): Q Name Haltung Zwischenhaltung Merker:Wert,... bzw. R Name (NPC nicht in dieser Welt)
+            oCNpc* npc = DialogNpcByName(g.first);
+            if (!npc) {
+                out.push_back("R " + g.first);
+                continue;
+            }
+            std::string q = "Q " + g.first + " " + std::to_string(npc->attitude) + " " + std::to_string(npc->tmp_attitude) + " ";
+            for (int i : g.second)
+                if (i >= 0 && i < COOP_AIV_MAX)
+                    q += std::to_string(i) + ":" + std::to_string(npc->aiscriptvars[i]) + ",";
+            out.push_back(q);
+        }
+        for (auto& h : DlgGuildNpcBase) {   // u154 (P159): H Name Haltung Zwischenhaltung Merker:Wert,... vor dem ersten Gilden-Info
+            std::string q = "H " + h.first + " " + std::to_string(h.second.att) + " " + std::to_string(h.second.tatt) + " ";
+            for (auto& a : h.second.aiv)
+                q += std::to_string(a.first) + ":" + std::to_string(a.second) + ",";
+            out.push_back(q);
+        }
+        std::vector<CoopDlgTopic> log;
+        DlgSnapLog(log);
+        for (auto& t : log)
+            if (DlgGuildTopics.count(t.t)) {
+                out.push_back("T " + std::to_string(t.sec) + " " + std::to_string(t.st) + " " + DlgGsText(t.t));
+                for (auto& e : t.e)
+                    out.push_back("E " + DlgGsText(e));
+            }
+    }
+
+    // Nach einem Neustart kennt GT die Werte je Held nur aus der Datei - sonst gingen sie wieder in den Story-Abgleich
+    void CoopHeroGuildNote(const std::vector<std::string>& in) {
+        if (!parser)
+            return;
+        for (auto& l : in) {
+            if (l.size() < 3 || l[1] != ' ')
+                continue;
+            const std::string rest = l.substr(2);
+            if (l[0] == 'V') {
+                if (zCPar_Symbol* s = parser->GetSymbol(zSTRING(rest.substr(0, rest.find(' ')).c_str())))
+                    DlgGuildVars.insert(s);
+            }
+            else if (l[0] == 'J')
+                DlgGuildInfos.insert(rest);
+            else if (l[0] == 'N')
+                DlgGuildTopics.insert(rest);
+            else if (l[0] == 'R')   // u152 (P156)
+                DlgGuildNpcs[rest];
+            else if (l[0] == 'Q') {
+                std::set<int>& s = DlgGuildNpcs[rest.substr(0, rest.find(' '))];
+                const size_t last = rest.rfind(' ');
+                for (const char* c = last == std::string::npos ? "" : rest.c_str() + last + 1; *c;) {
+                    s.insert(atoi(c));
+                    c = strchr(c, ',');
+                    if (!c)
+                        break;
+                    c++;
+                }
+            }
+            else if (l[0] == 'B') {   // u154 (P159)
+                char nm[256] = {};
+                int k = 0, val = 0;
+                if (sscanf(rest.c_str(), "%255s %d %d", nm, &k, &val) == 3)
+                    if (zCPar_Symbol* s = parser->GetSymbol(zSTRING(nm)))
+                        DlgGuildVarBase.emplace(std::make_pair(s, k), val);
+            }
+            else if (l[0] == 'H') {
+                char nm[256] = {};
+                int att = 0, tatt = 0, off = 0;
+                if (sscanf(rest.c_str(), "%255s %d %d %n", nm, &att, &tatt, &off) < 3)
+                    continue;
+                auto r = DlgGuildNpcBase.emplace(nm, CoopGuildNpcBase());
+                if (r.second) {
+                    r.first->second.att = att;
+                    r.first->second.tatt = tatt;
+                }
+                for (const char* c = off > 0 ? rest.c_str() + off : ""; *c;) {
+                    int i = -1, v = 0;
+                    if (sscanf(c, "%d:%d", &i, &v) == 2 && i >= 0 && i < COOP_AIV_MAX)
+                        r.first->second.aiv.emplace(i, v);
+                    c = strchr(c, ',');
+                    if (!c)
+                        break;
+                    c++;
+                }
+            }
+        }
+    }
+
+    void CoopHeroGuildBaseReset() {   // u154 (P159): vor dem Laden - danach gilt der Stand davor aus dem geladenen Stand
+        DlgGuildVarBase.clear();
+        DlgGuildNpcBase.clear();
+    }
+
+    // u154 (P159): Gildenfortschritt des Hosts, bei dem dieser Held nie dabei war (Liste 6h). Bis u153 kam er beim Uebernehmen des Host-Stands mit dessen Welt: Werte, Themen und
+    // Haltungen aus Gilden-Infos des Hosts, deren Namen die eigene COOPHERO.TXT nicht kannte. Jetzt kommen die Namen aus der Datei des Hosts. Steht der eigene Held noch in seiner
+    // laufenden Welt (fromWorld), gelten seine Werte von dort, sonst der Stand vor dem ersten Gilden-Info (B- und H-Zeilen des Hosts); ohne ihn (Staende von vor u154) bleibt es wie
+    // beim Host. Gilden-Infos selbst galten schon bis u153 beim Partner als nicht erzaehlt. Allgemein (G1/G2).
+    int CoopHeroGuildMerge(std::vector<std::string>& own, const std::vector<std::string>& host, bool fromWorld, std::string& text) {
+        if (!parser || host.empty() || host[0] != "G 1")
+            return 0;
+        CoopHeroGuildNote(host);
+        if (fromWorld) {
+            CoopHeroGuildCapture(own);
+            text = "eigene Werte aus der laufenden Welt neu erfasst";
+            return 1;
+        }
+        if (own.empty() || own[0] != "G 1")
+            return 0;   // eigener Stand von vor u150: bleibt, wie er war
+        auto first = [](const std::string& s) { return s.substr(0, s.find(' ')); };
+        auto two = [](const std::string& s) {
+            const size_t a = s.find(' ');
+            return s.substr(0, a == std::string::npos ? a : s.find(' ', a + 1));
+        };
+        std::set<std::string> ownVar, ownBase, ownTopic, ownInfo, ownNpc, ownNpcBase;
+        for (auto& l : own) {
+            if (l.size() < 3 || l[1] != ' ')
+                continue;
+            const std::string rest = l.substr(2);
+            if (l[0] == 'V')
+                ownVar.insert(two(rest));
+            else if (l[0] == 'B')
+                ownBase.insert(two(rest));
+            else if (l[0] == 'N')
+                ownTopic.insert(rest);
+            else if (l[0] == 'J')
+                ownInfo.insert(rest);
+            else if (l[0] == 'Q' || l[0] == 'R')
+                ownNpc.insert(first(rest));
+            else if (l[0] == 'H')
+                ownNpcBase.insert(first(rest));
+        }
+        std::map<std::string, std::string> base, npcBase;   // aus der Datei des Hosts: "Name Index" -> Wert, NPC -> "Haltung Zwischenhaltung Merker"
+        for (auto& l : host) {
+            if (l.size() < 3 || l[1] != ' ')
+                continue;
+            const std::string rest = l.substr(2);
+            if (l[0] == 'B') {
+                const std::string k = two(rest);
+                if (rest.size() > k.size() + 1)
+                    base[k] = rest.substr(k.size() + 1);
+            }
+            else if (l[0] == 'H') {
+                const std::string n = first(rest);
+                if (rest.size() > n.size() + 1)
+                    npcBase[n] = rest.substr(n.size() + 1);
+            }
+        }
+        int vars = 0, topics = 0, infos = 0, npcs = 0, unknown = 0;
+        std::vector<std::string> add;
+        for (auto& l : host) {
+            if (l.size() < 3 || l[1] != ' ')
+                continue;
+            const std::string rest = l.substr(2);
+            if (l[0] == 'V') {
+                const std::string k = two(rest);
+                if (ownVar.count(k))
+                    continue;
+                auto b = base.find(k);
+                if (b == base.end()) {
+                    unknown++;
+                    continue;
+                }
+                add.push_back("V " + k + " " + b->second);
+                ownVar.insert(k);
+                vars++;
+            }
+            else if (l[0] == 'N' && ownTopic.insert(rest).second) {
+                add.push_back(l);
+                topics++;
+            }
+            else if (l[0] == 'J' && ownInfo.insert(rest).second) {
+                add.push_back(l);
+                infos++;
+            }
+            else if (l[0] == 'Q' || l[0] == 'R') {
+                const std::string n = first(rest);
+                if (ownNpc.count(n))
+                    continue;
+                auto h = npcBase.find(n);
+                if (h == npcBase.end()) {
+                    unknown++;
+                    continue;
+                }
+                add.push_back("Q " + n + " " + h->second);
+                ownNpc.insert(n);
+                npcs++;
+            }
+            else if (l[0] == 'B' && ownBase.insert(two(rest)).second)
+                add.push_back(l);   // der Stand davor gilt auch fuer spaetere Uebernahmen aus diesem Stand
+            else if (l[0] == 'H' && ownNpcBase.insert(first(rest)).second)
+                add.push_back(l);
+        }
+        own.insert(own.end(), add.begin(), add.end());
+        text = std::to_string(vars) + " Werte, " + std::to_string(npcs) + " NPC-Haltungen auf den Stand davor, " + std::to_string(topics) + " Themen und "
+            + std::to_string(infos) + " Aufnahme-Infos des Hosts nicht bei mir, " + std::to_string(unknown) + " ohne Stand davor (bleiben wie beim Host)";
+        return vars + topics + infos + npcs + unknown;
+    }
+
+    // u152 (P156): Q-Zeilen des eigenen Helden. Der Held kommt im Ladevorgang zurueck, die NPC-Namen der Welt entstehen erst danach im Spieltakt (BuildGlobalNpcList) -
+    // Testlauf: "0 NPC-Haltungen", obwohl die Zeile in COOPHERO.TXT stand. Darum hier warten, bis die Liste steht.
+    static std::vector<std::string> DlgGuildNpcPending;
+
+    static void DlgGuildNpcPendingApply() {
+        if (DlgGuildNpcPending.empty() || NpcToUniqueNameList.empty())
+            return;
+        int set = 0, missing = 0;
+        for (auto& rest : DlgGuildNpcPending) {
+            char nm[256] = {};
+            int att = 0, tatt = 0, off = 0;
+            if (sscanf(rest.c_str(), "%255s %d %d %n", nm, &att, &tatt, &off) < 3)
+                continue;
+            oCNpc* npc = DialogNpcByName(nm);
+            if (!npc) {
+                missing++;
+                continue;
+            }
+            bool changed = npc->attitude != att || npc->tmp_attitude != tatt;
+            if (npc->attitude != att)
+                npc->SetAttitude(att);
+            if (npc->tmp_attitude != tatt)
+                npc->SetTmpAttitude(tatt);
+            for (const char* c = off > 0 ? rest.c_str() + off : ""; *c;) {
+                int i = -1, v = 0;
+                if (sscanf(c, "%d:%d", &i, &v) == 2 && i >= 0 && i < COOP_AIV_MAX && npc->aiscriptvars[i] != v) {
+                    npc->aiscriptvars[i] = v;
+                    changed = true;
+                }
+                c = strchr(c, ',');
+                if (!c)
+                    break;
+                c++;
+            }
+            if (changed)
+                set++;
+            if (StoryReady)
+                StoryBaseNpc[nm] = { npc->daily_routine, npc->attitude, DlgNpcFields(npc) };
+        }
+        DialogLog("Gilden je Held: %d NPC-Haltungen des eigenen Helden gesetzt (%u vorgemerkt, %d nicht in dieser Welt)", set,
+            (unsigned)DlgGuildNpcPending.size(), missing);
+        DlgGuildNpcPending.clear();
+    }
+
+    // u160 (P167): eigener Ladevorgang eines eigenen Stands - die Haltungen je Held (Q-Zeilen der eigenen COOPHERO.TXT) gelten wieder, sobald
+    // die Namensliste steht, wie nach einer Uebernahme. Rueckgabe: vorgemerkte NPCs
+    int CoopHeroGuildNpcsAgain(const std::vector<std::string>& in) {
+        if (in.empty() || in[0] != "G 1")
+            return 0;
+        int n = 0;
+        for (auto& l : in)
+            if (l.size() > 2 && l[0] == 'Q' && l[1] == ' ') {
+                DlgGuildNpcPending.push_back(l.substr(2));
+                n++;
+            }
+        return n;
+    }
+
+    // u153 (P158): Gothic legt die Knoten seiner zCList in einem eigenen Speicher-Pool an (G1 0x00873640, G2A 0x008D8398) und gibt
+    // sie dorthin zurueck. Das G1-SDK kannte den Pool nur an zList - DeleteList und Remove gaben die Knoten an den Heap, der
+    // G1-Client stuerzte beim Laden mit eigenen Gilden-Themen ab (Testinstanz b150, 2.11.). Ohne die Angabe im SDK baut es nicht.
+    static_assert(sizeof(static_cast<void (*)(void*)>(&zCList<oCLogTopic>::operator delete)) > 0, "zCList ohne Gothics Speicher-Pool");
+
+    // Ohne Meldung und Ton: Thema anlegen, Status setzen, Eintraege ersetzen
+    static bool DlgGsTopicSet(const CoopDlgTopic& t) {
+        CoopParserExternal create = DialogExternal("LOG_CREATETOPIC"), status = DialogExternal("LOG_SETTOPICSTATUS"), add = DialogExternal("LOG_ADDENTRY");
+        if (!create || !status || !add || zCParser::GetParser() != parser)
+            return false;
+        zSTRING topic(t.t.c_str());
+        oCLogTopic* tp = DialogFindTopic(t.t);
+        if (!tp) {
+            DialogPushString(&topic);
+            DialogPushInt(t.sec);
+            create();
+            tp = DialogFindTopic(t.t);
+        }
+        if (!tp)
+            return false;
+        if (t.st != (int)tp->m_enuStatus) {
+            DialogPushString(&topic);
+            DialogPushInt(t.st);
+            status();
+        }
+        for (int pass = 0; pass < 2 && StoryTopicNow(tp).e != t.e; pass++) {   // Reihenfolge wie im Stand: legt die Engine vorn an, geht der zweite Durchgang rueckwaerts
+            tp->m_lstEntries.DeleteList();
+            std::vector<std::string> order = t.e;
+            if (pass == 1)
+                std::reverse(order.begin(), order.end());
+            for (auto& s : order) {
+                zSTRING entry(s.c_str());
+                DialogPushString(&topic);
+                DialogPushString(&entry);
+                add();
+            }
+        }
+        return true;
+    }
+
+    int CoopHeroGuildApply(const std::vector<std::string>& in, std::string& text) {
+        if (!parser || !ogame || !ogame->GetInfoManager() || in.empty() || in[0] != "G 1")
+            return -1;
+        CoopHeroGuildNote(in);
+        DlgBuildIntSlots();
+        int vars = 0, infos = 0, topics = 0, gone = 0, npcs = 0;
+        std::set<std::string> told, names;
+        std::map<std::string, CoopDlgTopic> own;
+        std::string cur;
+        for (auto& l : in) {
+            if (l.size() < 3 || l[1] != ' ')
+                continue;
+            const std::string rest = l.substr(2);
+            if (l[0] == 'V') {
+                char nm[256] = {};
+                int k = 0, val = 0;
+                if (sscanf(rest.c_str(), "%255s %d %d", nm, &k, &val) != 3)
+                    continue;
+                zCPar_Symbol* s = parser->GetSymbol(zSTRING(nm));
+                const int ele = s && s->ele > 1 ? (int)s->ele : 1;
+                if (!s || s->type != zPAR_TYPE_INT || (s->flags & (zPAR_FLAG_CONST | zPAR_FLAG_CLASSVAR)) || k < 0 || k >= ele)
+                    continue;
+                int old = 0;
+                s->GetValue(old, k);
+                if (old != val) {
+                    s->SetValue(val, k);
+                    vars++;
+                }
+                auto slot = DlgSlotIndex.find(std::make_pair(s, k));
+                if (StoryReady && slot != DlgSlotIndex.end() && slot->second < (int)StoryBaseInts.size())
+                    StoryBaseInts[slot->second] = val;
+            }
+            else if (l[0] == 'I')
+                told.insert(rest);
+            else if (l[0] == 'N')
+                names.insert(rest);
+            else if (l[0] == 'T') {
+                int sec = 0, st = 0, off = 0;
+                if (sscanf(rest.c_str(), "%d %d %n", &sec, &st, &off) >= 2 && off > 0) {
+                    cur = rest.substr(off);
+                    CoopDlgTopic& t = own[cur];
+                    t.t = cur;
+                    t.sec = sec;
+                    t.st = st;
+                }
+            }
+            else if (l[0] == 'E' && !cur.empty())
+                own[cur].e.push_back(rest);
+            else if (l[0] == 'Q') {   // u152 (P156): erst, wenn die Namensliste der Welt steht (CoopDialogSyncPulse)
+                DlgGuildNpcPending.push_back(rest);
+                npcs++;
+            }
+        }
+        for (auto* l = ogame->GetInfoManager()->infoList.GetNextInList(); l; l = l->GetNextInList()) {
+            oCInfo* info = l->GetData();
+            if (!info || (DlgGuildOfInfo(info).empty() && !DlgGuildInfos.count(info->name.ToChar())))
+                continue;
+            const int want = told.count(info->name.ToChar()) ? TRUE : FALSE;
+            if ((info->told != FALSE) != (want != FALSE)) {
+                info->told = want;
+                infos++;
+            }
+        }
+        for (auto& n : names) {
+            auto f = own.find(n);
+            oCLogTopic* tp = DialogFindTopic(n);
+            if (f != own.end()) {
+                const bool same = tp && StoryTopicNow(tp).st == f->second.st && StoryTopicNow(tp).e == f->second.e;
+                if (!same && DlgGsTopicSet(f->second))
+                    topics++;
+            }
+            else if (tp) {   // Thema des Partners aus seinem Stand
+                oCLogManager::GetLogManager().m_lstTopics.Remove(tp);
+                gone++;
+            }
+            if (StoryReady) {
+                tp = DialogFindTopic(n);
+                if (tp)
+                    StoryBaseLog[n] = StoryTopicNow(tp);
+                else
+                    StoryBaseLog.erase(n);
+            }
+        }
+        text = std::to_string(vars) + " Werte, " + std::to_string(infos) + " Gespraeche, " + std::to_string(topics) + " Themen gesetzt, " + std::to_string(gone) + " Themen des Partners entfernt, "
+            + std::to_string(npcs) + " NPC-Haltungen vorgemerkt";
+        return vars + infos + topics + gone + npcs;
+    }
+
     // v94: Kapitel-Bildschirm des Partners erst nach dessen Gespraech. Test v93: "ch" kam mitten in Diegos Begruessung
     // (INFO_DIEGO_GAMESTART laeuft nur beim Host) - beim Host zeigt Gothic ihn erst nach dem Dialog (CGameManager::Run 0x00424F7A
     // nur bei MenuEnabled 0x00429140, im Dialog aus), beim Mitspieler lief kein Dialog, er kam sofort. Darum warten, solange der
@@ -1661,6 +2152,25 @@ namespace GOTHIC_ENGINE {
         orig();
         CoopStoryVideoEnd();
         VideoReplaying--;
+    }
+
+    // u147 (P149, Testlauf b112, 15:37, das Spiel durchgespielt): Der Client fuehrte das letzte Gespraech, B_Extro_Avi spielte die Videos auf beiden PCs, EXITSESSION lief aber nur bei ihm: Er stand im Hauptmenue,
+    // der Host spielte weiter, und nach seinem naechsten Laden stuenden beide wieder vor dem Ende. Jetzt endet die Sitzung auch beim Partner (Externe unten umgeleitet). G1 und Othello kennen das nicht: DIA_Extro_Avi ruft
+    // EXITGAME, das beendet das Programm; das bleibt je PC, dem Partner schliesst GT das Spiel nicht
+    int CoopExitSessionSeen = 0;   // Testlauf
+
+    static void DialogExitSession(const json& v, const std::string& by) {
+#if ENGINE >= Engine_G2
+        if (!gameMan)
+            return;
+        if (v.is_number() && v.get<int>() == 2) {   // Testlauf: ExitSession haelt das Spiel an, darum nur zaehlen
+            CoopExitSessionSeen++;
+            DialogLog("Spielende von %s: Testlauf, Sitzung bleibt", by.c_str());
+            return;
+        }
+        DialogLog("Spielende von %s: Sitzung endet auch hier", by.c_str());
+        gameMan->ExitSession();
+#endif
     }
 
     static void DialogChapterPulse() {
@@ -1903,6 +2413,14 @@ namespace GOTHIC_ENGINE {
         }
         if (an ? (!fremd && p0 >= 0 && (p1 >= 0 || frei == 0)) : (p0 < 0 && p1 < 0 && !fremd))
             return changed;
+        // u160 (P166): Sind alle Infozeilen belegt, passt keine Kennzeichnung hinein - bis u159 galt der Gegenstand dann bei jedem Takt als
+        // neu gekennzeichnet (Testlauf b191, Gothic 1: zweimal je Sekunde "1 gekennzeichnet"). Jetzt zaehlt nur, was sich wirklich aendert.
+        std::string vorText[ITM_TEXT_MAX];
+        int vorCount[ITM_TEXT_MAX];
+        for (int i = 0; i < ITM_TEXT_MAX; i++) {
+            vorText[i] = it->text[i].ToChar();
+            vorCount[i] = it->count[i];
+        }
         for (int i = 0; i < ITM_TEXT_MAX; i++)
             if (MiIstKennZeile(it->text[i].ToChar())) {
                 it->text[i] = zSTRING("");
@@ -1912,7 +2430,15 @@ namespace GOTHIC_ENGINE {
         for (int i = 0; an && z < 2 && i < ITM_TEXT_MAX; i++)
             if (!*it->text[i].ToChar() && !it->count[i])
                 it->text[i] = zSTRING(MiKennZeile[L][z++]);
-        return true;
+        if (an && !z) {
+            static std::set<std::string> ohnePlatz;
+            if (ohnePlatz.insert(it->GetInstanceName().ToChar()).second)
+                DialogLog("Missions-Gegenstaende: %s hat keine freie Infozeile - gekennzeichnet nur im Namen", it->GetInstanceName().ToChar());
+        }
+        for (int i = 0; i < ITM_TEXT_MAX; i++)
+            if (vorCount[i] != it->count[i] || vorText[i] != it->text[i].ToChar())
+                changed = true;
+        return changed;   // u160 (P166)
     }
 
     static void MiCount(std::map<std::string, int>& out) {
@@ -1971,15 +2497,19 @@ namespace GOTHIC_ENGINE {
                     its.push_back(n->data);
 #endif
         int neu = 0, weg = 0;
+        std::string namen;   // u160 (P166): welche
         for (oCItem* it : its)
-            if (MiKennSetzen(it, an))
+            if (MiKennSetzen(it, an)) {
                 (an ? neu : weg)++;
+                if (namen.size() < 150)
+                    namen += (namen.empty() ? "" : ", ") + std::string(it->GetInstanceName().ToChar());
+            }
         if (CoopTruheObj)
             for (zCListSort<oCItem>* n = CoopTruheObj->containList.next; n; n = n->next)
                 if (n->data && n->data->HasFlag(ITM_FLAG_MI) && MiKennSetzen(n->data, false))
                     weg++;
         if (neu)
-            DialogLog("Missions-Gegenstaende: %d gekennzeichnet (gemeinsam)", neu);
+            DialogLog("Missions-Gegenstaende: %d gekennzeichnet (gemeinsam): %s", neu, namen.c_str());
         if (weg)
             DialogLog("Missions-Gegenstaende: %d ohne Kennzeichnung (%s)", weg, an ? "im Coop-Inventar" : "keine Spiegelung");
         MiKennAktiv = an;
@@ -2024,15 +2554,66 @@ namespace GOTHIC_ENGINE {
         return name && desc && zeile ? 1 : 0;
     }
 
+    // u160 (P166, Testlauf): alle Infozeilen des Gegenstands inst belegen (kein Platz fuer die Kennzeichnung), dann dreimal kennzeichnen.
+    // Rueckgabe: wie oft der zweite und dritte Durchgang noch eine Aenderung meldeten (soll 0), -1 nicht im Inventar. Danach wie vorher.
+    int CoopMissionTestFullLines(const char* inst) {
+        if (!player || !inst)
+            return -1;
+        oCItem* it = NULL;
+        player->inventory2.UnpackAllItems();
+#if ENGINE >= Engine_G2
+        for (zCListSort<oCItem>* n = player->inventory2.inventory.next; n && !it; n = n->next)
+            if (n->data && !strcmp(n->data->GetInstanceName().ToChar(), inst))
+                it = n->data;
+#else
+        for (int c = 0; c < INV_MAX && !it; c++)
+            for (zCListSort<oCItem>* n = player->inventory2.inventory[c].next; n && !it; n = n->next)
+                if (n->data && !strcmp(n->data->GetInstanceName().ToChar(), inst))
+                    it = n->data;
+#endif
+        if (!it)
+            return -1;
+        zSTRING text[ITM_TEXT_MAX];
+        int count[ITM_TEXT_MAX];
+        for (int i = 0; i < ITM_TEXT_MAX; i++) {
+            text[i] = it->text[i];
+            count[i] = it->count[i];
+            it->text[i] = zSTRING(("Coop-Test " + std::to_string(i + 1)).c_str());
+            it->count[i] = i + 1;
+        }
+        int n = 0;
+        for (int k = 0; k < 3; k++)
+            if (MiKennSetzen(it, true) && k > 0)
+                n++;
+        for (int i = 0; i < ITM_TEXT_MAX; i++) {
+            it->text[i] = text[i];
+            it->count[i] = count[i];
+        }
+        MiKennSetzen(it, MiSpiegelt());
+        return n;
+    }
+
+    // u149 (P152): Spiegelungen des Partners, solange der Held verwandelt ist
+    static std::vector<std::pair<json, std::string>> MiWaiting;
+    static void MiApply(const json& d, const std::string& by);
+
     // Game_Loop (CoopDialogSyncPulse): Bestand vergleichen, Aenderungen an den Partner
+    // u149 (P152, Lauf b118: "Missions-Gegenstaende: ALTESSCHWERT -4, ITAT_CRAWLERQUEEN -4, ITKE_FOCUS4 -1 ... - an den Partner gespiegelt", beim Host "gespiegelt: ALTESSCHWERT -4 ..."): Verwandelt ist player das Tier mit
+    // leerem Inventar, das galt als Verlust aller Missions-Gegenstaende und nahm sie auch dem Partner. Solange nicht vergleichen; danach neu aufnehmen, der Held hat sein Inventar wieder
     static void CoopMissionPulse() {
         const long long now = GetCurrentMs();
         if (now < MiCheckMs + 300)
             return;
         MiCheckMs = now;
-        if (!player || IsSavingGame || !CoopRuleQuests() || WorldSyncApplying || now < MiQuietUntilMs) {
+        if (!player || IsSavingGame || !CoopRuleQuests() || WorldSyncApplying || now < MiQuietUntilMs || CoopHeroSwapped()) {
             MiBaseKnown = false;
             return;
+        }
+        if (!MiWaiting.empty()) {
+            std::vector<std::pair<json, std::string>> w;
+            w.swap(MiWaiting);
+            for (auto& x : w)
+                MiApply(x.first, x.second);
         }
         std::map<std::string, int> cur;
         MiCount(cur);
@@ -2070,6 +2651,11 @@ namespace GOTHIC_ENGINE {
     static void MiApply(const json& d, const std::string& by) {
         if (!player || !parser || !d.is_array())
             return;
+        if (CoopHeroSwapped()) {   // u149 (P152): Das Tier bekaeme es und naehme es mit - warten, bis der Held zurueck ist (CoopMissionPulse)
+            MiWaiting.push_back(std::make_pair(d, by));
+            DialogLog("Missions-Gegenstaende von %s: Held verwandelt - wartet (%d)", by.c_str(), (int)MiWaiting.size());
+            return;
+        }
         std::string shown;
         WorldSyncApplying++;
         for (auto& x : d) {
@@ -2180,8 +2766,27 @@ namespace GOTHIC_ENGINE {
         if ((!gi.empty() || joinInfo) && e.contains("v") && e["v"].is_array())
             for (auto& v : e["v"])
                 if (v.is_array() && !v.empty() && v.at(0).is_string())
-                    if (zCPar_Symbol* s = parser->GetSymbol(zSTRING(v.at(0).get<std::string>().c_str())))
+                    if (zCPar_Symbol* s = parser->GetSymbol(zSTRING(v.at(0).get<std::string>().c_str()))) {
                         DlgGuildVars.insert(s);
+                        const int k = v.size() > 1 && v.at(1).is_number_integer() ? v.at(1).get<int>() : -1;   // u154 (P159): hier steht noch der Wert davor
+                        if (s->type == zPAR_TYPE_INT && k >= 0 && k < (s->ele > 1 ? (int)s->ele : 1)) {
+                            int cur = 0;
+                            s->GetValue(cur, k);
+                            DlgGuildVarBase.emplace(std::make_pair(s, k), cur);
+                        }
+                    }
+        if (joinInfo && e.contains("i") && e["i"].is_string())   // u150 (P154): gilt auch beim Laden je Held
+            DlgGuildInfos.insert(e["i"].get<std::string>());
+        if ((!gi.empty() || joinInfo) && e.contains("l") && e["l"].is_array())
+            for (auto& jt : e["l"])
+                if (jt.is_object() && jt.contains("t") && jt["t"].is_string())
+                    DlgGuildTopics.insert(jt["t"].get<std::string>());
+        if ((!gi.empty() || joinInfo) && e.contains("p") && e["p"].is_array())   // u152 (P156)
+            for (auto& jn : e["p"]) {
+                DlgGuildNpcNote(jn);
+                if (oCNpc* npc = jn.is_object() && jn.contains("n") && jn["n"].is_string() ? DialogNpcByName(jn["n"].get<std::string>()) : NULL)   // u154 (P159)
+                    DlgGuildNpcBaseKeep(jn, npc->attitude, npc->tmp_attitude, npc->aiscriptvars);
+            }
         if (joinInfo || (!gi.empty() && !mineGuild)) {
             const std::string what = e.contains("i") && e["i"].is_string() ? e["i"].get<std::string>() : std::string("Auswahl");
             for (const char* k : { "i", "v", "l", "xp", "p", "it" })
@@ -2244,6 +2849,8 @@ namespace GOTHIC_ENGINE {
         }
         if (e.contains("vid") && CoopRuleQuests())   // u28 (B5); u55 mit Nummer fuers gemeinsame Ueberspringen
             DialogPlayVideo(e["vid"], e.contains("vidno") && e["vidno"].is_number_integer() ? (long)e["vidno"].get<long long>() : 0, by);
+        if (e.contains("exses") && CoopRuleQuests())   // u147 (P149)
+            DialogExitSession(e["exses"], by);
         if (e.contains("l")) {
             logs = DialogApplyLog(e["l"]);
             if (StoryReady || StoryLevelChange)
@@ -2256,6 +2863,8 @@ namespace GOTHIC_ENGINE {
         if (e.contains("p") && sameWorld)
             for (auto& jn : e["p"]) {
                 const std::string n = jn.at("n").get<std::string>();
+                if (e.contains("q"))   // u152 (P156)
+                    DlgGuildNpcStrip(jn);
                 DialogDropPendingNpc(n);   // ein neuerer Stand ersetzt einen noch wartenden
                 if (DialogApplyNpcEntry(jn))
                     npcs++;
@@ -2402,6 +3011,8 @@ namespace GOTHIC_ENGINE {
             if (!tp)
                 continue;
             const std::string name = tp->m_strDescription.ToChar();
+            if (DlgGuildTopics.count(name))   // u150 (P154): gilt je Held wie die Werte aus Gilden-Infos
+                continue;
             auto f = StoryBaseLog.find(name);
             if (f != StoryBaseLog.end() && f->second.st == (int)tp->m_enuStatus
                 && (int)f->second.e.size() == tp->m_lstEntries.GetNumInList())
@@ -2591,7 +3202,7 @@ namespace GOTHIC_ENGINE {
             if (f->second.rtn != rtn)
                 if (zCPar_Symbol* rs = parser->GetSymbol(rtn))
                     jn["r"] = rs->name.ToChar();
-            if (f->second.att != att)
+            if (f->second.att != att && !DlgGuildNpcHas(name))   // u152 (P156): Haltung je Held
                 jn["at"] = att;
             DlgNpcFieldsDiff(f->second.f, fields, jn);
             f->second = { rtn, att, fields };
@@ -2915,6 +3526,29 @@ namespace GOTHIC_ENGINE {
         return CoopVideoForward(true);
     }
 
+    // u147 (P149, siehe DialogExitSession): Die Videos gehen vorher einzeln hinueber, das Sitzungsende kommt also danach an
+    static void DialogSendExitSession(int mode) {
+        json j;
+        j["exses"] = mode;
+        DialogSend(j, SYNC_DIALOG_STATE);
+    }
+
+    void CoopDialogTestExit() {
+        DialogSendExitSession(2);
+    }
+
+#if ENGINE >= Engine_G2
+    static CoopVideoExternal OrigExitSession = NULL;
+
+    static int __cdecl CoopExtExitSession() {
+        if (zCParser::GetParser() == parser && DialogSyncAktiv() && CoopRuleQuests()) {
+            DialogSendExitSession(1);
+            DialogLog("Spielende: Sitzung endet - auch beim Partner");
+        }
+        return OrigExitSession ? OrigExitSession() : 0;
+    }
+#endif
+
     // v49: Npc_CheckInfo(self, important) aus einer Wahrnehmung, die von der Figur eines Mitspielers kommt (OTHER = Figur), meldet
     // "keine Info". Othellos B_InterceptAssessDamage (PERC_ASSESSDAMAGE in vielen Tagesablaeufen) prueft zuerst
     // Npc_CheckInfo(self, 1) und startet bei einer wichtigen Info sofort das Gespraech mit hero (hero.aivar[22] = TRUE,
@@ -3017,6 +3651,9 @@ namespace GOTHIC_ENGINE {
         HostEvInstallOne("WLD_INSERTITEM", OrigWldInsertItem, &CoopExtWldInsertItem);   // u27 (D13d)
         HostEvInstallOne("PLAYVIDEO", OrigPlayVideo, &CoopExtPlayVideo);                // u28 (B5)
         HostEvInstallOne("PLAYVIDEOEX", OrigPlayVideoEx, &CoopExtPlayVideoEx);
+#if ENGINE >= Engine_G2
+        HostEvInstallOne("EXITSESSION", OrigExitSession, &CoopExtExitSession);          // u147 (P149)
+#endif
     }
 
     // Host: ein Original-External mit Parametern ausfuehren (Anfrage eines Clients)
@@ -3384,6 +4021,7 @@ namespace GOTHIC_ENGINE {
         SpawnBaselineDone = false;
         SpawnNextMs = GetCurrentMs() + 2500;
         CoopMissionReset(8000);   // u96: der Bestand kommt aus dem Spielstand (dazu die Uebernahme) - nicht als Aenderung melden
+        MiWaiting.clear();        // u149 (P152)
     }
 
     // --- Coop-Test per Taste (v32, Wunsch des Nutzers: "Simulation mit einem Hotkey") ---------------------
@@ -3419,6 +4057,7 @@ namespace GOTHIC_ENGINE {
 
     void CoopDialogSyncPulse() {
         MiKennPulse(false);   // u104: Kennzeichnung gespiegelter Missions-Gegenstaende (ohne Coop nur zurueck)
+        DlgGuildNpcPendingApply();   // u152 (P156)
         if (!DialogSyncAktiv())
             return;
         CoopMissionPulse();   // u96: Missions-Gegenstaende spiegeln
@@ -3600,6 +4239,12 @@ namespace GOTHIC_ENGINE {
 #else   // Modul in dieser Engine nicht freigegeben (CoopModulesReport)
     void CoopHeroVarsCapture(std::vector<std::pair<std::string, int>>& out) { out.clear(); }   // u15
     int CoopHeroVarsApply(const std::vector<std::pair<std::string, int>>&) { return 0; }
+    void CoopHeroGuildCapture(std::vector<std::string>& out) { out.clear(); }   // u150
+    void CoopHeroGuildNote(const std::vector<std::string>&) {}
+    int CoopHeroGuildNpcsAgain(const std::vector<std::string>&) { return 0; }   // u160
+    int CoopHeroGuildApply(const std::vector<std::string>&, std::string&) { return -1; }
+    void CoopHeroGuildBaseReset() {}   // u154
+    int CoopHeroGuildMerge(std::vector<std::string>&, const std::vector<std::string>&, bool, std::string&) { return 0; }
     bool CoopDialogNpcBusy(oCNpc*) { return false; }
     bool CoopDialogSyncHandles(int) { return false; }
     void CoopDialogSyncReceive(json&, const std::string&) {}
@@ -3612,5 +4257,6 @@ namespace GOTHIC_ENGINE {
     int CoopWorldEntryVarsSet(const json&, const std::string&, bool) { return 0; }
     void CoopMissionReset(int) {}
     int CoopMissionTestMark(const char*) { return -1; }   // u104
+    int CoopMissionTestFullLines(const char*) { return -1; }   // u160
 #endif
 }

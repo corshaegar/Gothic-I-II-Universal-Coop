@@ -1453,6 +1453,8 @@ namespace GOTHIC_ENGINE {
                 }
             }
         }
+        else if (dropResult)
+            CoopNpcDropNote(_this, vob, "fallen gelassen");   // u156 (P161): NPC - Host meldet, Abbild beim Client weg (CoopWorldSync.cpp)
 
         CoopDropRelease(_this, vob, "DoDropVob");
         return dropResult;

@@ -441,13 +441,155 @@ namespace GOTHIC_ENGINE {
         }
     }
 
+    // u151 (P155): Falsche Tote aus Staenden von vor P153. Auswertung der Testlaeufe (Othello, u149): MEATBUG-OW_PATH_MOUNTAINS_05-1 lebt beim Host, beim Client ist er tot, die Pakete des Hosts
+    // schieben die Leiche. Die Todesliste des Hosts sagt nur "tot", nie "lebt", so blieb das in jedem weiteren Stand. Jetzt fragt der Client nach der vollen Liste fuer seine Toten, die nicht
+    // darauf stehen, und der Host nennt, wer bei ihm lebt: Er fuehrt die Welt. Steht der NPC nicht in der Welt, reichen die Leben (CheckInsertNpc setzt ihn dann ein). Eine Leiche geht den Weg
+    // des Spawn-Managers (Disable, SpawnNpc), Enable setzt dabei die Animationen zurueck. Allgemein.
+    static void FarRevive(oCNpc* npc, const std::string& name, const char* why) {
+        const bool active = FarActiveInWorld(npc);
+        const int hpMax = npc->GetAttribute(NPC_ATR_HITPOINTSMAX);
+        const zVEC3 pos = npc->GetPositionWorld();
+        if (active)
+            npc->Disable();
+        npc->state.ClearAIState();
+        npc->ClearEM();
+        npc->SetAttribute(NPC_ATR_HITPOINTS, hpMax > 0 ? hpMax : 1);
+        npc->SetBodyState(BS_STAND);
+        if (!CoopSpawnListHas(npc) && ogame->spawnman)
+            ogame->spawnman->SpawnNpc(npc, pos, 0.f);
+        FarKnownDead.erase(name);
+        FarPending.erase(name);
+        FarPendingAt.erase(name);
+        KilledByPlayerNpcNames.erase(string(name.c_str()));
+        static CoopDiagBudget budget = { 0, 0 };
+        if (CoopDiagAllow(budget, 40))
+            FarLog("Client: %s %s - wieder lebendig (%s)", name.c_str(), why, active ? "Leiche in der Welt" : "nicht in der Welt");
+    }
+
+    // u152 (P157): Leiche mit Leben. Testlauf Othello, u146 bis u151: ORG_825_ORGANISATOR-1 lag beim Client in ZS_DEAD (Koerperzustand 23), die HP-Pakete des Hosts gaben ihm Leben zurueck
+    // (RemoteNpc::UpdateHp), also galt er nicht als tot, und die Nachfrage aus P155 erfasste ihn nicht; die Lage-Pakete schoben die Leiche in jeder Sitzung. Steht ein NPC des Hosts hier 10 s mit
+    // Leben im Todeszustand, steht er auf wie in P155. Die Wartezeit laesst einem gerade getoeteten NPC Zeit fuer die Todesmeldung des Hosts. Allgemein.
+    static std::map<oCNpc*, long long> FarZombieSince;
+
+    static void FarZombieScan() {
+        if (!ClientThread || ServerThread || CoopWpMirroring() || !ogame || !ogame->GetGameWorld())
+            return;
+        const long long now = GetCurrentMs();
+        std::map<oCNpc*, long long> seen;
+        std::vector<std::pair<oCNpc*, std::string>> todo;
+        for (auto* l = CoopWorldNpcListFirst(ogame->GetGameWorld()); l; l = l->next) {
+            oCNpc* npc = l->data;
+            // Koerperzustand tot oder KI noch in ZS_DEAD: Spielt das Paket des Hosts eine Laufanimation, steht der Koerperzustand wieder auf 0 (Testschritt), die KI bleibt tot
+            if (!npc || npc == player || PlayerNpcs.count(npc) || npc->IsDead() ||
+                (npc->GetBodyState() != BS_DEAD && strcmp(npc->state.curState.name.ToChar(), "ZS_DEAD") != 0))
+                continue;
+            auto it = NpcToUniqueNameList.find(npc);
+            if (it == NpcToUniqueNameList.end())
+                continue;
+            auto was = FarZombieSince.find(npc);
+            const long long since = was != FarZombieSince.end() ? was->second : now;
+            if (now - since >= 10000)
+                todo.push_back({ npc, std::string(it->second.ToChar()) });
+            else
+                seen[npc] = since;
+        }
+        FarZombieSince.swap(seen);
+        for (auto& t : todo)
+            FarRevive(t.first, t.second, "liegt mit Leben als Leiche da");
+    }
+
+    // Client: nach der vollen Todesliste die eigenen Toten, die nicht darauf stehen
+    void CoopFarHealAsk() {
+        if (!ClientThread || ServerThread || !ogame || !ogame->GetGameWorld())
+            return;
+        std::vector<std::string> names;
+        for (auto* l = CoopWorldNpcListFirst(ogame->GetGameWorld()); l; l = l->next) {
+            oCNpc* npc = l->data;
+            if (!npc || npc == player || PlayerNpcs.count(npc) || !npc->IsDead())
+                continue;
+            auto it = NpcToUniqueNameList.find(npc);
+            if (it != NpcToUniqueNameList.end() && !FarKnownDead.count(it->second.ToChar()))
+                names.push_back(std::string(it->second.ToChar()));
+        }
+        if (names.empty())
+            return;
+        json j;
+        j["type"] = SYNC_NPC_DEATH;
+        j["id"] = MyselfId.ToChar();
+        j["w"] = CoopWorldName();
+        j["ask"] = names;
+        CoopTraceCount(TRACE_SENT, SYNC_NPC_DEATH);
+        ReadyToSendJsons.enqueue(j);
+        FarLog("Client: %u Tote hier stehen nicht auf der Liste des Hosts - frage nach", (unsigned)names.size());
+    }
+
+    // Host: welche davon leben hier? Die Weltliste statt der Namensliste: Dort kann noch ein Zeiger auf einen weggeraeumten NPC stehen
+    static void FarHealAnswer(json& e) {
+        const std::string w = e.contains("w") && e["w"].is_string() ? e["w"].get<std::string>() : std::string();
+        if (w != CoopWorldName() || !e["ask"].is_array() || !ogame || !ogame->GetGameWorld())
+            return;
+        std::set<std::string> asked;
+        for (auto& d : e["ask"])
+            if (d.is_string())
+                asked.insert(d.get<std::string>());
+        std::vector<std::string> alive;
+        for (auto* l = CoopWorldNpcListFirst(ogame->GetGameWorld()); l; l = l->next) {
+            oCNpc* npc = l->data;
+            if (!npc || npc->IsDead())
+                continue;
+            auto it = NpcToUniqueNameList.find(npc);
+            if (it != NpcToUniqueNameList.end() && asked.count(it->second.ToChar()))
+                alive.push_back(std::string(it->second.ToChar()));
+        }
+        FarLog("Host: Client fragt nach %u Toten, %u leben hier", (unsigned)asked.size(), (unsigned)alive.size());
+        if (alive.empty())
+            return;
+        json j;
+        j["type"] = SYNC_NPC_DEATH;
+        j["id"] = MyselfId.ToChar();
+        j["w"] = w;
+        j["alive"] = alive;
+        CoopTraceCount(TRACE_SENT, SYNC_NPC_DEATH);
+        ReadyToSendJsons.enqueue(j);
+    }
+
+    static void FarHealApply(json& e) {
+        if (!e["alive"].is_array() || !ogame || !ogame->GetGameWorld())
+            return;
+        std::set<std::string> alive;
+        for (auto& d : e["alive"])
+            if (d.is_string())
+                alive.insert(d.get<std::string>());
+        std::vector<std::pair<oCNpc*, std::string>> todo;
+        for (auto* l = CoopWorldNpcListFirst(ogame->GetGameWorld()); l; l = l->next) {
+            oCNpc* npc = l->data;
+            if (!npc || npc == player || PlayerNpcs.count(npc) || !npc->IsDead())
+                continue;
+            auto it = NpcToUniqueNameList.find(npc);
+            if (it != NpcToUniqueNameList.end() && alive.count(it->second.ToChar()))
+                todo.push_back({ npc, std::string(it->second.ToChar()) });
+        }
+        for (auto& t : todo)
+            FarRevive(t.first, t.second, "lebt beim Host - hier tot");
+    }
+
     void CoopFarSyncReceive(json& e, const std::string& id) {
         CoopTraceCount(TRACE_RECV, SYNC_NPC_DEATH);
+        if (e.contains("ask")) {   // u151 (P155)
+            if (ServerThread && !IsLoadingLevel)
+                FarHealAnswer(e);
+            return;
+        }
         if (ServerThread || (!ClientThread && !CoopWpMirroring()) || IsLoadingLevel)
             return;   // der Host (bzw. ein Client allein in seiner Welt) meldet; Clients und der Weltprozess (u46) wenden an
         const std::string w = e.contains("w") && e["w"].is_string() ? e["w"].get<std::string>() : std::string();
         if (w != CoopWorldName())
             return;
+        if (e.contains("alive")) {   // u151 (P155)
+            if (!CoopWpMirroring())
+                FarHealApply(e);
+            return;
+        }
         if (!e.contains("d") || !e["d"].is_array())
             return;
         const long long until = GetCurrentMs() + 15000;
@@ -465,6 +607,8 @@ namespace GOTHIC_ENGINE {
         FarApplyPending();
         if (!e.contains("all") || n)
             FarLog("Client: %d Tod(e) vom Host%s", n, e.contains("all") ? " (volle Liste)" : "");
+        if (e.contains("all") && !CoopWpMirroring())   // u151 (P155)
+            CoopFarHealAsk();
     }
 
     // Gerade abgeglichen? Host: wird gesendet. Client: vom Host gefuehrt (RemoteNpc mit Modell) - sonst sperrt der
@@ -545,8 +689,11 @@ namespace GOTHIC_ENGINE {
             }
             if (ServerThread || alone)
                 FarScanDeaths();
-            else if (!FarPending.empty())
-                FarApplyPending();
+            else {
+                if (!FarPending.empty())
+                    FarApplyPending();
+                FarZombieScan();   // u152 (P157)
+            }
         }
         if (now >= FarNextLogMs) {
             FarNextLogMs = now + 30000;
@@ -574,6 +721,7 @@ namespace GOTHIC_ENGINE {
         FarPendingAt.clear();   // u40
         FarMoveProbe.clear();
         FarMoveProbeMe.clear();
+        FarZombieSince.clear();   // u152 (P157)
     }
 
 #else   // Modul in dieser Engine nicht freigegeben (CoopModulesReport)
@@ -589,6 +737,7 @@ namespace GOTHIC_ENGINE {
     bool CoopSpawnListMove(oCNpc*, const zVEC3&, const char*) { return false; }
     void CoopFarCountLedInsert() {}
     void CoopFarSyncSendAllDead() {}
+    void CoopFarHealAsk() {}   // u151
     void CoopFarSyncReceive(json&, const std::string&) {}
     void CoopFarSyncPulse() {}
     void CoopFarSyncMirrorPulse() {}

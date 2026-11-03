@@ -590,7 +590,7 @@ namespace GOTHIC_ENGINE {
 
     // den Gegenstand ins Inventar, falls er fehlt - nicht, solange der Held etwas benutzt (dann ist er gerade in der Hand)
     static void TruheGeben() {
-        if (!player || player->IsDead() || player->IsUnconscious() || !parser || player->interactItem)
+        if (!player || player->IsDead() || player->IsUnconscious() || !parser || player->interactItem || CoopHeroSwapped())   // u149 (P152): nicht dem Tier
             return;
         if (player->GetBodyState() > BS_SPRINT && !player->inventory2.IsOpen())
             return;

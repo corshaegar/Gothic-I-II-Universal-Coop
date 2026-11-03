@@ -1,5 +1,5 @@
-// Generiert von tools\hooktable.py - nicht von Hand aendern (Quellen, G1-Classic-SDK, GT-Build Gothic1Coop-u143.dll).
-// 8329 Funktionsanfaenge, 59 GT-Haken, 394 von GT aufgerufene Engine-Funktionen.
+// Generiert von tools\hooktable.py - nicht von Hand aendern (Quellen, G1-Classic-SDK, GT-Build Gothic1Coop-u149.dll).
+// 8329 Funktionsanfaenge, 61 GT-Haken, 405 von GT aufgerufene Engine-Funktionen.
 static const DWORD CoopFnStarts[] = {
     0x00401260, 0x004012F0, 0x004013A0, 0x00401430, 0x00401C20, 0x00401D80, 0x00401D90, 0x00401DA0,
     0x00401DE0, 0x00401DF0, 0x00401E00, 0x00401E10, 0x00401E20, 0x00401E30, 0x00401E40, 0x00401E50,
@@ -1120,6 +1120,7 @@ static const CoopFnName CoopFnNames[] = {
     { 0x004997F0, 0, "zCAICamera::GetMode" },
     { 0x00499910, 0, "zCAICamera::SetVob" },
     { 0x00499BC0, 0, "zCAICamera::SetTarget" },
+    { 0x0049D6A0, 1, "zCAICamera::DoAI" },   // Ivk_zCAICamera_DoAI_Coop
     { 0x004B6930, 1, "zCCSCamera::Unarchive" },   // Ivk_zCCSCamera_Unarchive_Coop
     { 0x004B9E20, 1, "zCCSCamera::OnTrigger" },   // Ivk_zCCSCamera_OnTrigger_Coop
     { 0x004BA6F0, 1, "zCCSCamera::OnUntrigger" },   // Ivk_zCCSCamera_OnUntrigger_Coop
@@ -1170,16 +1171,24 @@ static const CoopFnName CoopFnNames[] = {
     { 0x0058A170, 0, "zCObject::SetObjectName" },
     { 0x0058B380, 0, "zCClassDef::ObjectCreated" },
     { 0x0058B4A0, 0, "zCClassDef::ObjectDeleted" },
+    { 0x00595380, 0, "zCRigidBody::SetVelocity" },
+    { 0x00595420, 0, "zCRigidBody::SetMode" },
+    { 0x005D2760, 0, "zCVob::_CreateNewInstance" },
     { 0x005D3730, 0, "zCVob::SetAI" },
     { 0x005D3780, 0, "zCVob::SetVobPresetName" },
+    { 0x005D37A0, 0, "zCVob::GetRigidBody" },
     { 0x005D4970, 0, "zCVob::SetVobName" },
     { 0x005D49B0, 0, "zCVob::GetEM" },
     { 0x005D6670, 0, "zCVob::RemoveVobFromWorld" },
     { 0x005D7250, 0, "zCVob::SetSleeping" },
+    { 0x005D7550, 0, "zCVob::IsOnTimer" },
     { 0x005D8F70, 0, "zCEventMessage::Archive" },
     { 0x005D9170, 0, "zCEventMessage::Unarchive" },
     { 0x005DA1F0, 0, "zCVisual::LoadVisual" },
+    { 0x005DF8C0, 0, "zCTrigger::_CreateNewInstance" },
     { 0x005E34D0, 0, "zCTrigger::TriggerTarget" },
+    { 0x005E3660, 0, "zCTrigger::ActivateTrigger" },
+    { 0x005E37D0, 1, "zCTrigger::OnTouch" },   // Ivk_zCTrigger_OnTouch_Coop
     { 0x005E9A70, 0, "zCVob::GetVisual" },
     { 0x005EE320, 0, "zCVob::RotateWorldY" },
     { 0x005EE650, 0, "zCVob::SetPositionWorld" },
@@ -1189,9 +1198,11 @@ static const CoopFnName CoopFnNames[] = {
     { 0x005F0510, 0, "zCVob::BeginMovement" },
     { 0x005F10C0, 0, "zCVob::GetCollisionObject" },
     { 0x005F46E0, 0, "zCWorld::TraceRayNearestHit" },
+    { 0x005F6340, 0, "zCWorld::AddVob" },
     { 0x00607640, 0, "zCTimer::SetMotionFactor" },
     { 0x00612840, 1, "oCAIHuman::StandActions" },   // Ivk_oCAIHuman_StandActions
     { 0x006168D0, 0, "oCAIHuman_Stand::oCAIHuman_Stand_OnInit" },
+    { 0x0061A970, 0, "oCAIArrow::_CreateNewInstance" },
     { 0x0061B9F0, 0, "oCAniCtrl_Human::InitAnimations" },
     { 0x0061C700, 0, "oCAniCtrl_Human::SearchStandAni" },
     { 0x006255E0, 0, "oCAniCtrl_Human::IsStanding" },
@@ -1304,6 +1315,8 @@ static const CoopFnName CoopFnNames[] = {
     { 0x006B7AA0, 0, "oCNpc::HasPerception" },
     { 0x006B8000, 0, "oCNpc::SetBodyState" },
     { 0x006B8140, 0, "oCNpc::GetBodyState" },
+    { 0x006B8250, 0, "oCNpc::HasBodyStateModifier" },
+    { 0x006B85B0, 0, "oCNpc::ModifyBodyState" },
     { 0x006B86A0, 0, "oCNpc::MakeSpellBook" },
     { 0x006B8B40, 0, "oCNpc::UseStandAI" },
     { 0x006BB2F0, 0, "oCNpc::CloseInventory" },

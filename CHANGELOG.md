@@ -4,6 +4,25 @@ Projektversion (Veröffentlichung) und je Spiel/Mod die Coop-Fassung `uNN`. Vorg
 (github.com/corshaegar/Othello-Coop, 0.1.0–0.1.2, nur Othello). Die Fassungen dazwischen (u1–u61) stehen im Entwicklungsverlauf;
 hier beginnt der Verlauf mit u62.
 
+## 0.5.0 – Auslöser und Gegenstände der NPCs gemeinsam, eigener Held beim Laden, Gildenfortschritt je Held (Gothic I u160, Gothic II u160, Othello u160)
+
+**Neu**
+
+- **Auslöser** (u146, u158): Auslöser, die ein Pfeil oder Zauber trifft oder die ein Held oder ein NPC betritt, lösen jetzt auch beim Partner aus – etwa die Brücke auf Irdorath, das Haupttor des Alten Lagers, Fallen und Türen in der Krypta und im Adanos-Tempel, in Gothic 1 die Bodenplatten im Schläfertempel. Bisher lief die Kette nur auf dem PC, auf dem sie ausgelöst wurde. Im automatischen Testlauf geprüft, im echten Spielablauf noch nicht gesehen.
+- **Gegenstände der NPCs** (u156–u158): Was NPCs fallen lassen oder werfen (Waffen bei Tod oder Bewusstlosigkeit, Werkzeuge), liegt bei beiden an derselben Stelle. Bisher fiel es auf jedem PC für sich, verschieden weit oder nur auf einer Seite. Pfeile und Bolzen bleiben je PC: Sie stecken im Ziel oder verschwinden nach Sekunden.
+- **Gildenfortschritt je Held, auch beim Laden** (u150, u152, u154, u160): Werte, Gespräche, Tagebuch-Themen und Haltungen von NPCs aus Gilden-Quests und Beitritten bleiben beim eigenen Helden, auch nach gemeinsamem Laden und auch, wenn der Partner nie dabei war. Bisher bekam der Partner beim Laden den Gildenfortschritt des Hosts und kam danach unter Umständen nicht mehr in seine Gilde. Spielstände von vor u150 haben diese Angaben nicht.
+- **Spielende** (u147, nur Gothic 2): Nach dem Abspann stehen beide im Hauptmenü, nicht nur der, der das letzte Gespräch geführt hat.
+
+**Korrekturen**
+
+- **Eigener Held beim Laden** (u159): Wer selbst einen Spielstand lädt, in dem die Welt des Partners liegt (etwa nach einer Übernahme, beim Neustart), bekommt jetzt seinen eigenen Helden statt einer Kopie des Partner-Helden.
+- **Hebel** (u145, u147): Ziehen beide zugleich am selben Hebel, löst er nur einmal aus; bisher setzten sich Reihenfolge-Rätsel zurück, und Tore gingen auf und gleich wieder zu. Ein Schloss auf einem beweglichen Teil (die letzte Tür auf Irdorath) wird beim Partner gefunden.
+- **NPC-Namen und Tote** (u150–u152): Gleichnamige NPCs, etwa mehrere Goblins einer Gruppe, wurden nach dem Laden auf den beiden PCs vertauscht; ein Tod traf dann beim Partner das falsche Tier. Falsche Tote aus älteren Spielständen und Leichen, die beim Host leben, stehen wieder auf.
+- **Verwandlung** (u149): Während einer Verwandlung oder Beherrschung gibt es keine gemeinsame Sicherung mehr (bisher wurde das Tier zum Helden des Spielstands), und der Abgleich der Missions-Gegenstände nimmt dem Partner nichts weg.
+- **Figur des Partners** (u144): fällt nicht mehr endlos, wenn unter ihr kein Boden ist.
+- **Missions-Gegenstände** (u160, vor allem Gothic 1): Ein Gegenstand, dessen Infozeilen alle belegt sind, wurde zweimal je Sekunde neu gekennzeichnet.
+- **Abstürze:** Laden mitten im Gespräch (u155); Zauberwechsel eines NPCs (u146); Weltprozess im ersten Bild nach einem Weltwechsel, jetzt allgemein abgefangen (u148); Gothic-1-Client beim Laden mit eigenen Gilden-Themen (u153).
+
 ## 0.4.1 – Türen gemeinsam (Gothic I u143, Gothic II u143, Othello u143)
 
 - **Türen** (u143): Öffnen, Schließen und Aufschließen durch einen Helden gelten jetzt für beide. 0.4.0 nannte Türen schon, tatsächlich kam der Abgleich dort nie an: Die Engine ruft bei Türen die Funktion nicht auf, an der er hing. NPCs benutzen Türen weiter je PC, offen oder zu kann also abweichen, wenn ein NPC durchgeht.

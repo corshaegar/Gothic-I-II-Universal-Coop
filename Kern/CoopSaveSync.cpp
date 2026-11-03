@@ -82,6 +82,14 @@ namespace GOTHIC_ENGINE {
     // u15: CoopDialogSync.cpp - Heldenwerte in globalen Skriptvariablen (D10, zur Laufzeit erkannt) als "NAME" bzw. "NAME[idx]"
     void CoopHeroVarsCapture(std::vector<std::pair<std::string, int>>& out);
     int CoopHeroVarsApply(const std::vector<std::pair<std::string, int>>& in);
+    // u150 (P154): CoopDialogSync.cpp - Gildenfortschritt des eigenen Helden (Werte aus Gilden-Infos, erzaehlte Gilden-Infos, Tagebuch-Themen)
+    void CoopHeroGuildCapture(std::vector<std::string>& out);
+    void CoopHeroGuildNote(const std::vector<std::string>& in);
+    int CoopHeroGuildApply(const std::vector<std::string>& in, std::string& text);
+    // u154 (P159): Stand vor dem ersten Gilden-Info; Gildenfortschritt des Hosts, bei dem der eigene Held nie dabei war
+    void CoopHeroGuildBaseReset();
+    int CoopHeroGuildMerge(std::vector<std::string>& own, const std::vector<std::string>& host, bool fromWorld, std::string& text);
+    int CoopHeroGuildNpcsAgain(const std::vector<std::string>& in);   // u160 (P167)
 
 #if COOP_BUILD(Save)   // u3: bis u2 nur G1 - Freigabe je Engine in CoopCore.cpp
 
@@ -119,12 +127,14 @@ namespace GOTHIC_ENGINE {
         int hit[NPC_HITCHANCE_MAX] = {};
         std::vector<std::pair<std::string, int>> hvars;
 #endif
+        std::vector<std::string> gstate;   // u150 (P154): Gildenfortschritt (CoopDialogSync.cpp)
         std::vector<CoopHeroItem> items;
         // v22: eigene Lage - sonst steht man nach der Uebernahme dort, wo der Held des anderen stand
         bool hasPos = false;
         float pos[3] = {}, at[3] = {};
         std::string world;
         bool exact = false;   // v89: Lage gehoert zu genau diesem Stand (sonst neben den Helden des Stands, CoopPlaceBesideHost)
+        std::string pc;       // u159 (P165): PC, dessen Held das ist (COOPHERO.TXT ab u159; leer = aelter)
     };
 
     // Uebernahme einer fremden Welt (laeuft ueber mehrere Frames)
@@ -140,6 +150,7 @@ namespace GOTHIC_ENGINE {
         bool backupWanted = true;
         bool requested = false;
         CoopHero hero;
+        bool heroNow = false;        // u154 (P159): Held aus der laufenden eigenen Welt (StartTakeJob, "aktueller Stand")
         std::string run;             // v93: Durchlauf - die Partnerkopie kommt in dessen Archiv-Ordner
     };
 
@@ -1258,6 +1269,7 @@ namespace GOTHIC_ENGINE {
         h.hasHit = true;
         CoopHeroVarsCapture(h.hvars);
 #endif
+        CoopHeroGuildCapture(h.gstate);   // u150 (P154)
         const zVEC3 p = player->GetPositionWorld();
         const zVEC3 a = player->GetAtVectorWorld();
         for (int k = 0; k < 3; k++) {
@@ -1284,7 +1296,9 @@ namespace GOTHIC_ENGINE {
     static void CoopHeroWrite(const std::string& dir, const CoopHero& h) {
         if (!h.valid)
             return;
-        std::string s = "v=2\natr=";
+        // u159 (P165): COOPHERO.TXT schreibt jeder PC nur fuer seinen eigenen Helden (eigene Sicherung, Uebernahme) - die PC-Kennung
+        // zeigt beim Laden eines Slots mit fremder Welt, ob der Held darin der eigene ist
+        std::string s = "v=2\npc=" + CoopMyPc() + "\natr=";
         char b[400];
         for (int a = 0; a < NPC_ATR_MAX; a++) {
             _snprintf(b, sizeof(b), "%d%s", h.atr[a], a + 1 < NPC_ATR_MAX ? "," : "\n");
@@ -1315,6 +1329,8 @@ namespace GOTHIC_ENGINE {
             s += b;
         }
 #endif
+        for (auto const& g : h.gstate)   // u150 (P154)
+            s += "gs=" + g + "\n";
         if (h.hasPos) {
             _snprintf(b, sizeof(b), "pos=%.1f,%.1f,%.1f\nat=%.4f,%.4f,%.4f\nworld=%s\n", h.pos[0], h.pos[1], h.pos[2], h.at[0], h.at[1], h.at[2], h.world.c_str());
             b[sizeof(b) - 1] = 0;
@@ -1364,6 +1380,8 @@ namespace GOTHIC_ENGINE {
             else if (k == "lp") h.lp = strtoul(v.c_str(), NULL, 10);
             else if (k == "guild") h.guild = atoi(v.c_str());
             else if (k == "trueguild") h.trueGuild = atoi(v.c_str());
+            else if (k == "pc") h.pc = v;   // u159 (P165)
+            else if (k == "gs") h.gstate.push_back(v);   // u150 (P154)
             else if (k == "tal") {
                 size_t s = 0;
                 while (s < v.size()) {
@@ -1583,6 +1601,11 @@ namespace GOTHIC_ENGINE {
         const int hv = CoopHeroVarsApply(h.hvars);
         SaveSyncLog("eigener Held: %s, %d Heldenwerte in Skriptvariablen", h.hasHit ? "Trefferchancen" : "keine Trefferchancen (alter Stand)", hv);
 #endif
+        std::string guildText;
+        if (CoopHeroGuildApply(h.gstate, guildText) >= 0)   // u150 (P154)
+            SaveSyncLog("eigener Gildenfortschritt: %s", guildText.c_str());
+        else
+            SaveSyncLog("eigener Gildenfortschritt: alter Stand ohne Angaben, es bleibt der aus dem geladenen Stand");
         WorldSyncApplying--;
         CoopMissionReset(3000);   // u96: der eigene Held kam mit seinen Missions-Gegenstaenden zurueck - nicht als Aenderung spiegeln
 
@@ -1632,6 +1655,8 @@ namespace GOTHIC_ENGINE {
         if (IsLoadingLevel || IsSavingGame) { why = CoopTr("Laden/Speichern l" "\xE4" "uft", "loading/saving"); return false; }
         if (!player || !ogame->savegameManager) { why = CoopTr("kein Held", "no hero"); return false; }
         if (player->IsDead() || player->IsUnconscious()) { why = CoopTr("Held tot/bewusstlos", "hero dead/unconscious"); return false; }
+        // u149 (P152): Lauf b118: "Slot 8 gespeichert" mit der Fleischwanze als Spieler, nach dem Laden war das Tier der Held (Gilde 23, Kampftalente 0, Inventar leer). Eigene Sicherung, Auto-Sicherung und Mitspeichern warten
+        if (CoopHeroSwapped()) { why = CoopTr("Held verwandelt", "hero transformed"); return false; }
         if (IsPlayerTalkingWithAnybody() || !oCInformationManager::GetInformationManager().IsDone) { why = CoopTr("Dialog", "dialogue"); return false; }
         if (player->inventory2.IsOpen()) { why = CoopTr("Inventar offen", "inventory open"); return false; }
         const int bs = player->GetBodyState();
@@ -1693,6 +1718,10 @@ namespace GOTHIC_ENGINE {
     // Zeiten stehen - der naechste Ladevorgang in einem Dialog haette ihn sofort beendet statt 15 s zu warten. Jeder Ladevorgang
     // fragt hier in jedem Bild; laenger als 2 s keine Frage = neuer Ladevorgang, Zeiten zuruecksetzen.
     static long long CoopLoadBlockAskMs = 0;
+    // u155 (P160): Ladevorgaenge, die auf einen Dialog gewartet haben (Testlauf), und einmal ohne dieses Warten laden (Testlauf: das
+    // Beenden beim Ladebeginn pruefen, CoopDialogWatch.cpp)
+    static int CoopLoadDialogWaits = 0;
+    static bool CoopLoadDialogNoWait = false;
 
     static bool CoopLoadBlockedByMenu(const char* what) {
         if (CurrentMs - CoopLoadBlockAskMs > 2000)
@@ -1727,8 +1756,14 @@ namespace GOTHIC_ENGINE {
             return false;
         oCInformationManager& im = oCInformationManager::GetInformationManager();
         if (!im.IsDone || IsPlayerTalkingWithAnybody()) {
+            if (CoopLoadDialogNoWait) {
+                CoopLoadDialogNoWait = false;
+                SaveSyncLog("%s: Testlauf - lade mitten im Dialog (P160)", what);
+                return false;
+            }
             if (!CoopLoadDialogWaitMs) {
                 CoopLoadDialogWaitMs = CurrentMs;
+                CoopLoadDialogWaits++;
                 SaveSyncLog("%s wartet: Dialog l\xE4uft - geladen wird nach dem Dialog (sp\xE4testens in 15 s)", what);
                 ChatLog(CoopTr("Gleich wird geladen - nach dem Dialog (sp\xE4testens in 15 s).", "Loading soon - after the dialogue (within 15 s)."), zCOLOR(255, 200, 80, 255));
             }
@@ -2259,11 +2294,85 @@ namespace GOTHIC_ENGINE {
     }
 
     static int CoopEntryVarsSlot = -1;   // u140 (P139): dieser Slot wird gerade geladen
+    static bool TestLoadAlone = false;   // u159 (P165): Testlauf - der naechste eigene Ladevorgang nur fuer mich (CoopSaveSyncTestOwnLoad)
+
+    // u159 (P165): eigener Ladevorgang eines Slots mit fremder Welt. Nach einer Uebernahme ohne eigene Kopie danach (der Partner laedt,
+    // eigener Ladewunsch) liegen im Slot die Welt des Partners und darin sein Held - der eigene steht nur in der COOPHERO.TXT des Slots.
+    // Testlauf b181: Der Host lud so einen Slot beim Neustart aus dem Hauptmenue und war danach ein Klon des Clients, sein Fortschritt
+    // weg. Wie die F9-Liste den eigenen Helden einsetzen, auch ohne Verbindung: die COOPHERO.TXT des Slots, wenn sie von diesem PC ist
+    // (vor u159 ohne PC-Kennung: Art "uebernommen"), sonst die eigene Kopie dieser Kennung, sonst die zeitlich naechste. Allgemein.
+    static void OwnLoadForeignHero(int slot) {
+        const std::string dir = CoopSlotDir(slot);
+        CoopSaveMeta m;
+        if (!CoopReadMeta(dir, m) || m.src.empty() || CoopMetaMine(m))
+            return;
+        CoopHero h;
+        std::string from;
+        if (CoopHeroRead(dir, h) && (h.pc.empty() ? m.kind == "uebernommen" : h.pc == CoopMyPc())) {
+            h.exact = h.hasPos;   // die Uebernahme speichert nur die Lage genau dieses Stands mit
+            from = "dem Slot";
+        }
+        else {
+            h = CoopHero();
+            const std::string own = m.sid.empty() ? std::string() : CoopOwnCopyDir(m.sid);
+            if (!own.empty() && CoopHeroRead(own, h)) {
+                h.exact = true;
+                from = "der eigenen Kopie " + m.sid;
+            }
+            else {
+                h = CoopHero();
+                long long diff = -1;
+                const long long stime = m.stime > 0 ? m.stime : CoopFileUnixTime(dir + "SAVEINFO.SAV");
+                const std::string nearDir = stime > 0 ? CoopNearestOwnHeroDir(stime, diff) : std::string();
+                if (!nearDir.empty() && CoopHeroRead(nearDir, h)) {
+                    char b[64];
+                    _snprintf(b, sizeof(b), " (%.1f h Abstand)", diff / 3600.0);
+                    b[sizeof(b) - 1] = 0;
+                    from = "dem zeitlich naechsten Stand " + nearDir + b;
+                }
+                else
+                    h = CoopHero();
+            }
+        }
+        if (!h.valid) {
+            SaveSyncLog("lade Slot %d mit der Welt von %s (%s): kein eigener Held gefunden - es bleibt der Held aus dem Stand", slot, m.src.c_str(), m.kind.c_str());
+            return;
+        }
+        PendingHeroApply = true;
+        PendingHeroSetMs = GetCurrentMs();
+        PendingHero = h;
+        PendingHeroSrc = m.srcname.empty() ? m.src : m.srcname;
+        SaveSyncLog("lade Slot %d mit der Welt von %s (%s): eigener Held aus %s (Stufe %d, %u Gegenstaende)", slot, m.src.c_str(), m.kind.c_str(),
+            from.c_str(), h.level, (unsigned)h.items.size());
+    }
+
+    // u160 (P167): eigener Ladevorgang eines eigenen Stands - die Haltungen je Held (gs=Q) der eigenen COOPHERO.TXT gelten wieder, sobald die
+    // Namensliste steht, wie nach einer Uebernahme (P156: "beim Laden gelten die eigenen"). Release-Test 0.5.0: In Gothic 1 und Othello
+    // hatte der Host nach dem eigenen Laden den Wert von vor seinem Gildenfortschritt (im Stand 3, danach 2), Gothic 2 behielt ihn.
+    static void OwnLoadGuildNpcs(int slot) {
+        const std::string dir = CoopSlotDir(slot);
+        CoopSaveMeta m;
+        CoopHero h;
+        if ((CoopReadMeta(dir, m) && !CoopMetaMine(m)) || !CoopHeroRead(dir, h) || (!h.pc.empty() && h.pc != CoopMyPc()))
+            return;
+        const int n = CoopHeroGuildNpcsAgain(h.gstate);
+        if (n > 0)
+            SaveSyncLog("lade Slot %d: %d Haltungen des eigenen Helden vorgemerkt (gelten, sobald die Namensliste steht)", slot, n);
+    }
 
     void CoopSaveSyncOnLoadBegin() {
         const int slot = UnionCore::SaveLoadGameInfo.slotID;
         CoopEntryVarsSlot = slot;
+        const bool alone = TestLoadAlone;   // u159 (P165)
+        TestLoadAlone = false;
         CoopMenuLoadDeferred = false;
+        CoopLoadDialogNoWait = false;   // u155 (P160): gilt nur fuer diesen Ladevorgang
+        CoopHeroGuildBaseReset();   // u154 (P159): der Stand vor den Gilden-Infos gehoert zum geladenen Stand
+        if (slot >= 1) {   // u150 (P154): auch nach einem Neustart gelten die Werte dieses Stands weiter je Held
+            CoopHero stand;
+            if (CoopHeroRead(CoopSlotDir(slot), stand))
+                CoopHeroGuildNote(stand.gstate);
+        }
         CoopLastLoadSid.clear();   // u30
         if (!CoopActiveRemoteSid.empty()) {   // wir laden auf Wunsch des Partners
             CoopLastLoadSid = CoopActiveRemoteSid;
@@ -2277,17 +2386,22 @@ namespace GOTHIC_ENGINE {
             return;
         }
         // Eigener Ladevorgang: ein noch offener Held gehoert nicht zu diesem Stand (ausser aus der F9-Liste)
+        const bool fromList = PendingHeroLocalOk;
         if (!PendingHeroLocalOk)
             PendingHeroApply = false;
         PendingHeroLocalOk = false;
+        if (slot >= 1 && !fromList)   // u159 (P165): Slot mit fremder Welt - eigener Held, auch ohne Verbindung
+            OwnLoadForeignHero(slot);
+        if (slot >= 1 && !PendingHeroApply)   // u160 (P167): eigener Stand - eigene Haltungen je Held neu
+            OwnLoadGuildNpcs(slot);
         PostTakeSid.clear();   // v76: eigene Kopie nach einer Uebernahme - der Stand ist jetzt ein anderer
         PostTakeSidNext.clear();
         if (slot >= 1)   // v93: eigener Ladevorgang - es gilt der Durchlauf dieses Stands (auch ohne Coop; leer = aelterer Stand)
             CoopRunSet(CoopSlotRun(slot), "eigener Ladevorgang");
         if (slot < 0 || !SaveSyncAktiv())
             return;
-        if (CoopSyncSuspended()) {   // v76: Pause/Stoerung - nur fuer mich
-            SaveSyncLog("lade Slot %d - %s: nur fuer mich, der Partner laedt nicht mit", slot, IsCoopPaused ? "Pause" : "Verbindung gestoert");
+        if (CoopSyncSuspended() || alone) {   // v76: Pause/Stoerung - nur fuer mich; u159 (P165): Testlauf
+            SaveSyncLog("lade Slot %d - %s: nur fuer mich, der Partner laedt nicht mit", slot, alone ? "Testlauf" : IsCoopPaused ? "Pause" : "Verbindung gestoert");
             RemoteLoadPending = false;
             RemoteSaveQueue.clear();
             TakeJob.active = false;
@@ -2457,6 +2571,7 @@ namespace GOTHIC_ENGINE {
         }
         else {
             TakeJob.hero = CoopHeroCapture();
+            TakeJob.heroNow = true;
             SaveSyncLog("Uebernahme %s von %s: eigener Held = aktueller Stand", sid.c_str(), src.c_str());
         }
         ChatLog(string::Combine(CoopTr("\xDC" "bernehme den Stand von %s - eigener Held bleibt erhalten.", "Taking over %s's state - your own hero is kept."), string(src.c_str())));
@@ -2474,6 +2589,11 @@ namespace GOTHIC_ENGINE {
             m.srcpc = TakeJob.srcpc;
         m.kind = "uebernommen";
         m.slot = slot;
+        // u154 (P159): Gildenfortschritt des Hosts, bei dem der eigene Held nie dabei war - Namen aus der COOPHERO.TXT des Hosts, Werte aus der eigenen Welt bzw. vom Stand davor
+        CoopHero srcHero;
+        std::string guildText;
+        if (CoopHeroRead(from, srcHero) && CoopHeroGuildMerge(TakeJob.hero.gstate, srcHero.gstate, TakeJob.heroNow && player, guildText) > 0)
+            SaveSyncLog("Uebernahme %s: Gildenfortschritt von %s, bei dem ich nicht dabei war: %s", TakeJob.sid.c_str(), TakeJob.src.c_str(), guildText.c_str());
         // v76 (S4): Slot sicher ersetzen und pruefen; Schnellleiste, Kennung und Held kommen vor dem Tausch dazu
         std::string why;
         const int n = CoopSlotReplace(slot, from, [&](const std::string& d) {
@@ -3975,6 +4095,20 @@ namespace GOTHIC_ENGINE {
         }
     }
 
+    // u31 (P71): Ladeauftrag eines fremden Stands, bei dem ich in einer anderen Welt war als der Ladende - HandleRemoteLoad laedt dann
+    // sofort meine eigene Kopie
+    static bool RemoteLoadOwnWorld(const CoopSaveMeta& r, bool targeted, CoopSaveMeta& mine) {
+        const std::string ownDir = CoopOwnCopyDir(r.sid);
+        return !targeted && !r.list && !ownDir.empty() && CoopReadMeta(ownDir, mine) && !mine.world.empty() && !r.world.empty() &&
+            SaveSyncUpper(mine.world) != SaveSyncUpper(r.world);
+    }
+
+    // u155 (P160): ... und wartet darum wie ein eigener Stand auf Menue und Dialog (CoopLoadBlockedByMenu). Bis u154 wartete nur ein
+    // Stand mit meiner Welt (CoopMetaMine, CoopSaveSyncPulse): der Client lud mitten im Gespraech mit Andre, danach der Absturz
+    // (CoopDialogWatch.cpp). Entschieden wird je Auftrag einmal, wenn die eigene Kopie da ist (u55 holt sie vorher zurueck).
+    static std::string RemoteLoadOwnSid;
+    static bool RemoteLoadOwnTargeted = false, RemoteLoadOwn = false;
+
     static void HandleRemoteLoad() {
         // u55: eigene Kopie dieser Kennung fehlt (Saves verloren) - erst aus der Sicherung beim Ladenden zurueckholen (bis 150 s, der
         // Auftrag bleibt so lange offen), dann wie gewohnt: eigene Welt (P71) bzw. Uebernahme mit dem eigenen Helden daraus. Nicht bei
@@ -3995,6 +4129,15 @@ namespace GOTHIC_ENGINE {
                     return;   // RemoteLoadPending bleibt - naechstes Bild wieder
             }
         }
+        if (RemoteLoadOwnSid != RemoteLoad.sid || RemoteLoadOwnTargeted != RemoteLoadTargeted) {   // u155 (P160)
+            CoopSaveMeta mine;
+            RemoteLoadOwnSid = RemoteLoad.sid;
+            RemoteLoadOwnTargeted = RemoteLoadTargeted;
+            RemoteLoadOwn = !RemoteLoad.sid.empty() && !CoopMetaMine(RemoteLoad) && RemoteLoadOwnWorld(RemoteLoad, RemoteLoadTargeted, mine);
+        }
+        if (RemoteLoadOwn && CoopLoadBlockedByMenu("Ladeauftrag"))
+            return;   // RemoteLoadPending bleibt - naechstes Bild wieder
+        RemoteLoadOwnSid.clear();
         RemoteLoadPending = false;
         const CoopSaveMeta r = RemoteLoad;
         const bool targeted = RemoteLoadTargeted;
@@ -4015,9 +4158,7 @@ namespace GOTHIC_ENGINE {
         bool ownWorld = false;
         if (!CoopMetaMine(r)) {   // v76: nach PC-Kennung
             CoopSaveMeta mine;
-            const std::string ownDir = CoopOwnCopyDir(r.sid);
-            if (!targeted && !r.list && !ownDir.empty() && CoopReadMeta(ownDir, mine) && !mine.world.empty() && !r.world.empty() &&
-                SaveSyncUpper(mine.world) != SaveSyncUpper(r.world)) {
+            if (RemoteLoadOwnWorld(r, targeted, mine)) {
                 ownWorld = true;
                 SaveSyncLog("Laden %s: beim Speichern war ich in %s, %s in %s - lade meine eigene Kopie (eigene Welt und Lage), keine Uebernahme",
                     r.sid.c_str(), mine.world.c_str(), r.by.c_str(), r.world.c_str());
@@ -4758,6 +4899,7 @@ namespace GOTHIC_ENGINE {
         if (RemoteLoadPending) {
             // v80: eigene Welt wird sofort geladen - bei offenem Menue warten; fremde Welt startet nur die Uebernahme
             // (Dateien kommen auch bei offenem Menue, geladen wird in TakeJobPulse)
+            // u155 (P160): ein fremder Stand, zu dem ich meine eigene Kopie in meiner Welt lade (u31, P71), wartet in HandleRemoteLoad
             if (!RemoteLoad.sid.empty() && CoopMetaMine(RemoteLoad) && CoopLoadBlockedByMenu("Ladeauftrag"))
                 return;
             HandleRemoteLoad();
@@ -5049,6 +5191,57 @@ namespace GOTHIC_ENGINE {
 
     std::string CoopSaveSyncLastLoadSid() {
         return CoopLastLoadSid;
+    }
+
+    // u155 (P160): Testlauf - der naechste Ladevorgang wartet nicht auf den Dialog; Zahl der Ladevorgaenge, die darauf gewartet haben
+    void CoopSaveSyncTestLoadInDialog() {
+        CoopLoadDialogNoWait = true;
+    }
+
+    int CoopSaveSyncDialogWaits() {
+        return CoopLoadDialogWaits;
+    }
+
+    // u159 (P165): Testlauf - Slot, in dem eine Uebernahme die Welt des Partners zu dieser Kennung hinterlassen hat; -1 = keiner
+    int CoopSaveSyncTestTakeSlot(const std::string& sid) {
+        for (int s = 1; s <= (int)CoopAddr::saveSlotCount && !sid.empty(); s++) {
+            CoopSaveMeta m;
+            if (CoopReadMeta(CoopSlotDir(s), m) && m.sid == sid && m.kind == "uebernommen" && !m.src.empty() && !CoopMetaMine(m))
+                return s;
+        }
+        return -1;
+    }
+
+    // u159 (P165): Testlauf - die COOPHERO.TXT dieses Slots bekommt eine Marke (EP + mark), dann laedt der Slot nur hier (der Partner
+    // nicht). expWant = EP mit Marke - die muss danach der eigene Held haben.
+    bool CoopSaveSyncTestOwnLoad(int slot, int mark, int& expWant, std::string& why) {
+        if (!player || IsLoadingLevel || TakeJob.active || RemoteLoadPending || OwnListLoadSlot >= 0) {
+            why = "Laden oder Uebernahme laeuft";
+            return false;
+        }
+        CoopHero h;
+        if (slot < 1 || !CoopHeroRead(CoopSlotDir(slot), h)) {
+            why = "keine COOPHERO.TXT im Slot";
+            return false;
+        }
+        h.exp += mark;
+        CoopHeroWrite(CoopSlotDir(slot), h);
+        expWant = (int)h.exp;
+        TestLoadAlone = true;
+        CoopSaveSyncLoadSoon(slot);
+        return true;
+    }
+
+    // u159: Marke zurueck; ein nicht begonnener Ladevorgang verfaellt
+    void CoopSaveSyncTestOwnLoadEnd(int slot, int mark) {
+        TestLoadAlone = false;
+        if (OwnListLoadSlot == slot)
+            OwnListLoadSlot = -1;
+        CoopHero h;
+        if (slot >= 1 && CoopHeroRead(CoopSlotDir(slot), h)) {
+            h.exp -= mark;
+            CoopHeroWrite(CoopSlotDir(slot), h);
+        }
     }
 
     // v55: Kennung, Name und Zeit eines Slots (Spielstand-Liste im COOP-Menue). Zeit als "TT.MM.JJJJ hh:mm".
@@ -5364,6 +5557,11 @@ namespace GOTHIC_ENGINE {
     void CoopResyncReceive(json&, const std::string&) {}
     void CoopSaveSyncOnSaveEnd() {}
     void CoopSaveSyncOnLoadBegin() {}
+    void CoopSaveSyncTestLoadInDialog() {}         // u155
+    int CoopSaveSyncDialogWaits() { return 0; }
+    int CoopSaveSyncTestTakeSlot(const std::string&) { return -1; }   // u159
+    bool CoopSaveSyncTestOwnLoad(int, int, int&, std::string& why) { why = "Speichern-Modul aus"; return false; }
+    void CoopSaveSyncTestOwnLoadEnd(int, int) {}
     void CoopSaveSyncWorldLoaded() {}
     void CoopSaveSyncApplyHeroAtLoad() {}
     void CoopSaveSyncEntryVarsAtLoad() {}   // u140
