@@ -178,8 +178,10 @@ namespace GOTHIC_ENGINE {
     // External AI_Teleport(self, waypoint) - beim Wirken der Coop-Rune: Ziel Mitspieler
     static int __cdecl CoopExtAiTeleport() {
         zCParser* p = zCParser::GetParser();
-        if (!TpCasting || !p || p != parser)
+        if (!TpCasting || !p || p != parser) {
+            CoopHostEvNpcTeleportPeek();   // u195 (P200): beim Client einen NPC des Hosts auch beim Host teleportieren (CoopDialogSync.cpp)
             return TpOrigAiTeleport ? TpOrigAiTeleport() : 0;
+        }
         zSTRING wp;
         p->GetParameter(wp);   // letzter Parameter zuerst
         oCNpc* self = (oCNpc*)p->GetInstance();
@@ -320,8 +322,10 @@ namespace GOTHIC_ENGINE {
                 ok = true;
             }
         }
-        if (!ok)
+        if (!ok) {
             PendingMoveReset = false;
+            player->SetCollDet(TRUE);   // u168 (P175): Vorsicht - Kollision des Helden wieder an
+        }
         TpLog("ueber Welten zu %s: beim Laden %s", TpAcross.id.c_str(), ok ? how.c_str() : "keine Stelle an seiner letzten Lage - Startpunkt");
     }
 
@@ -367,8 +371,10 @@ namespace GOTHIC_ENGINE {
                     ok = true;
                 }
             }
-            if (!ok)
+            if (!ok) {
                 PendingMoveReset = false;
+                player->SetCollDet(TRUE);   // u168 (P175)
+            }
         }
         ChatLog(ok ? string::Combine(CoopTr("Teleport: bei %s in %s.", "Teleport: with %s in %s."), string(TpAcross.nick.c_str()), string(CoopWorldShow(CoopWorldName()).c_str()))
             : string::Combine(CoopTr("Teleport: in %s, aber nicht neben %s.", "Teleport: in %s, but not next to %s."), string(CoopWorldShow(CoopWorldName()).c_str()), string(TpAcross.nick.c_str())),
@@ -407,6 +413,7 @@ namespace GOTHIC_ENGINE {
         }
         if (!ok) {
             PendingMoveReset = false;
+            player->SetCollDet(TRUE);   // u168 (P175)
             ChatLog(CoopTr("Teleport: beim Mitspieler ist kein Platz.", "Teleport: no room next to your partner."), zCOLOR(255, 200, 80, 255));
         }
         TpLog("zu %s (%.1f m entfernt): %s", PlayerNpcs.count(t) ? PlayerNpcs[t].ToChar() : "?", (at - from).LengthApprox() / 100.f, how.c_str());

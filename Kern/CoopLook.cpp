@@ -596,7 +596,15 @@ namespace GOTHIC_ENGINE {
         return "Aussehen von " + who + " " + "\xFC" "bernommen" + (matches > 1 ? " - " + std::to_string(matches) + " Treffer, genauer eingeben f\xFC" "r andere." : ".");
     }
 
+    // u176: Vorfuehrung fuer Aufnahmen (CoopShow.cpp) - Aussehen wie ein NPC (Nutzer: "kannst du die Charakter anders aussehen lassen
+    // vielleicht Gorn und Diego"), wie nach dem Eingabefeld "Aussehen wie NPC"
+    std::string CoopLookTakeNpc(const char* name) {
+        IniSetStr("coopLookNpc", name ? name : "");
+        return CoopLookSearchFromMenu();
+    }
+
 #else   // Modul in dieser Engine nicht freigegeben (CoopModulesReport)
+    std::string CoopLookTakeNpc(const char*) { return std::string(); }   // u176
     bool CoopSettingsRefresh(bool) {
         CoopServerIp = CoopConfig.contains("server") && CoopConfig["server"].is_string() ? CoopConfig["server"].get<std::string>() : std::string("127.0.0.1");
         return false;

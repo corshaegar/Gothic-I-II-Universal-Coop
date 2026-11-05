@@ -4,6 +4,30 @@ Projektversion (Veröffentlichung) und je Spiel/Mod die Coop-Fassung `uNN`. Vorg
 (github.com/corshaegar/Othello-Coop, 0.1.0–0.1.2, nur Othello). Die Fassungen dazwischen (u1–u61) stehen im Entwicklungsverlauf;
 hier beginnt der Verlauf mit u62.
 
+## 0.6.0 – Ein Coop für alle Spiele und Mods, Legend of Ahssun, Mod-Profile (Gothic I u197, Gothic II u197, Othello u197, Legend of Ahssun u197)
+
+**Neu**
+
+- **Ein Coop für alle Spiele und Mods** (u195, u197): Der Installer fragt nicht mehr nach dem Spiel. Er erkennt am Inhalt des Ordners Gothic 1, Othello, Gothic 2 und die Mods darin und zeigt schon vor dem Installieren, welche unterstützt sind. Installiert wird der Coop der Engine mit den Skripten aller Varianten; wechselt die Mod später (GothicStarter, Othello dazu oder weg), stellt sich der Coop beim Start selbst um (Log „Skript-Weiche“). Statt einer ZIP je Spiel gibt es eine Universal-ZIP mit einem Ordner je Engine.
+- **Legend of Ahssun** (Gothic 2, u170–u197): als zweite Mod nach Othello unterstützt, mit eigenem Profil in der Gothic-2-DLL. Der volle automatische Testlauf läuft mit einem Spielstand der Mod durch. Dafür unter anderem: COOP im Hauptmenü von Mods mit Gothics Menüraster (u170); Haken des Coops hinter LeGo-Haken, auch im Weltprozess (u170, u190); Werte von Skript-Bibliotheken (Ikarus, LeGo, Gothic Free Aim) bleiben je PC (u189, u195); Absturz beim Laden behoben, beschädigte Spielstände werden beim Laden repariert (u196); Übung, Talente, Rezepte und Erfolge bleiben beim Verbinden die des eigenen Helden (u197).
+- **Mod-Profile** (u187, u194, u197): Mods, die mit `-game:<ini>` starten, erkennt der Coop allgemein. Was eine Mod braucht, steht in einer Profil-Datei `system\GothicCoopMod-<Ini>.json` statt im Code: Werte je PC (`perPcVars`), Werte, die mit dem eigenen Helden reisen (`heroVars`), Vorgaben für Coop-Schalter (`configDefaults`). Eine Vorlage mit Erklärung liegt jedem Paket bei.
+- **Ereignisse an NPCs des Hosts** (u195): Teleport, Skript-Tod und Entfernen eines NPCs, die ein Dialog oder eine Schleife beim Client auslöst, gelten jetzt auch beim Host (nur mit dem Host in derselben Welt). Im automatischen Testlauf geprüft.
+- **Inventare von NPCs aus Gesprächen** (u163): Was ein Gespräch einem NPC ins Inventar legt oder herausnimmt (etwa die Händlerware beim Kapitelwechsel in Gothic 1), bekommt auch der Partner. Spielstände, in denen der Client schon ein Kapitel wechselte, bekommen die Ware nicht nachträglich.
+- **Bewegliche Teile, die selbst auf Berührung reagieren** (u167): die Zielsteine und ein Tor im Schläfertempel (Gothic 1) und Vinos Kellertür (Gothic 2) bewegen sich jetzt auch beim Partner. Im automatischen Testlauf geprüft, im echten Spielablauf noch nicht gesehen.
+
+**Korrekturen**
+
+- **NPCs beim Client** (u179, u188, u193): werden nach einer gesperrten Reaktion nicht mehr taub (Gespräche, Torwachen) und werden nur noch feindlich, wenn der eigene Held angreift oder angegriffen wird, nicht schon, wenn sie etwas anderes beobachten.
+- **K.o. beim Trinken** (u161): Der Held wacht wieder auf; bisher blieb er liegen (gesehen in Gothic 1).
+- **Treffer** (u165): Zwei Treffer im selben Bild (etwa ein Sturz) spielt der Partner nicht mehr mit zu viel Schaden nach.
+- **Laden und Übernahme** (u168, u178): Der Held des Clients wird nicht mehr an eine Kante gesetzt, von der er abstürzt. Ein Fehler mitten im Laden beendet Gothic, statt es mit halb geladener Welt stehen zu lassen.
+- **Haltungen je Held** (u162): Haltungen aus Gilden-Quests des Host-Helden kommen nicht mehr über den Gesamtstand zum Client.
+- **NPC mit ungültiger Lage** (u164): Ein NPC, dessen Lage ungültig wurde (NaN, nach einer Kampf-Übergabe), wird an seinen Ort gesetzt, auch in bestehenden Spielständen.
+- **Kapitel-Bildschirm** (u182): Der Kapitel-Bildschirm des Partners erscheint sofort, auch mitten im eigenen Gespräch.
+- **Gothic 2** (u195): Ausbaustufe der Klaue Beliars und der Menüstand der Herstell-Stellen bleiben beim eigenen Helden.
+- **Uhr** (u186): Fristen hängen nicht mehr an der Uhrzeit des PCs; ein Zurückstellen der Uhr verschob bisher alle um eine Stunde.
+- **Abstürze:** Pfeilschuss ohne Fernkampfwaffe in der Hand (u173, u177); Aufheben eines schon freigegebenen Gegenstands (u186, Gothic 1); Tod der Figur des Clients beim Host (u186, Gothic 1, Schutz); neu belegter Speicher im Slot-Schutz (u166).
+
 ## 0.5.0 – Auslöser und Gegenstände der NPCs gemeinsam, eigener Held beim Laden, Gildenfortschritt je Held (Gothic I u160, Gothic II u160, Othello u160)
 
 **Neu**

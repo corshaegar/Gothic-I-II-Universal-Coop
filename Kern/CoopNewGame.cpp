@@ -139,6 +139,9 @@ namespace GOTHIC_ENGINE {
                 StorySendSkip(no, "eines Mitspielers an alle weitergegeben");
     }
 
+    // u185 (Nutzer: "ich hatte das video beendet", auf die Frage, ob Esc in Aufnahmen wieder fuer beide gelten soll: "Ja, wieder
+    // erlauben"): Esc beendet ein gemeinsames Story-Video auch in Aufnahmen fuer beide. u184 hatte dort die Tasten gesperrt (P185) - der
+    // Abbruch in b287 kam aber vom Nutzer selbst, kein Fehler. Allgemein G1/G2.
     static int StoryIsPlaying(void* self, int r) {
         const LONG no = StoryVideoNo;
         StoryRelaySkips();
@@ -170,9 +173,23 @@ namespace GOTHIC_ENGINE {
         return r;
     }
 
+    // u170: Autotest mit neuem Spiel bzw. Beitritt aus dem Hauptmenue (CoopAutoTest.cpp) - jedes Video gleich beim ersten IsPlaying wie
+    // mit Esc beenden, bevor ein Bild gezeigt wird. Legend of Ahssun im Fenster: das Intro des neuen Spiels hing in GD3D11
+    // (zCVideoPlayer::Play -> zMouseFix -> g2a_avx2.dll, Warten auf eine Sperre); im Test bringt ein Video ohnehin nichts
+    static volatile LONG IntroAutotestSkip = 0;
+
     // vtable-Platz IsPlaying (thiscall ohne Argumente: this in ecx, fastcall mit unbenutztem edx passt)
+    // u182 (Nutzer zur Aufnahme mit b285: "das video kam auch nicht" beim Client): in Aufnahmen (-coopaufnahme) ein gemeinsames Story-Video
+    // nicht gleich beenden. Der Client beendete Xardas' Intro_ADDON im ersten Bild, der Host zeigte es - so in jeder Aufnahme seit u171.
+    // Jetzt laeuft es bei beiden, Ueberspringen gilt wie sonst fuer beide (StoryIsPlaying). Andere Videos (Intro des neuen Spiels) bleiben
+    // im Autotest aus. Allgemein G1/G2.
     static int __fastcall IntroIsPlaying(void* self, void*) {
         int r = IntroOrigIsPlaying ? IntroOrigIsPlaying(self) : 0;
+        if (r && self && IntroAutotestSkip && StoryTestStopMs <= 0 && !(StoryVideoNo && CoopRecordMode())) {   // u170, u182
+            ((CoopVideoFn)(*(DWORD**)self)[0x20 / 4])(self);   // Stop wie Esc
+            NewGameLog("Autotest: Video %s gleich beendet (Testlauf ohne Videos)", ((zCVideoPlayer*)self)->mVideoFilename.ToChar());
+            return 0;
+        }
         if (self && StoryVideoNo)   // u55: gemeinsames Story-Video
             return StoryIsPlaying(self, r);
         if (!IntroSyncOn || !self)
@@ -269,6 +286,12 @@ namespace GOTHIC_ENGINE {
             no = last + 1;
         last = no;
         return no;
+    }
+
+    void CoopVideoSkipForAutotest() {   // u170 (siehe IntroIsPlaying)
+        IntroHookInstall();
+        if (!InterlockedExchange(&IntroAutotestSkip, 1))
+            NewGameLog("Autotest: Videos werden gleich beendet (IsPlaying)");
     }
 
     void CoopStoryVideoBegin(long no) {
@@ -393,5 +416,6 @@ namespace GOTHIC_ENGINE {
     void CoopNewGamePulse() {}
     bool CoopNewGameInfoBlocked() { return false; }
     void CoopNewGameDialogEnded(const std::string&, const std::string&) {}
+    void CoopVideoSkipForAutotest() {}   // u170
 #endif
 }

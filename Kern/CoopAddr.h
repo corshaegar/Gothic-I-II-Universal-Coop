@@ -25,6 +25,7 @@ namespace GOTHIC_ENGINE {
 
         // Funktionen (SDK) ------------------------------------------------------------------------------------------------
         static const uint oCNpc_ChangeAttribute            = COOP_ENGINE_SWITCH(0x0068D7C0, 0x006BE040, 0x006D1B90, 0x0072FF60);   // oCNpc::void ChangeAttribute( int, int ) - Haken HP-Abzug skalieren/messen (C8, H16; CoopDamage.cpp)
+        static const uint oCNpc_DoShootArrow               = COOP_ENGINE_SWITCH(0x006A09F0, 0x006D3100, 0x006E5C20, 0x007446B0);   // oCNpc::int DoShootArrow( int ) - Haken: kein Schuss ohne Fernkampfwaffe (P180, u173; CoopWorldSync.cpp)
         static const uint oCNpc_EV_Output                  = COOP_ENGINE_SWITCH(0x006B1A70, 0x006E5CA0, 0x006F88C0, 0x007576F0);   // oCNpc::int EV_Output( oCMsgConversation* ) - Haken Dialogzeile (D3; CoopDialogSync.cpp)
         static const uint oCNpc_EV_OutputSVM               = COOP_ENGINE_SWITCH(0x006B15A0, 0x006E5750, 0x006F83C0, 0x007571F0);   // oCNpc::int EV_OutputSVM( oCMsgConversation* ) - Haken SVM-Zeile (D3)
         static const uint oCNpc_AssessTalk_S               = COOP_ENGINE_SWITCH(0x006B5F50, 0x006EA7E0, 0x006FD910, 0x0075C890);   // oCNpc::int AssessTalk_S( oCNpc* ) - Haken Ansprech-Sperre (D3)
@@ -77,11 +78,14 @@ namespace GOTHIC_ENGINE {
         static const uint oCMobLockable_OnEndStateChange   = COOP_ENGINE_SWITCH(0x00682600, 0x006B1D50, 0x006C62A0, 0x00724330);   // oCMobLockable::void OnEndStateChange( oCNpc*, int, int ) - Haken Tuer benutzt (P144; CoopWorldSync.cpp)
         static const uint zCAICamera_DoAI                  = COOP_ENGINE_SWITCH(0x0049D6A0, 0x004AADF0, 0x004A2AD0, 0x004A4FB0);   // zCAICamera::void DoAI( zCVob*, int& ) - Haken Kamera-KI ohne Vob (P151; CoopWorldSync.cpp)
         static const uint zCTrigger_OnTouch                = COOP_ENGINE_SWITCH(0x005E37D0, 0x006036F0, 0x00608F80, 0x00610640);   // zCTrigger::void OnTouch( zCVob* ) - Haken Geschoss loest aus (P147; CoopWorldSync.cpp)
+        static const uint zCMover_OnTouch                  = COOP_ENGINE_SWITCH(0x005E6410, 0x00606710, 0x0060BC80, 0x00613340);   // zCMover::void OnTouch( zCVob* ) - Haken Mover beruehrt (P174; CoopWorldSync.cpp)
         static const uint oCTriggerScript_TriggerTarget    = COOP_ENGINE_SWITCH(0x00438A30, 0x0043D420, 0x0043BE90, 0x0043C4C0);   // oCTriggerScript::void TriggerTarget( zCVob* ) - Haken Skript nur beim Benutzer (P134)
         static const uint zCCSCamera_OnTrigger             = COOP_ENGINE_SWITCH(0x004B9E20, 0x004C9170, 0x004C0D00, 0x004C3270);   // zCCSCamera::void OnTrigger( zCVob*, zCVob* ) - Haken Kamerafahrt nur beim Benutzer (P134)
         static const uint zCCSCamera_OnUntrigger           = COOP_ENGINE_SWITCH(0x004BA6F0, 0x004C9A60, 0x004C1550, 0x004C3AC0);   // zCCSCamera::void OnUntrigger( zCVob*, zCVob* ) - ebenso (P134)
         static const uint zCCSCamera_Unarchive             = COOP_ENGINE_SWITCH(0x004B6930, 0x004C5B20, 0x004BD650, 0x004BFBC0);   // zCCSCamera::void Unarchive( zCArchiver& ) - Haken Kamerafahrt im Spielstand stoppen (P136)
         static const uint oCNpc_EV_UseItemToState          = COOP_ENGINE_SWITCH(0x006AFC70, 0x006E3AF0, 0x006F6AC0, 0x007558F0);   // oCNpc::int EV_UseItemToState( oCMsgManipulate* ) - Haken Coop-Inventar direkt (u101, CoopTruhe.cpp)
+        static const uint oCNpc_EV_TakeVob                 = COOP_ENGINE_SWITCH(0x006ADA70, 0x006E11D0, 0x006F4700, 0x007534E0);   // oCNpc::int EV_TakeVob( oCMsgManipulate* ) - Haken freigegebener Gegenstand der Nachricht (u186, P188, Hooks.cpp)
+        static const uint oCItem_Dtor                      = COOP_ENGINE_SWITCH(0x00671220, 0x0069EAF0, 0x006B3A30, 0x00711730);   // oCItem::~oCItem() - Haken Diagnose: Gegenstand einer laufenden Nachricht frei (u169, CoopTruhe.cpp)
         static const uint oCItemContainer_TransferItem     = COOP_ENGINE_SWITCH(0x00669780, 0x006972D0, 0x006AC450, 0x00709F40);   // oCItemContainer::int TransferItem( int, int ) - Haken Coop-Inventar nicht in sich selbst (u101)
         static const uint oCNpc_EV_WhirlAround             = COOP_ENGINE_SWITCH(0x0074ED50, 0x00790B90, 0x0079B6F0, 0x00684BF0);   // oCNpc::int EV_WhirlAround( oCMsgMovement* ) - Haken Ueberraschungs-Sprung -> Drehung (C21; Hooks.cpp)
         static const uint oCNpc_OnDamage                   = COOP_ENGINE_SWITCH(0x00730FE0, 0x0076FBF0, 0x0077CE70, 0x006660E0);   // oCNpc::void OnDamage( oSDamageDescriptor& ) - Haken Puppe nimmt keinen Schaden (C11)
@@ -96,6 +100,7 @@ namespace GOTHIC_ENGINE {
         static const uint zCCSPlayer_StartOutputUnit       = COOP_ENGINE_SWITCH(0x0041D2E0, 0x0041F250, 0x0041D520, 0x0041D850);   // zCCSPlayer::zCCSCutsceneContext* StartOutputUnit( int, zCVob* ) - Haken ebenso (A19)
         static const uint zCCSPlayer_CreateNewOutputUnit   = COOP_ENGINE_SWITCH(0x0041D000, 0x0041EF20, 0x0041D210, 0x0041D540);   // zCCSPlayer::zCCSCutsceneContext* CreateNewOutputUnit( int, zCVob* ) - Haken ebenso (A19)
         static const uint oCNpc_States_StartAIState        = COOP_ENGINE_SWITCH(0x006C5490, 0x006FAC30, 0x0070D2E0, 0x0076C840);   // oCNpc_States::int StartAIState( int, int, int, float, int ) - Haken StartAIState(int, ...) (C13/C21; Hooks.cpp)
+        static const uint oCNpc_DisablePerception          = COOP_ENGINE_SWITCH(0x006B7A40, 0x006EC4A0, 0x006FF3E0, 0x0075E360);   // oCNpc::void DisablePerception( int ) - Haken Wahrnehmungen vor dem Abschalten sichern (u188, P189, Hooks.cpp)
         static const uint oCNpc_CanUse                     = COOP_ENGINE_SWITCH(0x0068EF00, 0x006BFB50, 0x006D3500, 0x007319B0);   // oCNpc::int CanUse( oCItem* ) - Haken-Reihenfolge (B3; OthelloHookOrder.cpp)
 
         // Helfer ohne SDK-Eintrag ---------------------------------------------------------------------------------------------

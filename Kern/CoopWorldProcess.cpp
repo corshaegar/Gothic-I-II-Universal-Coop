@@ -129,6 +129,11 @@ namespace GOTHIC_ENGINE {
         catch (...) {
             j = json();
         }
+        std::string field;
+        if (!CoopJsonFinite(j, field)) {   // u164 (P171): NaN/unendlich wie der Empfang verwerfen (Helpers.cpp), hier ohne Log (eigener Faden)
+            InterlockedIncrement(&CoopNetNanDropped);
+            j = json();
+        }
         return true;
     }
 
@@ -711,6 +716,21 @@ namespace GOTHIC_ENGINE {
         WpJunctionDirs(root + "\\Data", c + "\\Data", { "$Templates$" }, n);
         // system: Exe/DLLs verknuepft, Konfiguration kopiert; Autorun und GD3D11 eigen (Konfiguration dort), Rest verknuepft
         WpSyncFiles(root + "\\system", c + "\\system", n);
+        // u194 (P196): eine Mod-Profil-Datei, die im Spielordner nicht mehr liegt, gilt auch hier nicht mehr (sonst liefe der
+        // Weltprozess bzw. der Testordner mit dem alten Profil) - umbenannt in *.entfernt, nichts geloescht
+        WpForEachFile(c + "\\system\\", [&](const std::string& f) {
+            const std::string u = WpUpper(f);
+            if (WpExt(f) != ".JSON" || (u != "GOTHICCOOPMOD.JSON" && u.compare(0, 14, "GOTHICCOOPMOD-") != 0))
+                return;
+            if (GetFileAttributesA((root + "\\system\\" + f).c_str()) != INVALID_FILE_ATTRIBUTES)
+                return;
+            const std::string from = c + "\\system\\" + f;
+            SetFileAttributesA(from.c_str(), FILE_ATTRIBUTE_NORMAL);
+            if (MoveFileExA(from.c_str(), (from + ".entfernt").c_str(), MOVEFILE_REPLACE_EXISTING))
+                WpLog("%s: Mod-Profil-Datei %s liegt nicht mehr im Spielordner - hier in %s.entfernt umbenannt", what, f.c_str(), f.c_str());
+            else
+                WpLog("%s: alte Mod-Profil-Datei %s NICHT umbenannt (Fehler %lu) - dort gilt sie weiter", what, from.c_str(), GetLastError());
+        });
         WpJunctionDirs(root + "\\system", c + "\\system", { "Autorun", "GD3D11" }, n);
         const char* own[] = { "Autorun", "GD3D11", "GD3D11\\ZENResources" };   // ZENResources: GD3D11 schreibt <Welt>.INI beim Laden
         for (const char* o : own) {
@@ -729,18 +749,21 @@ namespace GOTHIC_ENGINE {
         CreateDirectoryA(saves.c_str(), NULL);
         CreateDirectoryA((saves + "\\current").c_str(), NULL);
         // Gothic.ini der Kopie: Fenster, ohne Ton/Musik, ohne Logo-Videos (das Hauptspiel behaelt seine Einstellungen)
+        // u181 (Nutzer 5.11.: "bei diego ist nichts zu hören"): der Testordner eines Hosts mit Ton (Aufnahme, cooptest_lauf.py --ton -
+        // Host ohne -znosound) bekommt Ton und Musik; hier stand fest 0 und hob die Einstellung des Runners beim Start des Clients auf
+        const bool mitTon = !strcmp(what, "Testordner") && !strstr(GetCommandLineA(), "-znosound");
         const std::string ini = c + "\\system\\Gothic.ini";
         bool iniOk = GetFileAttributesA(ini.c_str()) != INVALID_FILE_ATTRIBUTES;
         if (iniOk) {
             iniOk = WritePrivateProfileStringA("VIDEO", "zStartupWindowed", "1", ini.c_str()) &&
                 WritePrivateProfileStringA("GAME", "playLogoVideos", "0", ini.c_str()) &&
-                WritePrivateProfileStringA("SOUND", "soundEnabled", "0", ini.c_str()) &&
-                WritePrivateProfileStringA("SOUND", "musicEnabled", "0", ini.c_str());
+                WritePrivateProfileStringA("SOUND", "soundEnabled", mitTon ? "1" : "0", ini.c_str()) &&
+                WritePrivateProfileStringA("SOUND", "musicEnabled", mitTon ? "1" : "0", ini.c_str());
         }
         const bool exeOk = GetFileAttributesA((c + "\\system\\" + WpExeName()).c_str()) != INVALID_FILE_ATTRIBUTES;
         WpLog("%s %s: %d Dateien schon verknuepft, %d neu verknuepft, %d kopiert, %d Ordner-Verknuepfungen, %d Fehler%s%s; "
             "Gothic.ini %s", what, c.c_str(), n.same, n.linked, n.copied, n.junctions, n.failed, n.failed ? " - zuerst: " : "",
-            n.firstFail.c_str(), iniOk ? "angepasst (Fenster, ohne Ton, ohne Logos)" : "FEHLT");
+            n.firstFail.c_str(), iniOk ? (mitTon ? "angepasst (Fenster, mit Ton fuer die Aufnahme, ohne Logos)" : "angepasst (Fenster, ohne Ton, ohne Logos)") : "FEHLT");
         if (!exeOk || !iniOk || n.failed) {
             why = !exeOk ? WpExeName() + " fehlt in " + c + "\\system" : !iniOk ? "Gothic.ini fehlt in " + c + "\\system" : n.firstFail;
             return false;
@@ -2359,6 +2382,7 @@ namespace GOTHIC_ENGINE {
     // UnionHooks.cpp _LoadEnd / Plugin.cpp Game_LoadEnd_SaveGame (nur im Weltprozess) - wie LoadEnd: Figuren der Spieler behalten,
     // alle anderen Zuordnungen der alten Welt vergessen
     void CoopWpWorldLoadEnd(bool fromSave) {
+        CoopLegoFixPulse();   // u190 (P192): die Skripte der Mod haben beim Laden eingehakt - vor dem ersten Bild versetzen (wie LoadEnd)
         std::map<string, RemoteNpc*> keep;
         for (auto& pn : PlayerNpcs)
             if (SyncNpcs.count(pn.second))
@@ -2543,6 +2567,18 @@ namespace GOTHIC_ENGINE {
         if (IsLoadingLevel)
             return;
         CurrentMs = GetCurrentMs();
+        // u190 (P192): LeGo-Haken vor GT auch im Weltprozess versetzen (P177, CoopAudit.cpp). Dort laufen die Skripte der Mod ebenso,
+        // aber bis u189 nur im Hauptspiel: Im Weltprozess von Legend of Ahssun sprang der erste Treffer (EV_DamageOnce -> OnDamage ->
+        // LeGos Haken auf OnDamage_Hit -> kopierter GT-Sprung) ins Leere (Zugriffsfehler, Weltprozess beendet, voller Coop-Test u189).
+        // Allgemein (jede Mod mit LeGo-Haken auf GT-Funktionen).
+        {
+            static long long nextLego = 0;
+            if (CurrentMs >= nextLego) {
+                nextLego = CurrentMs + 1000;
+                CoopLegoFixPulse();
+                CoopScriptMapPulse();   // u195 (P199): Skript-Spur im Absturzprotokoll auch im Weltprozess (Hooks.cpp)
+            }
+        }
         WpWorldInbox(true);
         if (!player || !ogame)
             return;
@@ -2553,7 +2589,7 @@ namespace GOTHIC_ENGINE {
             WpLog("lade Slot %d neu (im Spiel)", WpW.slot);
             if (ogame->savegameManager)
                 ogame->savegameManager->Reinit();   // Slot-Infos neu - das Hauptspiel hat den Slot eben kopiert
-            gameMan->Read_Savegame(WpW.slot);
+            CoopReadSavegameOrExit(WpW.slot, WpWorldFail);   // u178 (P181): Fehler im Laden - melden und enden
             return;   // laedt synchron; LoadEnd setzt "geladen"
         }
         if (WpW.phase == 2 && WpW.wantIdle)

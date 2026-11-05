@@ -77,6 +77,8 @@ namespace GOTHIC_ENGINE {
         SYNC_MOB_BULK,
         // u156 Gegenstand, den ein NPC beim Host in die Welt gebracht hat (CoopWorldSync.cpp): i Instanz, n Menge, p Lage, by NPC
         SYNC_ITEM_SPAWN,
+        // u181 gemeinsames Spieltempo der Testinstanzen (CoopTempo.cpp): w Wunsch x100, b beschaeftigt (Dialog/Waffe)
+        SYNC_TEMPO,
     };
 
     struct PlayerHit

@@ -22,6 +22,8 @@ die Reihenfolge dort zählt (wer wen sehen kann). Engine-Funktionen kommen aus d
 | `system\Autorun\COOP_MENU.D` | Menü-Skript (zParserExtender, `Parser = Menu`): COOP-Menüs und alle Einträge, Windows‑1252 |
 | `system\Autorun\PC_MULTIPLAYER_HERO.D` | Skript-Instanz für die Figur des Mitspielers |
 | `system\Autorun\COOP_ITEMS.D` | ab v102: Coop-Gegenstände (Game-Parser), bisher die Teleport-Rune `ITRU_COOP_TELEPORT` |
+| `system\GothicCoop\Skripte\<Satz>\` | ab u195 (P204): alle Skriptsätze der Engine (Gothic 1: `g1`, `othello`; Gothic 2: `g2`) – beim Start legt die Skript-Weiche den Satz der laufenden Mod nach `Autorun` (ein Paket für alle Varianten, `docs\MODULE.md` Abschnitt 8) |
+| `system\GothicCoopMod-<Ini>.json` | ab u194 (P196): Mod-Profil als Datei (Vorlage `system\GothicCoopMod.vorlage.json`) |
 | `system\GD3D11\Bin\g1_avx2.dll` | Renderer, eigener GD3D11-Build „coop6“: Zuschau-Fenster + 3D-Figur-Vorschau |
 | `system\GothicCoopConfig.json` | Grundeinstellungen; **fehlt sie, bricht das Plugin mit „No config file found“ ab** |
 | `Gothic.ini [GOTHICCOOP]` | alles, was im Menü einstellbar ist (Gothic schreibt selbst) |

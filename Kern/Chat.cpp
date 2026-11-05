@@ -1,4 +1,14 @@
 ﻿namespace GOTHIC_ENGINE {
+    // u171: Aufnahme (Nutzer 4.11.2026: "Am besten die Debug Nachrichten die immer angezeigt werden ausblenden") - mit -coopaufnahme
+    // in der Kommandozeile zeichnet GT weder die Meldungszeilen oben links (ChatLog) noch die Fassungszeile (Plugin.cpp); ins Log
+    // geht alles wie sonst. Der Host eines Testlaufs gibt den Schalter an den Client weiter (CoopAutoTest.cpp). Allgemein.
+    static bool CoopRecordMode() {
+        static int on = -1;
+        if (on < 0)
+            on = strstr(GetCommandLineA(), "-coopaufnahme") ? 1 : 0;
+        return on == 1;
+    }
+
     struct ChatLine
     {
         string text;
@@ -24,7 +34,7 @@
                 }
             }
 
-            if (this->IsShowing() == true)
+            if (this->IsShowing() == true && !CoopRecordMode())   // u171: in Aufnahmen keine Meldungszeilen
             {
                 zSTRING font = screen->GetFontName();
                 zCOLOR color = zCOLOR(255, 255, 255, 255);

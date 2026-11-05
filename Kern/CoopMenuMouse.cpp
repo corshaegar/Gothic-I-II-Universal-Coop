@@ -137,6 +137,13 @@ namespace GOTHIC_ENGINE {
         MouseEnabled = IniInt("coopMenuMouse", 1) != 0;
         MouseCursorTex = IniStr("coopMenuCursor", MouseCursorDefault().c_str());
         MouseCursorSize = IniInt("coopMenuCursorSize", 0);
+        // u171: in Aufnahmen steuert die Vorfuehrung das Menue (CoopShow.cpp) - die Maus des Nutzers ueber dem Fenster verschob sonst die
+        // Markierung (Probe 04.11. 17:20: "Neues Spiel" nicht erreicht)
+        if (MouseEnabled && CoopRecordMode()) {
+            MouseEnabled = false;
+            MouseLog("aus (Aufnahme, -coopaufnahme)");
+            return;
+        }
         if (!MouseEnabled) {
             MouseLog("aus (Gothic.ini [GOTHICCOOP] coopMenuMouse=0)");
             return;
@@ -1163,7 +1170,15 @@ namespace GOTHIC_ENGINE {
         }
     }
 
+    // u171: Vorfuehrung fuer Aufnahmen (CoopShow.cpp) - eine Taste wie vom Spieler; das Menue holt sie im naechsten Bild ab (auch in
+    // verschachtelten Untermenues, die Gothic in zCMenu::Run laufen laesst)
+    bool CoopMenuPushKey(int key) {
+        MousePushKey(key);
+        return true;
+    }
+
 #else   // Modul in dieser Engine nicht freigegeben (CoopModulesReport)
+    bool CoopMenuPushKey(int) { return false; }   // u171
     void CoopMenuMousePulse() {}
     void CoopMenuMouseHide() {}
     void CoopMenuMouseGameFrame() {}

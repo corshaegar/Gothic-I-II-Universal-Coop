@@ -5,10 +5,16 @@ LoadPayload; je Datei LZMS ueber die Windows-Compression-API und SHA-256), ueber
 VS2019 Build Tools (x86, statisch gelinkt) und prueft das Ergebnis (Aufruf mit /pruefen). Ausgabe:
 builds\\zip\\Gothic Union Coop Setup uNN.exe (--ausgabe: anderer Pfad). Projektversion fuer die Versionsangaben aus versionen.json.
 
-Teile (wie in GothicCoopSetup.cpp):
-  1 Coop Gothic 1      Gothic1Coop.dll, scripts\\g1, Config (nur wenn neu), Steam (App 65540), LIESMICH (makezip_g1)
-  2 Coop Gothic 2      Gothic2Coop.dll, scripts\\g2, Config (nur wenn neu), Steam (App 39510), LIESMICH (makezip_g2)
-  3 Coop Othello       Gothic1Coop.dll, scripts\\othello, Config von G1 (nur wenn neu), Steam (App 65540), LIESMICH-Othello
+Teile (wie in GothicCoopSetup.cpp; u195 - ein Coop je Engine fuer alle Varianten, Nutzer: "eine Mod ... die mit allen kompatibel
+ist automatisch, also auch wenn dann die Gothic erweiterung gewechselt wird"):
+  1 Coop Gothic 1      Gothic1Coop.dll, Skripte g1 nach Autorun, beide Saetze (g1, othello) nach system\\GothicCoop\\Skripte
+                       (Quelle der Skript-Weiche), Config (nur wenn neu), Mod-Vorlage, Steam (App 65540), LIESMICH (makezip_g1)
+                       und LIESMICH-Othello
+  2 Coop Gothic 2      Gothic2Coop.dll, Skripte g2 nach Autorun und system\\GothicCoop\\Skripte\\g2, Config (nur wenn neu),
+                       Mod-Vorlage, Steam (App 39510), LIESMICH (makezip_g2) und je Mod mit eigenem Profil LIESMICH-<Mod> (makezip_mod)
+  3 Othello-Skripte    nur scripts\\othello nach Autorun - kommt nach Teil 1, wenn der Ordner Othello ist
+Dazu die Ressource IDR_MODS (obj\\mods.txt): die Mods mit eigenem Profil aus GothicCoop\\Mods\\CoopModList.h - der Installer zeigt
+sie unter "Unterstuetzte Spiele und Mods" und im Status bei den Mods im Ordner.
   4 Renderer G1        gd3d11\\g1_avx2-v17.9.7-coop8.dll -> system\\GD3D11\\Bin\\g1_avx2.dll
   5 Renderer G2        gd3d11\\g2a_avx2-v17.9.7-coop9.dll -> system\\GD3D11\\Bin\\g2a_avx2.dll
   6 GD3D11 v17.9.7     das offizielle Release (ZIP, nur gelesen - nichts daraus wird ausgefuehrt), alles nach system\\
@@ -49,6 +55,19 @@ def union_files(folder):
         if len(data) != size or hashlib.sha256(data).hexdigest().upper() != want:
             sys.exit('%s ist nicht die Datei von Union 1.0m (SHA-256 %s)' % (p, sha16(data)))
         out.append((rel, data))
+    return out
+
+
+def known_mods():
+    """u195: Mods mit eigenem Profil aus GothicCoop\\Mods\\CoopModList.h - [(Engine g1/g2a, Ini-Name, Name, geprueft mit)]"""
+    import re, makezip_mod
+    t = open(os.path.join(ROOT, pfade.QUELLE, 'Mods', 'CoopModList.h'), encoding='cp1252').read()
+    out = []
+    for eng, ini, name in re.findall(r'\{\s*Engine_(\w+)\s*,\s*"([^"|]+)"\s*,\s*\w+\s*,\s*"([^"|]+)"', t):
+        m = makezip_mod.MODS.get(ini.lower(), {})
+        out.append((eng.lower(), ini, name, m.get('geprueft', '')))
+    if not out:
+        sys.exit('keine Mods in CoopModList.h gefunden - Muster pruefen')
     return out
 
 
@@ -113,34 +132,48 @@ def main():
         sys.exit('%s gibt es schon - mit --force ersetzen' % out)
     union = union_files(a.union_dir)
 
-    import makezip_g1, makezip_g2   # nur die LIESMICH-Texte (main laeuft beim Import nicht)
+    import makezip_g1, makezip_g2, makezip_mod   # nur Texte und Listen (main laeuft beim Import nicht)
 
     def src(p):
         return open(os.path.join(ROOT, p), 'rb').read()
 
     entries = []   # (Teil, Merker, Pfad im Spielordner, Daten)
 
-    def coop(comp, dll, scripts, appid, liesmich):
+    def autorun(comp, satz):
+        for s in makezip_g1.SKRIPTE:
+            entries.append((comp, 0, 'system/Autorun/' + s, src(os.path.join(pfade.SKRIPTE[satz], s))))
+
+    def coop(comp, engine, saetze, appid, readmes):
+        """u195: Coop einer Engine - DLL, erster Skriptsatz nach Autorun, alle Saetze nach system/GothicCoop/Skripte (Quelle der
+        Skript-Weiche, CoopCore.cpp), Config, Mod-Vorlage, Steam, Anleitungen aller Varianten"""
+        dll = pfade.dll(f, engine)
         entries.append((comp, 0, 'system/Autorun/%s' % os.path.basename(dll).replace('-%s' % f, ''), src(dll)))
-        for s in ('COOP_MENU.D', 'COOP_ITEMS.D', 'PC_MULTIPLAYER_HERO.D'):
-            entries.append((comp, 0, 'system/Autorun/' + s, src(os.path.join(scripts, s))))
-        cfg = os.path.join(scripts, 'GothicCoopConfig.json')
-        if not os.path.exists(os.path.join(ROOT, cfg)):
-            cfg = os.path.join(pfade.SKRIPTE['g1'], 'GothicCoopConfig.json')
-        entries.append((comp, F_KEEP, 'system/GothicCoopConfig.json', src(cfg)))
+        autorun(comp, saetze[0])
+        for arc, s in makezip_g1.store_entries(saetze):
+            entries.append((comp, 0, arc, src(s)))
+        entries.append((comp, F_KEEP, 'system/GothicCoopConfig.json', src(os.path.join(pfade.SKRIPTE[engine], 'GothicCoopConfig.json'))))
+        entries.append((comp, 0, 'system/GothicCoopMod.vorlage.json', src(os.path.join(pfade.SKRIPTE[engine], 'GothicCoopMod.vorlage.json'))))
         entries.append((comp, 0, 'system/steam_api.dll', src(pfade.STEAM_API)))
         entries.append((comp, 0, 'system/steam_appid.txt', src(appid)))
-        entries.append((comp, 0, 'GothicCoop-LIESMICH.txt', liesmich))
+        for name, data in readmes:
+            entries.append((comp, 0, name, data))
 
-    install_note = ('\r\nInstalliert mit dem Installer von "Gothic-I-II-Universal-Coop" {p} (Coop {f}). Rueckgaengig: den Installer\r\n'
+    install_note = ('\r\nInstalliert mit dem Installer von "Gothic-I-II-Universal-Coop" {p} (Coop {f}). Ein Coop fuer alle Varianten dieser\r\n'
+                    'Engine: die Skripte aller Varianten liegen in system\\GothicCoop\\Skripte\\, der Coop legt beim Start die passenden\r\n'
+                    'nach system\\Autorun (Log: "Skript-Weiche"). Rueckgaengig: den Installer\r\n'
                     'noch einmal starten, Spielordner waehlen, "Letzte Installation rueckgaengig" - ersetzte Dateien liegen in\r\n'
                     'CoopBackup\\<Zeit>\\, das Protokoll in CoopLogs\\Installer\\. Fehlte Union, hat der Installer Union 1.0m mitinstalliert\r\n'
                     '(system\\dinput.dll von SystemPack liegt dann in CoopBackup) - das Rueckgaengig nimmt auch das wieder heraus.\r\n'
                     ).format(f=f, p=projekt).encode('cp1252')
-    coop(1, pfade.dll(f, 'g1'), pfade.SKRIPTE['g1'], pfade.STEAM_APPID['g1'], readme_text(makezip_g1.LIESMICH.format(f=f)) + install_note)
-    coop(2, pfade.dll(f, 'g2'), pfade.SKRIPTE['g2'], pfade.STEAM_APPID['g2'], readme_text(makezip_g2.LIESMICH.format(f=f)) + install_note)
-    coop(3, pfade.dll(f, 'g1'), pfade.SKRIPTE['othello'], pfade.STEAM_APPID['g1'],
-         readme_text(open(os.path.join(INST, 'texte', 'LIESMICH-Othello.txt'), encoding='utf-8').read().format(f=f)))
+    othello_text = readme_text(open(os.path.join(INST, 'texte', 'LIESMICH-Othello.txt'), encoding='utf-8').read().format(f=f)) + install_note
+    coop(1, 'g1', ('g1', 'othello'), pfade.STEAM_APPID['g1'],
+         [('GothicCoop-LIESMICH.txt', readme_text(makezip_g1.LIESMICH.format(f=f)) + install_note), ('GothicCoop-LIESMICH-Othello.txt', othello_text)])
+    coop(2, 'g2', ('g2',), pfade.STEAM_APPID['g2'],
+         [('GothicCoop-LIESMICH.txt', readme_text(makezip_g2.LIESMICH.format(f=f)) + install_note)] +
+         [('GothicCoop-LIESMICH-%s.txt' % m['kurz'], readme_text(m['liesmich'].format(f=f)) + install_note)
+          for m in makezip_mod.MODS.values() if m['basis'] == 'Gothic II'])
+    autorun(3, 'othello')   # u195: Teil 3 = nur Othellos Skriptsatz (nach Teil 1, wenn der Ordner Othello ist)
+    mods = known_mods()
     entries.append((4, 0, 'system/GD3D11/Bin/g1_avx2.dll', src(pfade.RENDERER['g1'])))
     entries.append((5, 0, 'system/GD3D11/Bin/g2a_avx2.dll', src(pfade.RENDERER['g2'])))
 
@@ -198,17 +231,23 @@ def main():
     os.makedirs(OBJ, exist_ok=True)
     payload = os.path.join(OBJ, 'payload.bin')
     open(payload, 'wb').write(head.getvalue() + blob.getvalue())
-    names = {1: 'Coop Gothic 1', 2: 'Coop Gothic 2', 3: 'Coop Othello', 4: 'Renderer G1 coop8', 5: 'Renderer G2 coop9',
+    names = {1: 'Coop Gothic 1', 2: 'Coop Gothic 2', 3: 'Othello-Skripte', 4: 'Renderer G1 coop8', 5: 'Renderer G2 coop9',
              6: 'GD3D11 ' + a.gd3d11_ver, 7: 'Lizenzen', 8: 'Union 1.0m'}
     for comp in sorted(per):
         n, r, p = per[comp]
         print('Teil %d %-18s %5d Dateien %10d -> %9d Bytes' % (comp, names[comp], n, r, p))
     print('Nutzlast: %d Dateien, %d -> %d Bytes' % (len(entries), raw_total, os.path.getsize(payload)))
 
-    # Ressourcen (Nutzlast, Fassung) und Bau
+    # u195: Mods mit eigenem Profil (Ressource IDR_MODS, je Zeile Engine|Ini|Name|geprueft mit)
+    mods_txt = os.path.join(OBJ, 'mods.txt')
+    open(mods_txt, 'w', encoding='utf-8', newline='\n').write(''.join('%s|%s|%s|%s\n' % m for m in mods))
+    print('Mods mit eigenem Profil: %s' % ', '.join('%s (%s)' % (m[2], m[0]) for m in mods))
+
+    # Ressourcen (Nutzlast, Mods, Fassung) und Bau
     esc = payload.replace('\\', '\\\\')
     num = ''.join(ch for ch in f if ch.isdigit()) or '0'
     open(os.path.join(OBJ, 'setup_gen.rc2'), 'w', encoding='ascii').write(
+        'IDR_MODS RCDATA "%s"\n' % mods_txt.replace('\\', '\\\\') +
         'IDR_PAYLOAD RCDATA "%s"\n\n'
         'VS_VERSION_INFO VERSIONINFO\n FILEVERSION 1,0,%s,0\n PRODUCTVERSION 1,0,%s,0\n FILEOS 0x40004\n FILETYPE 0x1\n'
         'BEGIN\n BLOCK "StringFileInfo"\n BEGIN\n  BLOCK "040704b0"\n  BEGIN\n'

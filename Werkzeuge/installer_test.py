@@ -192,7 +192,7 @@ check('Coop-Renderer ueber v17.9.7', sha(os.path.join(d, 'system', 'GD3D11', 'Bi
 check('Konfig behalten', open(os.path.join(d, 'system', 'GothicCoopConfig.json'), 'rb').read() == b'{"nickname": "Meins"}')
 run_dir = os.path.join(d, 'CoopBackup', os.listdir(os.path.join(d, 'CoopBackup'))[0])
 man = open(os.path.join(run_dir, 'COOPINSTALL.TXT'), encoding='utf-8').read()
-check('nur Renderer + Coop ersetzt (kein GD3D11-Grundpaket)', man.count('datei=') < 20, man.count('datei='))
+check('nur Renderer + Coop ersetzt (kein GD3D11-Grundpaket)', man.count('datei=') < 100, man.count('datei='))   # u195: Coop ~23, GD3D11 ~1700
 check('Sicherung Renderer', open(os.path.join(run_dir, 'system', 'GD3D11', 'Bin', 'g2a_avx2.dll.sicherung'), 'rb').read() == open(o2, 'rb').read())
 check('Sicherung alte Coop-DLL', open(os.path.join(run_dir, 'system', 'Autorun', 'Gothic2Coop.dll.sicherung'), 'rb').read() == b'alte Fassung')
 check('keine .dll in CoopBackup', not any(f.lower().endswith('.dll') for _, _, fs in os.walk(os.path.join(d, 'CoopBackup')) for f in fs))
@@ -216,7 +216,10 @@ check('Rueckgabe 0', rc == 0, rc)
 check('Coop-DLL G1', sha(os.path.join(d, 'system', 'Autorun', 'Gothic1Coop.dll')) == sha(dll1))
 check('Othello-Skripte', sha(os.path.join(d, 'system', 'Autorun', 'COOP_MENU.D')) == sha(os.path.join(rp(pfade.SKRIPTE['othello']), 'COOP_MENU.D')))
 check('Coop-Renderer G1', sha(os.path.join(d, 'system', 'GD3D11', 'Bin', 'g1_avx2.dll')) == sha(r1))
-check('LIESMICH Othello', 'Othello' in open(os.path.join(d, 'GothicCoop-LIESMICH.txt'), encoding='cp1252').read())
+check('LIESMICH Othello', 'Othello' in open(os.path.join(d, 'GothicCoop-LIESMICH-Othello.txt'), encoding='cp1252').read())   # u195
+check('u195: beide Skriptsaetze in system\\GothicCoop\\Skripte', all(
+    sha(os.path.join(d, 'system', 'GothicCoop', 'Skripte', satz, s)) == sha(os.path.join(rp(pfade.SKRIPTE[satz]), s))
+    for satz in ('g1', 'othello') for s in ('COOP_MENU.D', 'COOP_ITEMS.D', 'PC_MULTIPLAYER_HERO.D')))
 
 print('T5 Gothic 1 ohne Mod, fremdes ddraw.dll, ohne Union')
 d = game('T5', g2=False, union=False)
@@ -345,5 +348,54 @@ touch(os.path.join(d, 'system', 'dinput.dll'), b'bleibt')
 rc = run('/still', '/union', '/spiel:g2', '/ordner:' + d)
 check('T7d Union vorhanden: unberuehrt', rc == 0 and open(os.path.join(d, 'system', 'Shw32.dll'), 'rb').read() == b'x' and
       not os.path.exists(os.path.join(d, 'Data', 'Union.vdf')) and open(os.path.join(d, 'system', 'dinput.dll'), 'rb').read() == b'bleibt', rc)
+
+print('T10 ein Coop fuer alle (u195): ohne /spiel - der Installer erkennt Spiel und Mods, legt alle Skriptsaetze der Engine an')
+SATZ = ('COOP_MENU.D', 'COOP_ITEMS.D', 'PC_MULTIPLAYER_HERO.D')
+
+
+def satz_in(d, sub, satz):
+    """Skriptsatz satz in d/sub - sub 'system/Autorun' oder 'system/GothicCoop/Skripte' (dort im Unterordner des Satzes)"""
+    if sub.endswith('Skripte'):
+        sub += '/' + satz
+    return all(os.path.exists(os.path.join(d, *sub.split('/'), s)) and
+               sha(os.path.join(d, *sub.split('/'), s)) == sha(os.path.join(rp(pfade.SKRIPTE[satz]), s)) for s in SATZ)
+
+
+def mod_ini(d, name, title, vdf):
+    touch(os.path.join(d, 'system', name + '.ini'), ('[INFO]\r\nTitle=%s\r\n[FILES]\r\nVDF=%s\r\n' % (title, vdf)).encode('cp1252'))
+
+
+d = game('T10a')   # Gothic 2 mit Legend of Ahssun und einer unbekannten Mod
+mod_ini(d, 'LoA', 'Legend of Ahssûn', 'LoA.mod LoA_Speech1.mod')
+touch(os.path.join(d, 'Data', 'ModVDF', 'LoA.mod'))
+mod_ini(d, 'TestMod', 'Testmod', 'TestMod.mod')
+touch(os.path.join(d, 'Data', 'ModVDF', 'TestMod.mod'))
+rc = run('/still', '/ordner:' + d)
+log = last_log(d)
+check('T10a G2+LoA ohne /spiel: Rueckgabe 0, Gothic2Coop.dll', rc == 0 and sha(os.path.join(d, 'system', 'Autorun', 'Gothic2Coop.dll')) == sha(dll2), rc)
+check('T10a Skripte g2 in Autorun und in system\\GothicCoop\\Skripte\\g2', satz_in(d, 'system/Autorun', 'g2') and satz_in(d, 'system/GothicCoop/Skripte', 'g2'))
+check('T10a LIESMICH-LoA dabei', os.path.exists(os.path.join(d, 'GothicCoop-LIESMICH-LoA.txt')) and
+      'Legend of Ahssun' in open(os.path.join(d, 'GothicCoop-LIESMICH-LoA.txt'), encoding='cp1252').read())
+check('T10a Protokoll: erkannt, LoA unterstuetzt, Testmod ungeprueft', 'Legend of Ahssun' in log and 'eigenes Profil' in log and
+      'Testmod (TestMod.ini): ungepr' in log, log[-600:] if 'eigenes Profil' not in log else '')
+check('T10a Mod-Vorlage', os.path.exists(os.path.join(d, 'system', 'GothicCoopMod.vorlage.json')))
+d = game('T10b')
+rc = run('/still', '/spiel:loa', '/ordner:' + d)
+check('T10b /spiel:loa auf Gothic 2 ohne LoA: Rueckgabe 1, nichts geschrieben', rc == 1 and 'KEIN LEGEND OF AHSSUN' in last_log(d) and
+      not os.path.exists(os.path.join(d, 'system', 'Autorun')), rc)
+d = game('T10c', g2=False)
+rc = run('/still', '/ordner:' + d)
+check('T10c Gothic 1 ohne /spiel: Rueckgabe 0, Autorun = Satz g1, beide Saetze abgelegt', rc == 0 and satz_in(d, 'system/Autorun', 'g1') and
+      satz_in(d, 'system/GothicCoop/Skripte', 'g1') and satz_in(d, 'system/GothicCoop/Skripte', 'othello') and
+      sha(os.path.join(d, 'system', 'Autorun', 'Gothic1Coop.dll')) == sha(dll1), rc)
+d = game('T10d', g2=False, othello=True)
+rc = run('/still', '/ordner:' + d)
+check('T10d Othello ohne /spiel: Rueckgabe 0, Autorun = Satz othello', rc == 0 and satz_in(d, 'system/Autorun', 'othello') and
+      satz_in(d, 'system/GothicCoop/Skripte', 'g1'), rc)
+rc = run('/still', '/spiel:quatsch', '/ordner:' + d)
+check('T10e /spiel unbekannt: Rueckgabe 2', rc == 2, rc)
+d = game('T10f')
+rc = run('/still', '/spiel:g2', '/ordner:' + d)
+check('T10f /spiel:g2 weiter erlaubt (nur Pruefung)', rc == 0 and satz_in(d, 'system/Autorun', 'g2'), rc)
 
 print('ALLES OK' if ok_all else 'FEHLER')

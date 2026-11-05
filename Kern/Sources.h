@@ -49,6 +49,8 @@
 #include "CoopDialogWatch.cpp"   // 18.10.2026: Dialog-Waechter (EV_PROCESSINFOS verloren)
 #include "CoopAudit.cpp"
 #include "CoopWorldProcess.cpp" // u33: Weltprozess - zweites Gothic beim Host, laedt die Welt eines Mitspielers (Shift+F12)
+#include "Mods\ModLoA.cpp"     // u187: Mod-Profil Legend of Ahssun (Fundament + Mod-Varianten, docs\MODULE.md)
+#include "Mods\CoopMods.cpp"   // u187: Verteiler der Mod-Profile (CoopModsInit)
 #include "Plugin.cpp"
 #include "CoopMenuLobby.cpp"   // v40: Mehrspieler im Hauptmenue (COOP_MENU.D, Haken auf zCMenu::HandleSelAction)
 #include "CoopMenuInject.cpp"  // v81: COOP-Eintrag zur Laufzeit in Othellos MENU_MAIN / MENU_OPTIONS (vtable-Platz SetByScript)
@@ -58,8 +60,10 @@
 #include "CoopSteam.cpp"       // v87: Coop ueber Steam (Tunnel unter ENet, Rich Presence, Steam-Menue)
 #include "CoopPreview.cpp"     // v60: 3D-Vorschau der eigenen Figur im COOP-Menue (Renderer coop6, GDX_CoopPreviewDraw)
 #include "CoopDifficulty.cpp"  // v67: Schwierigkeitsgrad (Schaden, Leben der Gegner, Kampf-EP; Host gibt vor)
+#include "CoopTempo.cpp"       // u181: gemeinsames Spieltempo der Testinstanzen (Abgleich Host/Client, Anzeige "Zeitraffer x2")
 #include "CoopNewGame.cpp"     // v91: gemeinsames neues Spiel (Intro fuer beide ueberspringen, Platz neben dem Host, Diego)
 #include "CoopSelfTest.cpp"    // v37: Coop-Testlauf (Shift+F11); v107: 100 Schritte, am Ende - liest den Zustand aller Module
+#include "CoopShow.cpp"        // u171: Vorfuehrung fuer Aufnahmen (-coopaufnahme) - Host und Client gehen sichtbar durchs Menue
 #include "CoopAutoTest.cpp"    // u49: automatischer Testlauf auf einem PC (-cooptest:host / -cooptest:client, tools\cooptest_lauf.py)
 #include "UnionHooks.cpp"
 #pragma endregion

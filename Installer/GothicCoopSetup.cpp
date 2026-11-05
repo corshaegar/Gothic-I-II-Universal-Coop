@@ -25,9 +25,18 @@
 //
 // Nutzlast: Ressource IDR_PAYLOAD von tools\installer_bau.py (Format in LoadPayload), je Datei LZMS ueber die Windows-
 // Compression-API (cabinet.dll, ab Windows 8) und SHA-256 (BCrypt).
-// Ohne Oberflaeche: /still /spiel:g1|g2|othello /ordner:"..." [/ohnerenderer] [/ddraw] [/union] [/rueckgaengig] - Rueckgabe
+// Ohne Oberflaeche: /still [/spiel:g1|g2|othello|loa] /ordner:"..." [/ohnerenderer] [/ddraw] [/union] [/rueckgaengig] - Rueckgabe
 // 0 gut, 1 Fehler, 2 Aufruf falsch, 3 keine Schreibrechte; /union installiert bei fehlendem Union die Union-Dateien mit.
 // /ohneunion (mit Oberflaeche): nicht nach Union fragen. /pruefen [/bericht:"Datei"]: alles im Speicher entpacken und pruefen.
+// u195 (P204): Nutzer: "wird jetzt nur eine Version der Mod Installiert die mit allen Spielversionen kompatibel ist also bis jetzt
+// g1 g2 g1 othello und g2 LoA? Wenn das nicht so ist dann mache es so. Außerdem sollen dann unterstützte Mods direkt schon beim
+// installieren angezeigt werden" / "soll aber jetzt eine Mod installiert werden, die mit allen kompatibel ist automatisch, also auch
+// wenn dann die Gothic erweiterung gewechselt wird". Keine Spielwahl mehr: der Installer erkennt die Engine des Ordners (Gothic 1
+// bzw. Gothic 2) und legt den Coop dieser Engine an - mit allen Skriptsaetzen (system\GothicCoop\Skripte\<Satz>) und den Anleitungen
+// aller Varianten; nach system\Autorun kommt der Satz des erkannten Spiels (Othello oder Gothic 1). Wechselt die Mod spaeter
+// (GothicStarter, Othello dazu oder weg), stellt die DLL beim Start selbst um (Skript-Weiche, CoopCore.cpp). Oben stehen die
+// unterstuetzten Spiele und Mods (Mods mit eigenem Profil aus GothicCoop\Mods\CoopModList.h, Ressource IDR_MODS), im Status die Mods
+// im Ordner (GothicStarter-Eintraege system\*.ini mit [INFO] Title) mit ihrem Stand. /spiel ist nur noch eine Pruefung.
 
 #ifndef UNICODE
 #define UNICODE
@@ -72,9 +81,15 @@ static const wchar_t* T(const wchar_t* de, const wchar_t* en) {
 }
 
 // --- Nutzlast ------------------------------------------------------------------------------------------------------------
+// u195: C_COOP_G1/C_COOP_G2 = Coop der Engine (alle Skriptsaetze, Anleitungen aller Varianten), C_COOP_OTH = nur noch Othellos
+// Skriptsatz fuer system\Autorun (kommt nach C_COOP_G1, wenn der Ordner Othello ist)
 enum Comp { C_COOP_G1 = 1, C_COOP_G2 = 2, C_COOP_OTH = 3, C_RND_G1 = 4, C_RND_G2 = 5, C_GD3D11 = 6, C_DOCS = 7, C_UNION = 8 };
 enum EntryFlags { F_KEEP = 1, F_STORED = 2 };
-enum Game { G_G1 = 0, G_G2 = 1, G_OTH = 2, G_NONE = -1 };
+enum Game { G_G1 = 0, G_G2 = 1, G_OTH = 2, G_LOA = 3, G_NONE = -1 };   // u195: G_LOA = Gothic 2 mit Legend of Ahssun
+
+static bool IsG2(int g) {
+    return g == G_G2 || g == G_LOA;
+}
 
 struct Entry {
     int comp = 0, flags = 0;
@@ -224,6 +239,49 @@ static int UnionFiles() {
 
 static const wchar_t* const UNION_REMOVE = L"system\\dinput.dll";   // u62: entfernt der Union-Installer (SystemPack-Lader)
 
+// u195: Mods mit eigenem Profil - tools\installer_bau.py schreibt sie aus GothicCoop\Mods\CoopModList.h in die Ressource IDR_MODS,
+// je Zeile "Engine|Ini-Name|Name|geprueft mit" (Engine g1 bzw. g2a). Othello steht nicht darin (eigener Skriptsatz, fest unten).
+struct KnownMod {
+    std::wstring engine, ini, name, tested;
+};
+static std::vector<KnownMod> KnownMods;
+
+static void LoadKnownMods() {
+    HRSRC r = FindResourceW(NULL, MAKEINTRESOURCEW(IDR_MODS), (LPCWSTR)RT_RCDATA);
+    HGLOBAL g = r ? LoadResource(NULL, r) : NULL;
+    const char* p = g ? (const char*)LockResource(g) : NULL;
+    const DWORD n = r ? SizeofResource(NULL, r) : 0;
+    if (!p || !n)
+        return;
+    const std::wstring t = FromUtf8(p, (int)n);
+    for (size_t a = 0; a < t.size();) {
+        size_t e = t.find(L'\n', a);
+        if (e == std::wstring::npos)
+            e = t.size();
+        std::wstring l = t.substr(a, e - a);
+        a = e + 1;
+        if (!l.empty() && l.back() == L'\r')
+            l.pop_back();
+        std::vector<std::wstring> f;
+        for (size_t b = 0;;) {
+            const size_t c = l.find(L'|', b);
+            f.push_back(l.substr(b, c == std::wstring::npos ? std::wstring::npos : c - b));
+            if (c == std::wstring::npos)
+                break;
+            b = c + 1;
+        }
+        if (f.size() >= 3 && !f[1].empty())
+            KnownMods.push_back({ f[0], f[1], f[2], f.size() > 3 ? f[3] : std::wstring() });
+    }
+}
+
+static const KnownMod* FindKnownMod(bool g2, const std::wstring& ini) {
+    for (auto& m : KnownMods)
+        if (_wcsicmp(m.engine.c_str(), g2 ? L"g2a" : L"g1") == 0 && _wcsicmp(m.ini.c_str(), ini.c_str()) == 0)
+            return &m;
+    return NULL;
+}
+
 // --- Dateien -------------------------------------------------------------------------------------------------------------
 static bool FileExists(const std::wstring& f) {
     const DWORD a = GetFileAttributesW(f.c_str());
@@ -348,10 +406,71 @@ struct GameInfo {
     std::wstring othelloMissing, othelloVer, othelloKey;   // was fehlt / Fassung / woran erkannt
     bool ddraw = false, gd3d11 = false, gd3d11Match = false;   // ddraw.dll, GD3D11-Ordner, Fassung wie in der Nutzlast
     int coopState = 0;   // 0 kein Coop, 1 andere Fassung, 2 diese Fassung
+    // u195: Mods im Ordner - GothicStarter-Eintraege system\<Ini>.ini mit [INFO] Title (Gothics eigenes GothicGame.ini zaehlt nicht)
+    struct Mod {
+        std::wstring ini, title;   // Ini-Name ohne ".ini", Titel
+        bool files = false;        // erste Datei aus [FILES] VDF= liegt in Data\ModVDF oder Data
+    };
+    std::vector<Mod> mods;
+    bool loa = false;   // Gothic 2 mit Legend of Ahssun (LoA.ini und ihre Dateien)
 };
 
 static Game DetectGame(const GameInfo& i) {
-    return i.exeG2 ? G_G2 : i.exeG1 ? (i.othello ? G_OTH : G_G1) : G_NONE;
+    return i.exeG2 ? (i.loa ? G_LOA : G_G2) : i.exeG1 ? (i.othello ? G_OTH : G_G1) : G_NONE;
+}
+
+static std::wstring Trim(const std::wstring& s) {
+    size_t a = 0, b = s.size();
+    while (a < b && (s[a] == L' ' || s[a] == L'\t' || s[a] == L'\r'))
+        a++;
+    while (b > a && (s[b - 1] == L' ' || s[b - 1] == L'\t' || s[b - 1] == L'\r'))
+        b--;
+    return s.substr(a, b - a);
+}
+
+// u195: GothicStarter-Eintrag lesen (Gothics Inis sind ANSI, Windows-1252); false = keine Mod-Ini ([INFO] mit Title fehlt)
+static bool ReadModIni(const std::wstring& dir, const std::wstring& name, GameInfo::Mod& m) {
+    std::vector<unsigned char> raw;
+    if (!ReadAll(dir + L"\\system\\" + name, raw) || raw.empty() || raw.size() > 512 * 1024)
+        return false;
+    const int w = MultiByteToWideChar(1252, 0, (const char*)raw.data(), (int)raw.size(), NULL, 0);
+    std::wstring t(w, L'\0');
+    MultiByteToWideChar(1252, 0, (const char*)raw.data(), (int)raw.size(), &t[0], w);
+    std::wstring section, vdf;
+    for (size_t a = 0; a < t.size();) {
+        size_t e = t.find(L'\n', a);
+        if (e == std::wstring::npos)
+            e = t.size();
+        const std::wstring l = Trim(t.substr(a, e - a));
+        a = e + 1;
+        if (l.empty() || l[0] == L';')
+            continue;
+        if (l[0] == L'[') {
+            const size_t z = l.find(L']');
+            section = Trim(l.substr(1, z == std::wstring::npos ? std::wstring::npos : z - 1));
+            continue;
+        }
+        const size_t eq = l.find(L'=');
+        if (eq == std::wstring::npos)
+            continue;
+        const std::wstring k = Trim(l.substr(0, eq)), v = Trim(l.substr(eq + 1));
+        if (_wcsicmp(section.c_str(), L"INFO") == 0 && _wcsicmp(k.c_str(), L"Title") == 0 && m.title.empty())
+            m.title = v;
+        else if (_wcsicmp(section.c_str(), L"FILES") == 0 && _wcsicmp(k.c_str(), L"VDF") == 0 && vdf.empty())
+            vdf = v;
+    }
+    if (m.title.empty())
+        return false;
+    // eine der Dateien aus VDF= (Othellos Ini nennt ScriptsOthello4.0.vdf, installiert ist ScriptsOthello4.0_de.vdf)
+    for (size_t a = 0; a < vdf.size() && !m.files;) {
+        size_t e = vdf.find_first_of(L" \t,", a);
+        if (e == std::wstring::npos)
+            e = vdf.size();
+        const std::wstring f = vdf.substr(a, e - a);
+        a = e + 1;
+        m.files = !f.empty() && (FileExists(dir + L"\\Data\\ModVDF\\" + f) || FileExists(dir + L"\\Data\\" + f));
+    }
+    return true;
 }
 
 // Fassung aus der Versionsressource (VS_FIXEDFILEINFO), z. B. "2.6.0.0"; leer ohne Ressource
@@ -447,7 +566,7 @@ static bool VdfPaths(const std::wstring& f, std::vector<std::string>& out) {
     return true;
 }
 
-static GameInfo Inspect(const std::wstring& dir, Game g) {
+static GameInfo Inspect(const std::wstring& dir) {
     GameInfo i;
     if (dir.empty() || !DirExists(dir))
         return i;
@@ -524,11 +643,26 @@ static GameInfo Inspect(const std::wstring& dir, Game g) {
                 i.gd3d11Match = false;
         }
     }
-    const Entry* coop = FindEntry(g == G_G2 ? C_COOP_G2 : g == G_OTH ? C_COOP_OTH : C_COOP_G1,
-        g == G_G2 ? L"system\\Autorun\\Gothic2Coop.dll" : L"system\\Autorun\\Gothic1Coop.dll");
+    // u195: der Coop der Engine (eine DLL fuer alle Mods dieser Engine)
+    const Entry* coop = !i.exeG1 && !i.exeG2 ? NULL : i.exeG2 ? FindEntry(C_COOP_G2, L"system\\Autorun\\Gothic2Coop.dll")
+        : FindEntry(C_COOP_G1, L"system\\Autorun\\Gothic1Coop.dll");
     if (coop && FileExists(dir + L"\\" + coop->path)) {
         unsigned char sha[32];
         i.coopState = FileSha(dir + L"\\" + coop->path, sha) && memcmp(sha, coop->sha, 32) == 0 ? 2 : 1;
+    }
+    // u195: Mods im Ordner (GothicStarter-Eintraege)
+    std::vector<std::wstring> inis;
+    FindNames(sys + L"*.ini", L"", inis);
+    std::sort(inis.begin(), inis.end(), [](const std::wstring& a, const std::wstring& b) { return _wcsicmp(a.c_str(), b.c_str()) < 0; });
+    for (auto& n : inis) {
+        if (n.size() < 5 || _wcsicmp(n.c_str() + n.size() - 4, L".ini") != 0 || _wcsicmp(n.c_str(), L"GothicGame.ini") == 0)
+            continue;
+        GameInfo::Mod m;
+        if (ReadModIni(dir, n, m)) {
+            m.ini = n.substr(0, n.size() - 4);
+            i.loa |= i.exeG2 && m.files && _wcsicmp(m.ini.c_str(), L"LoA") == 0;
+            i.mods.push_back(m);
+        }
     }
     return i;
 }
@@ -555,12 +689,66 @@ static const wchar_t* GameName(Game g) {
     case G_G1: return T(L"Gothic 1", L"Gothic 1");
     case G_G2: return T(L"Gothic 2 – Die Nacht des Raben", L"Gothic 2 – Night of the Raven");
     case G_OTH: return T(L"Gothic 1 mit Othello", L"Gothic 1 with Othello");
+    case G_LOA: return T(L"Gothic 2 – Die Nacht des Raben mit Legend of Ahssun", L"Gothic 2 – Night of the Raven with Legend of Ahssun");
     default: return L"?";
     }
 }
 
 static const wchar_t* GameKey(Game g) {
-    return g == G_G2 ? L"g2" : g == G_OTH ? L"othello" : L"g1";
+    return g == G_G2 ? L"g2" : g == G_OTH ? L"othello" : g == G_LOA ? L"loa" : L"g1";
+}
+
+static bool ContainsNoCase(const std::wstring& s, const wchar_t* part) {
+    std::wstring a = s, b = part;
+    for (auto& ch : a)
+        ch = (wchar_t)towlower(ch);
+    for (auto& ch : b)
+        ch = (wchar_t)towlower(ch);
+    return a.find(b) != std::wstring::npos;
+}
+
+// u195: unterstuetzte Spiele und Mods (Kasten oben) - Mods mit eigenem Profil aus IDR_MODS
+static std::wstring SupportedText() {
+    std::wstring s = T(L"Ein Coop für alle: Das Spiel im Ordner wird erkannt. Wechselt die Mod später (GothicStarter, Othello dazu oder "
+        L"weg), stellt sich der Coop beim Start selbst um – ohne neue Installation.\r\n"
+        L"Unterstützt: Gothic 1 (1.08k) · Othello 4.x (Gothic 1, eigene Coop-Skripte) · Gothic 2 Die Nacht des Raben (2.6)",
+        L"One coop for all: the game in the folder is detected. If the mod changes later (GothicStarter, Othello added or removed), "
+        L"the coop switches by itself at start – no new installation.\r\n"
+        L"Supported: Gothic 1 (1.08k) · Othello 4.x (Gothic 1, own coop scripts) · Gothic 2 Night of the Raven (2.6)");
+    for (auto& m : KnownMods)
+        s += L" · " + m.name + (m.tested.empty() ? L"" : L" " + m.tested) + L" (" + (_wcsicmp(m.engine.c_str(), L"g1") == 0 ? L"Gothic 1" : L"Gothic 2") +
+            T(L", eigenes Profil)", L", own profile)");
+    s += T(L". Andere Mods laufen mit dem Coop-Grundgerüst (ungeprüft); anpassen ohne neuen Coop: system\\GothicCoopMod-<Ini>.json.",
+        L". Other mods run on the coop base (untested); adjust without a new coop: system\\GothicCoopMod-<Ini>.json.");
+    return s;
+}
+
+// u195: Mods im Ordner mit ihrem Stand (Statuszeile)
+static std::wstring ModsLine(const GameInfo& i, const std::wstring& dir) {
+    std::wstring s;
+    for (auto& m : i.mods) {
+        const KnownMod* k = FindKnownMod(i.exeG2, m.ini);
+        const bool oth = i.exeG1 && i.othello && ContainsNoCase(m.title, L"othello");
+        std::wstring st = oth ? T(L"unterstützt, eigene Coop-Skripte", L"supported, own coop scripts")   // am VDF-Inhalt erkannt
+            : !m.files ? T(L"Dateien aus der Ini nicht gefunden", L"files from the ini not found")
+            : k ? T(L"unterstützt, eigenes Profil", L"supported, own profile")
+            : T(L"ungeprüft – läuft mit dem Coop-Grundgerüst", L"untested – runs on the coop base");
+        if (FileExists(dir + L"\\system\\GothicCoopMod-" + m.ini + L".json"))
+            st += T(L", eigene Profil-Datei", L", own profile file");
+        s += (s.empty() ? L"" : L"; ") + m.title + L" (" + m.ini + L".ini): " + st;
+    }
+    return s.empty() ? s : std::wstring(T(L"Mods in diesem Ordner: ", L"Mods in this folder: ")) + s + L".";
+}
+
+// u195: was installiert wird (eine Fassung je Engine fuer alle Varianten)
+static std::wstring EngineLine(const GameInfo& i) {
+    if (i.exeG2)
+        return T(L"Installiert wird der Coop für die Gothic-2-Engine – derselbe für Gothic 2 und jede Mod darin (im GothicStarter wechseln geht ohne Neuinstallation).",
+            L"Installing the coop for the Gothic 2 engine – the same for Gothic 2 and every mod in it (switching in the GothicStarter needs no new installation).");
+    return std::wstring(T(L"Installiert wird der Coop für die Gothic-1-Engine mit den Skripten für Gothic 1 und Othello – nach system\\Autorun kommen die für ",
+        L"Installing the coop for the Gothic 1 engine with the scripts for Gothic 1 and Othello – system\\Autorun gets the ones for ")) +
+        (i.othello ? L"Othello" : L"Gothic 1") + T(L"; kommt Othello später dazu oder weg, stellt der Coop beim Start selbst um.",
+            L"; if Othello is added or removed later, the coop switches by itself at start.");
 }
 
 static std::wstring JoinList(const std::vector<std::wstring>& v, size_t most = 4) {
@@ -580,16 +768,19 @@ static bool GameCheck(const GameInfo& i, Game g, std::wstring& why) {
             L"no Gothic in this folder (system\\Gothic2.exe or system\\GOTHIC.EXE / GothicMod.exe).");
         return false;
     }
-    if (g == G_G2 && !i.exeG2) {
+    // u195: g ist das erkannte Spiel (dann passen Engine und Mod immer) oder die Angabe /spiel (nur noch eine Pruefung)
+    if (IsG2(g) && !i.exeG2) {
         why = std::wstring(T(L"FALSCHES SPIEL: Dieser Ordner ist ", L"WRONG GAME: this folder is ")) + GameName(DetectGame(i)) +
-            T(L" – bitte oben umstellen.", L" – please switch above.");
+            T(L" – die Angabe /spiel passt nicht (ohne /spiel erkennt der Installer das Spiel selbst).",
+                L" – /spiel does not match (without /spiel the installer detects the game itself).");
         return false;
     }
-    if (g != G_G2 && i.exeG2) {
-        why = T(L"FALSCHES SPIEL: Dieser Ordner ist Gothic 2 – bitte oben umstellen.", L"WRONG GAME: this folder is Gothic 2 – please switch above.");
+    if (!IsG2(g) && i.exeG2) {
+        why = T(L"FALSCHES SPIEL: Dieser Ordner ist Gothic 2 – die Angabe /spiel passt nicht (ohne /spiel erkennt der Installer das Spiel selbst).",
+            L"WRONG GAME: this folder is Gothic 2 – /spiel does not match (without /spiel the installer detects the game itself).");
         return false;
     }
-    if (g == G_G2 && (!i.exeOk || i.g2AddonVdf.empty())) {
+    if (IsG2(g) && (!i.exeOk || i.g2AddonVdf.empty())) {
         why = std::wstring(T(L"KEIN GOTHIC 2 DIE NACHT DES RABEN 2.6: ", L"NOT GOTHIC 2 NIGHT OF THE RAVEN 2.6: ")) + exe +
             (!i.g2AddonVdf.empty() ? L"" : T(L", in Data keine VDF mit der Addon-Welt (ADDON\\ADDONWORLD.ZEN, sonst in Worlds_Addon.vdf)",
                 L", no VDF in Data with the addon world (ADDON\\ADDONWORLD.ZEN, normally in Worlds_Addon.vdf)")) +
@@ -597,12 +788,19 @@ static bool GameCheck(const GameInfo& i, Game g, std::wstring& why) {
                 L". The coop needs Gothic 2 with the addon in version 2.6 (fix), as on Steam and GOG.");
         return false;
     }
-    if (g != G_G2 && !i.exeOk) {
+    if (g == G_LOA && !i.loa) {
+        why = T(L"KEIN LEGEND OF AHSSUN: in diesem Ordner fehlt system\\LoA.ini mit Data\\ModVDF\\LoA.mod (ohne /spiel installiert der "
+            L"Installer den Coop für Gothic 2 – er gilt auch für Legend of Ahssun, sobald es da ist).",
+            L"NO LEGEND OF AHSSUN: system\\LoA.ini with Data\\ModVDF\\LoA.mod is missing in this folder (without /spiel the installer "
+            L"installs the coop for Gothic 2 – it also covers Legend of Ahssun once it is there).");
+        return false;
+    }
+    if (!IsG2(g) && !i.exeOk) {
         why = std::wstring(T(L"GOTHIC 1 IN ANDERER FASSUNG: ", L"GOTHIC 1 IN ANOTHER VERSION: ")) + exe +
             T(L". Der Coop braucht Gothic 1 in Fassung 1.08k (1.0.8.11), wie bei Steam und GOG.", L". The coop needs Gothic 1 version 1.08k (1.0.8.11), as on Steam and GOG.");
         return false;
     }
-    if (g != G_G2 && i.g1WorldVdf.empty()) {
+    if (!IsG2(g) && i.g1WorldVdf.empty()) {
         why = std::wstring(T(L"KEIN VOLLSTÄNDIGES GOTHIC 1: ", L"NOT A COMPLETE GOTHIC 1: ")) + exe +
             T(L", aber in Data keine VDF mit der Welt von Gothic 1 (WORLDS\\WORLD.ZEN, sonst in worlds.VDF).",
                 L", but no VDF in Data with the Gothic 1 world (WORLDS\\WORLD.ZEN, normally in worlds.VDF).");
@@ -610,7 +808,8 @@ static bool GameCheck(const GameInfo& i, Game g, std::wstring& why) {
     }
     if (g == G_G1 && i.othello) {
         why = std::wstring(T(L"OTHELLO GEFUNDEN (", L"OTHELLO FOUND (")) + i.othelloKey +
-            T(L") – bitte \"Gothic 1 mit Othello\" wählen (eigene Coop-Skripte für Othello).", L") – please choose \"Gothic 1 with Othello\" (own coop scripts for Othello).");
+            T(L") – die Angabe /spiel:g1 passt nicht (ohne /spiel erkennt der Installer Othello selbst).",
+                L") – /spiel:g1 does not match (without /spiel the installer detects Othello itself).");
         return false;
     }
     // Mods fuer Gothic 1 sind erlaubt (Nutzer: "es soll ja auch erstmal möglich sein auch gothic 1 und 2 mit mods zu spielen") -
@@ -625,7 +824,8 @@ static bool GameCheck(const GameInfo& i, Game g, std::wstring& why) {
     if (g == G_OTH && !i.othello) {
         why = i.othelloFiles.empty()
             ? std::wstring(T(L"KEIN OTHELLO: In diesem Ordner ist nur Gothic 1 (es fehlt ", L"NO OTHELLO: this folder is plain Gothic 1 (missing ")) + i.othelloMissing +
-                T(L") – bitte \"Gothic 1\" wählen oder erst Othello installieren.", L") – please choose \"Gothic 1\" or install Othello first.")
+                T(L") – ohne /spiel installiert der Installer den Coop für Gothic 1; er gilt auch für Othello, sobald es da ist.",
+                    L") – without /spiel the installer installs the coop for Gothic 1; it also covers Othello once it is there.")
             : std::wstring(T(L"OTHELLO UNVOLLSTÄNDIGE ODER ANDERE FASSUNG: gefunden ", L"OTHELLO INCOMPLETE OR ANOTHER VERSION: found ")) + JoinList(i.othelloFiles) +
                 T(L", es fehlt ", L", missing ") + i.othelloMissing + T(L". Der Coop kennt Othello 4.x mit ScriptsOthello4.0.", L". The coop knows Othello 4.x with ScriptsOthello4.0.");
         return false;
@@ -637,7 +837,7 @@ static bool GameCheck(const GameInfo& i, Game g, std::wstring& why) {
 static std::wstring GameEvidence(const GameInfo& i) {
     std::wstring s = L"system\\" + i.exeName + L" " + i.exeVer;
     if (i.exeG2)
-        s += L", " + i.g2AddonVdf + T(L" mit ADDONWORLD.ZEN", L" with ADDONWORLD.ZEN");
+        s += L", " + i.g2AddonVdf + T(L" mit ADDONWORLD.ZEN", L" with ADDONWORLD.ZEN") + (i.loa ? L", system\\LoA.ini" : L"");
     else if (i.othello)
         s += L", " + i.othelloKey;
     else
@@ -660,7 +860,7 @@ static void AddCandidate(std::vector<Candidate>& v, std::wstring d) {
     for (auto& c : v)
         if (_wcsicmp(c.dir.c_str(), d.c_str()) == 0)
             return;
-    const Game g = DetectGame(Inspect(d, G_NONE));
+    const Game g = DetectGame(Inspect(d));
     if (g != G_NONE)
         v.push_back({ d, g });
 }
@@ -733,7 +933,7 @@ static std::vector<Candidate> FindGames() {
                 L"\\Gothic II", L"\\Gothic" })
             AddCandidate(v, std::wstring(pf) + g);
     for (const wchar_t* r : { L"C:\\Spiele", L"C:\\Games", L"D:\\Spiele", L"D:\\Games", L"C:" })
-        for (const wchar_t* g : { L"\\Gothic II", L"\\Gothic 2", L"\\Gothic", L"\\Othello" })
+        for (const wchar_t* g : { L"\\Gothic II", L"\\Gothic 2", L"\\Gothic", L"\\Othello", L"\\Legend of Ahssun", L"\\Gothic Legend of Ahssun" })
             AddCandidate(v, std::wstring(r) + g);
     return v;
 }
@@ -765,10 +965,10 @@ static RendererMode PlanRenderer(const GameInfo& i, bool wanted, bool replaceFor
     return R_BASE_AND_COOP;
 }
 
-static std::vector<const Entry*> Plan(Game g, RendererMode r, bool withUnion) {
+static std::vector<const Entry*> Plan(const GameInfo& i, RendererMode r, bool withUnion) {
     std::vector<const Entry*> v;
-    const int coop = g == G_G2 ? C_COOP_G2 : g == G_OTH ? C_COOP_OTH : C_COOP_G1;
-    const int rnd = g == G_G2 ? C_RND_G2 : C_RND_G1;
+    const int coop = i.exeG2 ? C_COOP_G2 : C_COOP_G1;   // u195: der Coop der Engine, fuer alle Mods darin
+    const int rnd = i.exeG2 ? C_RND_G2 : C_RND_G1;
     auto add = [&](int comp) {
         for (auto& e : Entries)
             if (e.comp == comp) {
@@ -787,6 +987,8 @@ static std::vector<const Entry*> Plan(Game g, RendererMode r, bool withUnion) {
     if (r != R_NONE)
         add(rnd);
     add(coop);
+    if (!i.exeG2 && i.othello)   // u195: Othellos Skriptsatz nach Autorun (die Skript-Weiche der DLL haelt ihn danach passend)
+        add(C_COOP_OTH);
     add(C_DOCS);
     return v;
 }
@@ -976,37 +1178,46 @@ static std::wstring LastRun(const std::wstring& dir) {
 
 // Bedienelemente waehrend der Installation sperren/freigeben
 static void UiLock(HWND h, bool lock) {
-    for (int id : { IDC_RB_G1, IDC_RB_G2, IDC_RB_OTH, IDC_DIR, IDC_BROWSE, IDC_RENDERER, IDC_INSTALL, IDC_UNDO, (int)IDCANCEL })
+    for (int id : { IDC_DIR, IDC_BROWSE, IDC_RENDERER, IDC_INSTALL, IDC_UNDO, (int)IDCANCEL })
         EnableWindow(GetDlgItem(h, id), !lock);
 }
 
 static int DoInstall(Ctx& c) {
     const std::wstring stamp = Stamp();
     c.log.clear();
-    Log(c, std::wstring(T(L"Installation GothicCoop ", L"Installing GothicCoop ")) + Fassung + L" – " + GameName(c.game) + L" – " + c.dir);
-    GameInfo i = Inspect(c.dir, c.game);
+    // u195: ohne /spiel das erkannte Spiel; eine Angabe /spiel wird nur noch geprueft
+    GameInfo i = Inspect(c.dir);
+    const Game found = DetectGame(i);
+    const Game asked = c.game;
+    Log(c, std::wstring(T(L"Installation GothicCoop ", L"Installing GothicCoop ")) + Fassung + L" – " +
+        GameName(asked != G_NONE ? asked : found) + L" – " + c.dir);
     std::wstring gwhy;
-    if (!GameCheck(i, c.game, gwhy)) {
+    if (!GameCheck(i, asked != G_NONE ? asked : found != G_NONE ? found : G_G1, gwhy)) {
         Log(c, std::wstring(T(L"FEHLER – nichts installiert: ", L"ERROR – nothing installed: ")) + gwhy);
         if (i.exeG1 || i.exeG2)   // ein Gothic-Ordner: Grund ins Protokoll (bei /still sonst nirgends zu sehen)
             SaveLog(c, stamp, L"falsches Spiel");
         return 1;
     }
-    Log(c, std::wstring(T(L"Spiel: ", L"Game: ")) + GameName(DetectGame(i)) + L" (" + GameEvidence(i) + L")");
+    c.game = found;
+    Log(c, std::wstring(T(L"Spiel: ", L"Game: ")) + GameName(found) + L" (" + GameEvidence(i) + L")");
+    Log(c, EngineLine(i));
+    const std::wstring mods = ModsLine(i, c.dir);
+    if (!mods.empty())
+        Log(c, mods);
     std::wstring which;
     if (GothicRunning(which)) {
         Log(c, std::wstring(T(L"FEHLER: Gothic läuft noch (", L"ERROR: Gothic is still running (")) + which + T(L") – bitte beenden.", L") – please quit it."));
         return 1;
     }
     // u62: fehlt Union bei Gothic 1/2 und soll es mit, kommen seine Dateien in den Plan (vorhandenes Union bleibt unberuehrt)
-    const bool withUnion = !i.unionOk && c.game != G_OTH && c.unionFiles && UnionFiles() > 0;
+    const bool withUnion = !i.unionOk && found != G_OTH && c.unionFiles && UnionFiles() > 0;
     if (withUnion)
         Log(c, T(L"Union: fehlt – Union 1.0m wird mitinstalliert (Rückgängig nimmt es wieder heraus).",
             L"Union: missing – Union 1.0m is installed along (undo removes it again)."));
     std::wstring rwhy;
     const RendererMode rm = PlanRenderer(i, c.renderer, c.replaceForeignDdraw, rwhy);
     Log(c, std::wstring(T(L"Renderer: ", L"Renderer: ")) + rwhy);
-    const std::vector<const Entry*> plan = Plan(c.game, rm, withUnion);
+    const std::vector<const Entry*> plan = Plan(i, rm, withUnion);
     // erst alles entpacken und pruefen - kaputte Nutzlast aendert nichts am Spielordner
     std::vector<std::vector<unsigned char>> data(plan.size());
     for (size_t k = 0; k < plan.size(); k++)
@@ -1103,7 +1314,7 @@ static int DoInstall(Ctx& c) {
     Log(c, std::wstring(T(L"Fertig: ", L"Done: ")) + std::to_wstring(fresh) + T(L" neu, ", L" new, ") + std::to_wstring(replaced) +
         T(L" ersetzt (Sicherung in CoopBackup\\", L" replaced (backup in CoopBackup\\") + stamp + L"), " + std::to_wstring(same) +
         T(L" schon aktuell, ", L" already up to date, ") + std::to_wstring(keptOwn) + T(L" eigene behalten.", L" own kept."));
-    if (!i.unionOk && c.game == G_OTH)
+    if (!i.unionOk && found == G_OTH)
         Log(c, T(L"HINWEIS: Union fehlt (system\\Shw32.dll) – bei Othello gehört es dazu; ohne Union lädt Gothic den Coop nicht. Othello-Installation prüfen.",
             L"NOTE: Union is missing (system\\Shw32.dll) – it is part of Othello; without Union Gothic does not load the coop. Check the Othello installation."));
     else if (!i.unionOk && !withUnion)
@@ -1136,18 +1347,13 @@ static std::vector<Candidate> Found;
 static Ctx UiCtx;
 static bool AutoStart = false;
 
-static Game UiGame(HWND h) {
-    return IsDlgButtonChecked(h, IDC_RB_G2) ? G_G2 : IsDlgButtonChecked(h, IDC_RB_OTH) ? G_OTH : G_G1;
-}
-
-static void UiSetGame(HWND h, Game g) {
-    CheckRadioButton(h, IDC_RB_G1, IDC_RB_OTH, g == G_G2 ? IDC_RB_G2 : g == G_OTH ? IDC_RB_OTH : IDC_RB_G1);
-}
-
 static std::wstring UiDir(HWND h) {
     wchar_t b[MAX_PATH * 2] = L"";
     GetDlgItemTextW(h, IDC_DIR, b, MAX_PATH * 2);
     std::wstring d = b;
+    const size_t label = d.find(L"   [");   // u195: Eintrag der Liste "Ordner   [Spiel]"
+    if (label != std::wstring::npos && !d.empty() && d.back() == L']')
+        d.resize(label);
     while (!d.empty() && (d.back() == L'\\' || d.back() == L' '))
         d.pop_back();
     return d;
@@ -1155,19 +1361,20 @@ static std::wstring UiDir(HWND h) {
 
 static void UiRefresh(HWND h) {
     const std::wstring dir = UiDir(h);
-    const Game g = UiGame(h);
-    const GameInfo i = Inspect(dir, g);
+    const GameInfo i = Inspect(dir);
+    const Game g = DetectGame(i);   // u195: keine Wahl mehr - das erkannte Spiel
     std::wstring s;
     bool ok = true;
     auto line = [&](const std::wstring& l) { s += l + L"\r\n"; };
-    line(std::wstring(T(L"GothicCoop ", L"GothicCoop ")) + Fassung + T(L" – Coop für ", L" – coop for ") + GameName(g));
+    line(std::wstring(T(L"GothicCoop ", L"GothicCoop ")) + Fassung + T(L" – ein Coop für Gothic 1, Othello, Gothic 2 und ihre Mods",
+        L" – one coop for Gothic 1, Othello, Gothic 2 and their mods"));
     if (dir.empty() || !DirExists(dir)) {
         line(T(L"Spielordner wählen (der Ordner, in dem \"system\" liegt).", L"Choose the game folder (the one containing \"system\")."));
         ok = false;
     }
     else {
         std::wstring gwhy;
-        if (!GameCheck(i, g, gwhy)) {   // falsches Spiel: nur der Grund (Union/Renderer-Zeilen passten hier nicht)
+        if (!GameCheck(i, g != G_NONE ? g : G_G1, gwhy)) {   // kein oder kein passendes Gothic: nur der Grund
             line(gwhy);
             ok = false;
             if (!LastRun(dir).empty())
@@ -1177,7 +1384,11 @@ static void UiRefresh(HWND h) {
             EnableWindow(GetDlgItem(h, IDC_UNDO), !LastRun(dir).empty());
             return;
         }
-        line(std::wstring(T(L"Spiel: ", L"Game: ")) + GameName(g) + T(L" gefunden (", L" found (") + GameEvidence(i) + L").");
+        line(std::wstring(T(L"Erkannt: ", L"Detected: ")) + GameName(g) + L" (" + GameEvidence(i) + L").");
+        line(EngineLine(i));
+        const std::wstring mods = ModsLine(i, dir);
+        if (!mods.empty())
+            line(mods);
         if (g == G_OTH && !i.othelloVer.empty() && i.othelloVer != L"4.4.2.1")
             line(std::wstring(T(L"HINWEIS: Othello ", L"NOTE: Othello ")) + i.othelloVer +
                 T(L" – der Coop ist mit Othello 4.4.2.1 erprobt.", L" – the coop was tested with Othello 4.4.2.1."));
@@ -1218,11 +1429,8 @@ static void UiRefresh(HWND h) {
     EnableWindow(GetDlgItem(h, IDC_UNDO), DirExists(dir) && !LastRun(dir).empty());
 }
 
-static void UiDirChosen(HWND h, const std::wstring& dir) {
-    const Game here = DetectGame(Inspect(dir, G_NONE));
-    if (here != G_NONE)
-        UiSetGame(h, here);
-    UiRefresh(h);
+static void UiDirChosen(HWND h, const std::wstring&) {
+    UiRefresh(h);   // u195: das Spiel erkennt UiRefresh selbst
 }
 
 static void UiBrowse(HWND h) {
@@ -1253,7 +1461,7 @@ static void UiBrowse(HWND h) {
 }
 
 static std::wstring SelfArgs(HWND h) {
-    std::wstring a = std::wstring(L"/spiel:") + GameKey(UiGame(h)) + L" /ordner:\"" + UiDir(h) + L"\"";
+    std::wstring a = L"/ordner:\"" + UiDir(h) + L"\"";   // u195: ohne /spiel - das Spiel erkennt der Installer selbst
     if (IsDlgButtonChecked(h, IDC_RENDERER) != BST_CHECKED)
         a += L" /ohnerenderer";
     if (UiCtx.unionDeclined)
@@ -1267,11 +1475,11 @@ static bool NoUnionAsk = false;   // /ohneunion
 static void UiInstall(HWND h) {
     Ctx& c = UiCtx;
     c.dir = UiDir(h);
-    c.game = UiGame(h);
+    c.game = G_NONE;   // u195: erkennt DoInstall
     c.renderer = IsDlgButtonChecked(h, IDC_RENDERER) == BST_CHECKED;
     c.replaceForeignDdraw = false;
     c.ui = h;
-    const GameInfo i = Inspect(c.dir, c.game);
+    const GameInfo i = Inspect(c.dir);
     if (c.renderer && i.ddraw && !i.gd3d11) {
         const int r = MessageBoxW(h, T(L"Im Spielordner liegt eine system\\ddraw.dll, aber kein GD3D11 – sie gehört einem anderen Programm (z. B. einem anderen Grafik-Aufsatz).\n\nDurch GD3D11 ersetzen? Die alte Datei kommt nach CoopBackup.\n\nNein = ohne Renderer installieren.",
             L"The game folder contains system\\ddraw.dll but no GD3D11 – it belongs to another program (e.g. another graphics wrapper).\n\nReplace it with GD3D11? The old file goes to CoopBackup.\n\nNo = install without renderer."),
@@ -1283,7 +1491,7 @@ static void UiInstall(HWND h) {
     }
     c.unionFiles = false;
     c.unionDeclined = NoUnionAsk;
-    if (!i.unionOk && c.game != G_OTH && UnionFiles() && !NoUnionAsk) {
+    if (!i.unionOk && DetectGame(i) != G_OTH && UnionFiles() && !NoUnionAsk) {
         const int r = MessageBoxW(h, (std::wstring(T(L"Union fehlt – ohne Union lädt Gothic den Coop nicht.\n\nUnion 1.0m mitinstallieren (",
             L"Union is missing – without Union Gothic does not load the coop.\n\nInstall Union 1.0m along (")) + std::to_wstring(UnionFiles()) +
             T(L" Dateien; system\\dinput.dll von SystemPack kommt nach CoopBackup)? „Letzte Installation rückgängig“ nimmt es wieder heraus.\n\nNein = Coop ohne Union installieren.",
@@ -1305,8 +1513,12 @@ static void UiInstall(HWND h) {
     if (r == 0) {
         // Nutzer (u54): "nach der Union Installtion auch direkt das Fenster erscbeinen dass Coop fertig installiert ist und nach
         // dem click auf OK beendet sich das fenster" - so nach jeder gelungenen Installation
-        std::wstring msg = std::wstring(L"GothicCoop ") + Fassung + T(L" ist fertig installiert – ", L" is installed – ") + GameName(c.game) + L"\n" + c.dir;
-        if (!Inspect(c.dir, c.game).unionOk)
+        std::wstring msg = std::wstring(L"GothicCoop ") + Fassung + T(L" ist fertig installiert – ", L" is installed – ") + GameName(c.game) + L"\n" + c.dir +
+            (c.game == G_OTH || c.game == G_G1 ? T(L"\n\nGilt für Gothic 1 und Othello – der Coop stellt sich beim Start selbst um.",
+                L"\n\nCovers Gothic 1 and Othello – the coop switches by itself at start.")
+                : T(L"\n\nGilt für Gothic 2 und jede Mod darin (z. B. Legend of Ahssun) – der Coop erkennt beim Start, was läuft.",
+                    L"\n\nCovers Gothic 2 and every mod in it (e.g. Legend of Ahssun) – the coop detects at start what runs."));
+        if (!Inspect(c.dir).unionOk)
             msg += T(L"\n\nUnion fehlt noch – ohne Union lädt Gothic den Coop nicht.", L"\n\nUnion is still missing – without Union Gothic does not load the coop.");
         msg += T(L"\n\nProtokoll: CoopLogs\\Installer. OK beendet den Installer.", L"\n\nLog: CoopLogs\\Installer. OK closes the installer.");
         MessageBoxW(h, msg.c_str(), L"GothicCoop", MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
@@ -1338,7 +1550,7 @@ static void UiInstall(HWND h) {
 static void UiUndo(HWND h) {
     Ctx& c = UiCtx;
     c.dir = UiDir(h);
-    c.game = UiGame(h);
+    c.game = G_NONE;
     c.ui = h;
     const std::wstring run = LastRun(c.dir);
     if (run.empty())
@@ -1362,12 +1574,13 @@ static INT_PTR CALLBACK DlgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_INITDIALOG: {
         SetWindowTextW(h, (std::wstring(L"GothicCoop ") + Fassung + T(L" – Installation", L" – Setup")).c_str());
         SetDlgItemTextW(h, IDC_TITLE, (std::wstring(T(L"GothicCoop ", L"GothicCoop ")) + Fassung +
-            T(L" für Gothic 1, Gothic 2 Die Nacht des Raben und Othello", L" for Gothic 1, Gothic 2 Night of the Raven and Othello")).c_str());
-        SetDlgItemTextW(h, IDC_GRP_GAME, T(L"1. Welches Spiel ist installiert?", L"1. Which game is installed?"));
-        SetDlgItemTextW(h, IDC_RB_G1, T(L"Gothic 1", L"Gothic 1"));
-        SetDlgItemTextW(h, IDC_RB_G2, T(L"Gothic 2 Die Nacht des Raben", L"Gothic 2 Night of the Raven"));
-        SetDlgItemTextW(h, IDC_RB_OTH, T(L"Gothic 1 mit Othello", L"Gothic 1 with Othello"));
-        SetDlgItemTextW(h, IDC_GRP_DIR, T(L"2. Spielordner (der Ordner, in dem \"system\" liegt)", L"2. Game folder (the one containing \"system\")"));
+            T(L" – ein Coop für Gothic 1, Othello, Gothic 2 Die Nacht des Raben und Legend of Ahssun",
+                L" – one coop for Gothic 1, Othello, Gothic 2 Night of the Raven and Legend of Ahssun")).c_str());
+        // u195: keine Spielwahl mehr - oben die unterstuetzten Spiele und Mods, das Spiel erkennt der Installer am Ordner
+        SetDlgItemTextW(h, IDC_GRP_GAME, T(L"Unterstützte Spiele und Mods", L"Supported games and mods"));
+        SetDlgItemTextW(h, IDC_HINT, SupportedText().c_str());
+        SetDlgItemTextW(h, IDC_GRP_DIR, T(L"Spielordner (der Ordner, in dem \"system\" liegt) – das Spiel darin wird erkannt",
+            L"Game folder (the one containing \"system\") – the game in it is detected"));
         SetDlgItemTextW(h, IDC_BROWSE, T(L"Durchsuchen …", L"Browse …"));
         SetDlgItemTextW(h, IDC_RENDERER, T(L"Coop-Renderer installieren (fehlt GD3D11, wird es mitinstalliert und der Coop-Renderer darübergelegt)",
             L"Install the coop renderer (if GD3D11 is missing, it is installed and the coop renderer laid over it)"));
@@ -1378,11 +1591,7 @@ static INT_PTR CALLBACK DlgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         Found = FindGames();
         HWND cb = GetDlgItem(h, IDC_DIR);
         for (auto& c : Found)
-            SendMessageW(cb, CB_ADDSTRING, 0, (LPARAM)c.dir.c_str());
-        Game g = InitGame != G_NONE ? InitGame : !InitDir.empty() ? DetectGame(Inspect(InitDir, G_NONE)) : G_NONE;
-        if (g == G_NONE)
-            g = !Found.empty() && InitDir.empty() ? Found[0].game : G_G2;
-        UiSetGame(h, g);
+            SendMessageW(cb, CB_ADDSTRING, 0, (LPARAM)(c.dir + L"   [" + GameName(c.game) + L"]").c_str());
         if (!InitDir.empty())
             SetDlgItemTextW(h, IDC_DIR, InitDir.c_str());
         else if (!Found.empty())
@@ -1398,24 +1607,19 @@ static INT_PTR CALLBACK DlgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             UiRefresh(h);
         }
         return TRUE;
+    case WM_APP + 1:
+        if (!UiBusy)
+            UiRefresh(h);
+        return TRUE;
     case WM_COMMAND:
         switch (LOWORD(w)) {
-        case IDC_RB_G1:
-        case IDC_RB_G2:
-        case IDC_RB_OTH:
         case IDC_RENDERER:
             if (HIWORD(w) == BN_CLICKED)
                 UiRefresh(h);
             return TRUE;
         case IDC_DIR:
-            if (HIWORD(w) == CBN_SELCHANGE) {
-                const int k = (int)SendDlgItemMessageW(h, IDC_DIR, CB_GETCURSEL, 0, 0);
-                if (k >= 0 && k < (int)Found.size()) {
-                    SetDlgItemTextW(h, IDC_DIR, Found[k].dir.c_str());
-                    UiSetGame(h, Found[k].game);
-                }
-                UiRefresh(h);
-            }
+            if (HIWORD(w) == CBN_SELCHANGE)   // u195: erst pruefen, wenn der Eintrag im Feld steht (Liste: "Ordner   [Spiel]")
+                PostMessageW(h, WM_APP + 1, 0, 0);
             else if (HIWORD(w) == CBN_EDITCHANGE)
                 SetTimer(h, 1, 500, NULL);
             else if (HIWORD(w) == CBN_KILLFOCUS)
@@ -1461,6 +1665,8 @@ static Game GameFromKey(const std::wstring& k) {
         return G_G2;
     if (_wcsicmp(k.c_str(), L"othello") == 0)
         return G_OTH;
+    if (_wcsicmp(k.c_str(), L"loa") == 0)   // u195
+        return G_LOA;
     return G_NONE;
 }
 
@@ -1493,9 +1699,10 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
     En = PRIMARYLANGID(GetUserDefaultUILanguage()) != LANG_GERMAN;
     std::wstring why;
     const bool payload = LoadPayload(why);
+    LoadKnownMods();   // u195
     int argc = 0;
     LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-    bool silent = false, undo = false, verify = false;
+    bool silent = false, undo = false, verify = false, badGame = false;
     std::wstring report;
     for (int k = 1; k < argc; k++) {
         const std::wstring a = argv[k];
@@ -1516,8 +1723,10 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
             NoUnionAsk = true;
         else if (_wcsicmp(a.c_str(), L"/los") == 0)
             AutoStart = true;
-        else if (ArgValue(a, L"/spiel:", v))
+        else if (ArgValue(a, L"/spiel:", v)) {
             InitGame = GameFromKey(v);
+            badGame = InitGame == G_NONE;
+        }
         else if (ArgValue(a, L"/ordner:", v))
             InitDir = v;
         else if (ArgValue(a, L"/bericht:", v))
@@ -1541,7 +1750,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
         c.renderer = InitRenderer;
         c.replaceForeignDdraw = UiCtx.replaceForeignDdraw;
         c.unionFiles = UiCtx.unionFiles;
-        if (c.dir.empty() || (c.game == G_NONE && !undo))
+        if (c.dir.empty() || badGame)   // u195: ohne /spiel erkennt DoInstall das Spiel
             return 2;
         return undo ? DoUndo(c) : DoInstall(c);
     }

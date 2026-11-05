@@ -1,7 +1,7 @@
-GothicCoop u160 - Gothic 2 Die Nacht des Raben ohne Mod (Union-Coop, erste Fassung fuer Gothic 2)
+GothicCoop u197 - Gothic 2 Die Nacht des Raben ohne Mod (Union-Coop, erste Fassung fuer Gothic 2)
 
 Voraussetzung: Gothic 2 Die Nacht des Raben (Fassung 2.6). Union 1.0m (mit zParserExtender) liegt bei.
-Beide PCs brauchen dieselbe GothicCoop-Fassung (u160).
+Beide PCs brauchen dieselbe GothicCoop-Fassung (u197).
 
 Installation: den Inhalt dieser ZIP in den Gothic-2-Ordner entpacken (den Ordner, in dem "system" liegt) und
 vorhandene Dateien ersetzen. War Union noch nicht installiert: danach system\dinput.dll entfernen (der Lader von
@@ -9,6 +9,7 @@ SystemPack - Union laedt SystemPack selbst). Bequemer und rueckgaengig machbar: 
   Data\Union.vdf, system\Union.patch, Shw32.dll, Vdfs32g.dll, stdhost.exe, msvcp100.dll, msvcr100.dll   Union 1.0m
   system\Autorun\              GothicCoop-DLL und drei Skripte
   system\GothicCoopConfig.json  Vorgaben (Name, Adresse, Aussehen - im Spiel unter COOP aenderbar)
+  system\GothicCoopMod.vorlage.json  Vorlage fuer ein Mod-Profil (so benannt nicht aktiv, siehe unten)
   system\steam_api.dll und steam_appid.txt (39510)   fuer "Coop ueber Steam" (Steam muss laufen)
   system\GD3D11\Bin\g2a_avx2.dll  Coop-Renderer (GD3D11 v17.9.7 + coop9) - nur wirksam, wenn GD3D11 installiert ist
                                   (3D-Vorschau der Figur, Zuschau-Fenster beim Mitspieler, eigenes Log im Weltprozess,
@@ -112,6 +113,13 @@ Coop-Inventar - eine gemeinsame Truhe; die Taste (Vorgabe I, Einstellungen > COO
 gleichzeitig offen haben, der Inhalt liegt beim Host und im Spielstand, Gegenstaende daraus zaehlen bei Quests. Ab u105: Auto-Sicherung
 auch alle 3 Minuten. Ab u135 (Renderer coop9): kein Absturz mehr beim Speichern mit offenem Zuschau-Fenster, wenn in den
 GD3D11-Einstellungen AtmosphericScattering aus ist; das Zuschau-Fenster zeigt dann statt des Himmels die Nebelfarbe.
+Ab u194: Mod-Profil als Datei - eine Mod, die der Coop nicht kennt, bekommt ihre Anpassungen (Skriptwerte, die je PC bleiben,
+Vorgaben fuer Coop-Schalter, Hinweise) ohne neue DLL ueber system\GothicCoopMod-<Ini>.json (<Ini> = Spiel-Ini der Mod ohne
+".ini", z. B. GothicCoopMod-LoA.json). Vorlage mit Erklaerung: system\GothicCoopMod.vorlage.json. Beide PCs brauchen dieselbe
+Datei; das Log nennt beim Start, was gelesen wurde ("Mod-Profil ...").
+Ab u195: ein Paket fuer Gothic 2 und jede Mod darin (Legend of Ahssun, Gothic II Classic, ...): der Coop erkennt beim Start, was
+laeuft (Log: "Profil"), die Skripte liegen zusaetzlich in system\GothicCoop\Skripte\g2 (die Skript-Weiche ergaenzt fehlende).
+Anleitung fuer Legend of Ahssun: GothicCoop-LIESMICH-LoA.txt.
 
 Spielen: Hauptmenue > COOP > Figur waehlen > "Weiter: Verbinden" > "Spiel hosten" bzw. "Ueber IP beitreten"
 (Port 9955) oder ueber Steam. Protokoll: system\GothicCoop.log.

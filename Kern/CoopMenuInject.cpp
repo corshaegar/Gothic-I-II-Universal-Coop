@@ -163,9 +163,11 @@ namespace GOTHIC_ENGINE {
         }
         zCMenuItem* title = InjectCreate("MENUITEM_COOPINGAME_TITLE");
         const int exit2 = InjectFind(menu, "MENUITEM_MAIN_EXIT");
-        if (title && exit2 >= 0 && exitY + INJECT_MAIN_DY <= 8192 - 300) {
+        // u170 (P178): Legend of Ahssun - "Beenden" steht nach dem Einhaengen auf y 7450, darunter ist kein Platz mehr ("Hauptmenue"
+        // FEHLT). Die Zeile ist nur vorlaeufig: im Spiel legt MainShowForState alle sichtbaren Eintraege nach der Listenfolge neu
+        if (title && exit2 >= 0) {
             title->m_parItemFlags = (title->m_parItemFlags & ~IT_ONLY_OUT_GAME) | IT_ONLY_IN_GAME;
-            title->m_parPosY = exitY + INJECT_MAIN_DY;
+            title->m_parPosY = (std::min)(exitY + INJECT_MAIN_DY, 8192 - 300);
             if (InjectInsert(menu, exit2, title)) {   // u25: vor "Beenden"
                 if (menu->defaultInGame >= exit2)
                     menu->defaultInGame++;
@@ -199,15 +201,47 @@ namespace GOTHIC_ENGINE {
             InjectLog("Hauptmen\xFC ohne %s (%d Eintr\xE4ge) - COOP nicht eingeh\xE4ngt", names[0], a.num);
             return;
         }
-        zCMenuItem* items[8];
-        for (int k = 0; k < count; k++) {
-            const int i = InjectFind(menu, names[k]);
-            items[k] = i >= 0 ? a.items[i] : NULL;
-            const int y = items[k] ? items[k]->m_parPosY : 0;
-            const int orig = INJECT_MAIN_Y + INJECT_MAIN_DY * (k + row0);
-            if (!items[k] || (y != orig && y != orig + INJECT_MAIN_DY)) {
-                InjectLog("Hauptmen\xFC anders als erwartet (%s %s, y %d statt %d) - COOP nicht eingeh\xE4ngt", names[k],
-                    items[k] ? "da" : "fehlt", y, orig);
+        zCMenuItem* items[16];
+        int rows = count;
+        bool gridMoved = false;
+        if (othello) {
+            for (int k = 0; k < count; k++) {
+                const int i = InjectFind(menu, names[k]);
+                items[k] = i >= 0 ? a.items[i] : NULL;
+                const int y = items[k] ? items[k]->m_parPosY : 0;
+                const int orig = INJECT_MAIN_Y + INJECT_MAIN_DY * (k + row0);
+                if (!items[k] || (y != orig && y != orig + INJECT_MAIN_DY)) {
+                    InjectLog("Hauptmen\xFC anders als erwartet (%s %s, y %d statt %d) - COOP nicht eingeh\xE4ngt", names[k],
+                        items[k] ? "da" : "fehlt", y, orig);
+                    return;
+                }
+            }
+        }
+        else {
+            // u170 (P178): ohne Othello zaehlen alle Eintraege auf dem Raster MENU_MAIN_Y + DY * k ab "Neues Spiel" - ein Mod darf eigene
+            // Zeilen haben. Legend of Ahssun: MENUITEM_LOA_SETTINGS auf Zeile 5, MENUITEM_MAIN_LOA_CREDITS statt MENUITEM_MAIN_CREDITS,
+            // Beenden auf Zeile 8; bis u169 verlangte GT genau Gothics Namen ("Hauptmenue anders als erwartet ... COOP nicht
+            // eingehaengt"). Steht "Neues Spiel" schon eine Zeile tiefer, war das Menue schon verschoben (neu aufgebaut) - dann bleibt
+            // alles, wie es ist. Allgemein (G1/G2 ohne Mod und Mods mit Gothics Raster)
+            const int y0 = a.items[first]->m_parPosY;
+            if (y0 != INJECT_MAIN_Y && y0 != INJECT_MAIN_Y + INJECT_MAIN_DY) {
+                InjectLog("Hauptmen\xFC anders als erwartet (%s y %d statt %d) - COOP nicht eingeh\xE4ngt", names[0], y0, INJECT_MAIN_Y);
+                return;
+            }
+            gridMoved = y0 != INJECT_MAIN_Y;
+            rows = 0;
+            bool exitSeen = false;
+            for (int i = 0; i < a.num && rows < 16; i++) {
+                zCMenuItem* it = a.items[i];
+                const int y = it ? it->m_parPosY : -1;
+                if (!it || y < y0 || y > 8192 - 300 || (y - INJECT_MAIN_Y) % INJECT_MAIN_DY != 0)
+                    continue;
+                items[rows++] = it;
+                exitSeen = exitSeen || LobbyUpper(it->id) == "MENUITEM_MAIN_EXIT";
+            }
+            if (!exitSeen) {
+                InjectLog("Hauptmen\xFC anders als erwartet (MENUITEM_MAIN_EXIT nicht auf dem Raster, %d Zeilen ab %s) - COOP nicht eingeh\xE4ngt",
+                    rows, names[0]);
                 return;
             }
         }
@@ -221,13 +255,20 @@ namespace GOTHIC_ENGINE {
             return;
         }
         int moved = 0;
-        for (int k = 0; k < count; k++) {
-            const int orig = INJECT_MAIN_Y + INJECT_MAIN_DY * (k + row0);
-            if (items[k]->m_parPosY == orig) {
-                items[k]->m_parPosY = orig + INJECT_MAIN_DY;
-                moved++;
+        if (othello) {
+            for (int k = 0; k < count; k++) {
+                const int orig = INJECT_MAIN_Y + INJECT_MAIN_DY * (k + row0);
+                if (items[k]->m_parPosY == orig) {
+                    items[k]->m_parPosY = orig + INJECT_MAIN_DY;
+                    moved++;
+                }
             }
         }
+        else if (!gridMoved)
+            for (int k = 0; k < rows; k++) {   // u170 (P178): alle Zeilen ab "Neues Spiel" eine tiefer
+                items[k]->m_parPosY += INJECT_MAIN_DY;
+                moved++;
+            }
         // Gothic 1: Vorauswahl ist ein Listenplatz - im Spiel weiter "Spiel speichern" (defaultInGame), beim Start COOP auf dem
         // alten Platz von "Neues Spiel" (wie unter Othello)
         if (!othello && menu->defaultInGame > first)

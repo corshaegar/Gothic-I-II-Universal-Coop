@@ -436,6 +436,95 @@ namespace GOTHIC_ENGINE {
         return CoopSavesDir() + std::string(TSaveLoadGameInfo::GetSaveSlotName(slot).ToChar()) + "\\";
     }
 
+    // --- u196 (P206): LeGos Handle-Zaehler passend zur PermMem-Datei ----------------------------------------------------------
+    // LeGo zaehlt seine Objekte (new/wrap: NEXTHANDLE += 1, dann Eintrag unter dieser Nummer) und speichert sie in SCRPTSAVE.SAV
+    // ("HNDL:<n>"), den Zaehler mit den Skript-Variablen in SAVEDAT.SAV. Bis u195 schrieb GT ihn nach einer Uebernahme als
+    // "Heldenwert" auf den eigenen alten Stand zurueck (P206, CoopDialogSync.cpp) - in den Staenden der Clients steht seitdem z. B.
+    // NEXTHANDLE 151 bei Handles bis 180. Geladen bekommen neue Objekte dann belegte Nummern: LoAs LOA_CHANGEHPBAR (INIT_GLOBAL)
+    // holte ueber wrap/getPtr ein fremdes Objekt und stuerzte in zCView::InsertBack ab (u177, u194, u195). Darum beim Ladebeginn,
+    // bevor Gothic die Dateien liest: liegt der Zaehler unter dem groessten gespeicherten Handle, auf dieses anheben (Slot und
+    // "current", wohin Gothic den Slot kopiert). Nur wenn beide Dateien zusammenpassen; sonst nichts angefasst. Allgemein (LeGo-Mods).
+    static int CoopLegoMaxHandle(const std::string& file) {
+        FILE* f = fopen(file.c_str(), "rb");
+        if (!f)
+            return -1;
+        std::string t;
+        char buf[65536];
+        size_t k;
+        while ((k = fread(buf, 1, sizeof(buf), f)) > 0 && t.size() < (64u << 20))
+            t.append(buf, k);
+        fclose(f);
+        if (t.compare(0, 11, "PermMem::v2") != 0 && t.compare(0, 11, "PermMem::v1") != 0)
+            return -1;
+        int mx = -1;
+        for (size_t p = t.find("HNDL:"); p != std::string::npos; p = t.find("HNDL:", p + 5))
+            if (p == 0 || t[p - 1] == '\n') {
+                const int v = atoi(t.c_str() + p + 5);
+                if (v > mx)
+                    mx = v;
+            }
+        return mx;
+    }
+
+    // Stelle des Werts von NEXTHANDLE in SAVEDAT.SAV (zCArchiver binaer: 01 <Laenge 16 Bit> NEXTHANDLE 12 <4> 02 <Anzahl 1> 12 <4> 02
+    // <Wert>), -1 = nicht in dieser Form gefunden
+    static long CoopLegoNextHandleAt(const std::string& d, int& value) {
+        static const char name[] = "NEXTHANDLE";
+        const size_t n = sizeof(name) - 1;
+        for (size_t p = d.find(name); p != std::string::npos; p = d.find(name, p + 1)) {
+            if (p < 3 || (unsigned char)d[p - 3] != 0x01 || (unsigned char)d[p - 2] != n || d[p - 1] != 0)
+                continue;
+            const size_t q = p + n;
+            if (q + 20 > d.size() || (unsigned char)d[q] != 0x12 || (unsigned char)d[q + 5] != 0x02 || (unsigned char)d[q + 10] != 0x12 ||
+                (unsigned char)d[q + 15] != 0x02)
+                continue;
+            int cnt = 0;
+            memcpy(&cnt, d.data() + q + 6, 4);
+            if (cnt != 1)
+                continue;
+            memcpy(&value, d.data() + q + 16, 4);
+            return (long)(q + 16);
+        }
+        return -1;
+    }
+
+    static void CoopLegoHandleRepairDir(const std::string& dir, const std::string& what) {
+        const int mx = CoopLegoMaxHandle(dir + "SCRPTSAVE.SAV");
+        if (mx <= 0)
+            return;   // kein LeGo-Stand in diesem Ordner
+        const std::string sd = dir + "SAVEDAT.SAV";
+        FILE* f = fopen(sd.c_str(), "rb");
+        if (!f)
+            return;
+        std::string d;
+        char buf[65536];
+        size_t k;
+        while ((k = fread(buf, 1, sizeof(buf), f)) > 0 && d.size() < (256u << 20))
+            d.append(buf, k);
+        fclose(f);
+        int val = 0;
+        const long at = CoopLegoNextHandleAt(d, val);
+        if (at < 0) {
+            SaveSyncLog("LeGo-Zaehler (P206): %s - NEXTHANDLE in SAVEDAT.SAV nicht in der erwarteten Form, nichts geaendert", what.c_str());
+            return;
+        }
+        if (val >= mx)
+            return;
+        f = fopen(sd.c_str(), "r+b");
+        bool ok = f && fseek(f, at, SEEK_SET) == 0 && fwrite(&mx, 4, 1, f) == 1;
+        if (f)
+            ok = fclose(f) == 0 && ok;
+        SaveSyncLog("LeGo-Zaehler (P206): %s - NEXTHANDLE %d, LeGos gespeicherte Objekte reichen bis Handle %d: %s", what.c_str(), val, mx,
+            ok ? "auf das groesste Handle angehoben (sonst bekommen neue Objekte belegte Nummern)" : "FEHLER beim Schreiben");
+    }
+
+    void CoopLegoHandleRepair(int slot) {
+        if (slot < 0)
+            return;
+        CoopLegoHandleRepairDir(CoopSlotDir(slot), "Slot " + std::to_string(slot));
+        CoopLegoHandleRepairDir(CoopSavesDir() + "current\\", "current (Slot " + std::to_string(slot) + ")");
+    }
+
     // u134 (P129): Spielstandordner ohne Pfad - "Saves", unter Othello (-game:othelloz.ini) "SAVES_OTHELLOZ". Test- und Weltordner brauchen
     // denselben Namen wie das Hauptspiel; mit festem "Saves" fand das zweite Gothic unter Othello seinen Slot nicht
     static std::string CoopSavesLeaf() {
@@ -1458,14 +1547,114 @@ namespace GOTHIC_ENGINE {
 
     void CoopMissionReset(int quietMs);   // u96: CoopDialogSync.cpp - Missions-Gegenstaende nach der Uebernahme neu zaehlen
 
+    // u168 (P175): Lage des Helden dieses Stands, gemerkt beim ersten Einsetzen nach einem Laden (LoadBegin vergisst sie). In langen
+    // Testlaeufen wurde der eigene Held nach dem Laden ein zweites Mal eingesetzt. Da stand der Spieler
+    // schon an der eigenen Lage, die galt als die des Helden des Stands, die eigene Lage als "zu nah" - der Held kam 2,5 m daneben an den
+    // Rand einer Klippe, lief nach der Uebernahme in seiner Blickrichtung aus und starb am Sturz (24 m). Jedes weitere Einsetzen ohne Laden
+    // dazwischen misst jetzt gegen dieselbe Lage. Allgemein.
+    static oCNpc* StandHeroNpc = NULL;
+    static zVEC3 StandHeroPos, StandHeroAt;
+
+    void CoopSaveSyncStandHeroForget() {
+        StandHeroNpc = NULL;
+    }
+
+    static bool CoopStandHeroRef(zVEC3& pos, zVEC3& at) {
+        const bool again = StandHeroNpc != NULL && StandHeroNpc == player;
+        if (!again) {
+            StandHeroNpc = player;
+            StandHeroPos = player->GetPositionWorld();
+            StandHeroAt = player->GetAtVectorWorld();
+        }
+        pos = StandHeroPos;
+        at = StandHeroAt;
+        return again;
+    }
+
+    // v22/v89: eigene Lage wiederherstellen (nur in derselben Welt). v23: NICHT ueber ResetPos - der vtable-Platz ist unter Othello eine
+    // andere Funktion mit zwei Argumenten (Absturz), siehe CoopResetPosSafe. v25: hier (evtl. noch im Lade-Rueckruf) nur versetzen; die
+    // Bewegung setzt das Original-ResetPos im ersten Spielbild danach an derselben Stelle zurueck (HandleMoveReset) - sonst konnte man sich
+    // nicht bewegen (Test v24). v89: nur die eigene Lage GENAU dieses Stands, und nur mit Abstand zum Helden des Stands - sonst daneben
+    // (CoopPlaceBesideHost). u168: eigene Funktion (Testschritt)
+    static std::string CoopHeroPlace(const CoopHero& h, const zVEC3& hostPos, const zVEC3& hostAt) {
+        std::string lage;
+        PendingMoveReset = true;
+        bool placed = false;
+        const char* why = "keine eigene Lage";
+        if (h.hasPos && h.world == CoopWorldName()) {
+            const float ex = h.pos[0] - hostPos.n[0], ey = h.pos[1] - hostPos.n[1], ez = h.pos[2] - hostPos.n[2];
+            const float d = sqrtf(ex * ex + ey * ey + ez * ez);
+            if (!h.exact)
+                why = "Lage aus einem anderen Stand";
+            else if (d < 150.f)
+                why = "eigene Lage zu nah am Helden des Stands";
+            else {
+                const zVEC3 p(h.pos[0], h.pos[1], h.pos[2]);
+                player->SetCollDet(FALSE);
+                player->SetPositionWorld(p);
+                player->SetCollDet(TRUE);
+                const zVEC3 a(h.at[0], h.at[1], h.at[2]);
+                if (a.n[0] != 0.f || a.n[2] != 0.f)
+                    player->SetHeadingAtWorld(a);
+                lage = "eigene Lage wiederhergestellt";
+                placed = true;
+            }
+        }
+        else if (h.hasPos)
+            why = "Lage aus anderer Welt";
+        if (!placed) {
+            std::string how;
+            CoopPlaceBesideHost(hostPos, hostAt, how);
+            lage = std::string(why) + " - " + how;
+        }
+        return lage;
+    }
+
+    // u168 (P175): Testschritt "Eigener Held erneut eingesetzt" (CoopSelfTest.cpp) - nur die Lage, wie beim zweiten Einsetzen: Der Held
+    // des Stands stand beim Laden 10 m seitlich, der eigene steht schon an seiner Lage. Danach der alte Merker und die alte Stelle
+    bool CoopSaveSyncTestHeroAgain(float& moved, std::string& how) {
+        if (!player)
+            return false;
+        oCNpc* keepNpc = StandHeroNpc;
+        const zVEC3 keepPos = StandHeroPos, keepAt = StandHeroAt;
+        const zVEC3 here = player->GetPositionWorld(), at = player->GetAtVectorWorld();
+        StandHeroNpc = player;
+        StandHeroPos = zVEC3(here.n[0] + 1000.f, here.n[1], here.n[2]);
+        StandHeroAt = at;
+        CoopHero h;
+        h.valid = true;
+        h.exact = true;
+        h.hasPos = true;
+        for (int i = 0; i < 3; i++) {
+            h.pos[i] = here.n[i];
+            h.at[i] = at.n[i];
+        }
+        h.world = CoopWorldName();
+        zVEC3 hp, ha;
+        const bool again = CoopStandHeroRef(hp, ha);
+        how = CoopHeroPlace(h, hp, ha) + (again ? "" : " (nicht als erneutes Einsetzen erkannt)");
+        moved = CoopDist(player->GetPositionWorld(), here);
+        if (moved > 5.f) {
+            player->SetCollDet(FALSE);
+            player->SetPositionWorld(here);
+            player->SetCollDet(TRUE);
+            player->SetHeadingAtWorld(at);
+        }
+        StandHeroNpc = keepNpc;
+        StandHeroPos = keepPos;
+        StandHeroAt = keepAt;
+        return true;
+    }
+
     // Auf den (frisch geladenen) Helden anwenden. Eigene Aenderungen laufen unter WorldSyncApplying,
     // damit die Welt-Sync-Hooks (Inventar, Welt) sie nicht als Spieleraktion melden.
     static void CoopHeroApply(const CoopHero& h) {
         if (!player)
             return;
-        // v89: Lage des Helden dieses Stands (bei der Uebernahme der Host) - vor allem anderen merken
-        const zVEC3 hostPos = player->GetPositionWorld();
-        const zVEC3 hostAt = player->GetAtVectorWorld();
+        // v89: Lage des Helden dieses Stands (bei der Uebernahme der Host) - vor allem anderen merken. u168 (P175): nur beim ersten Einsetzen
+        // nach dem Laden, ein weiteres misst gegen dieselbe Lage
+        zVEC3 hostPos, hostAt;
+        const bool again = CoopStandHeroRef(hostPos, hostAt);
         if (!h.valid) {   // kein eigener Held gefunden: der Held aus dem Stand bleibt - aber nicht genau auf dem Host
             std::string how;
             PendingMoveReset = true;
@@ -1611,42 +1800,9 @@ namespace GOTHIC_ENGINE {
 
         CoopLookApplyOwn("eigener Held wiederhergestellt");   // v55: gewaehltes Aussehen (CoopLook.cpp)
 
-        // v22: eigene Lage wiederherstellen (nur in derselben Welt). v23: NICHT ueber ResetPos - der vtable-Platz
-        // ist unter Othello eine andere Funktion mit zwei Argumenten (Absturz), siehe CoopResetPosSafe.
-        // v25: hier (evtl. noch im Lade-Rueckruf) nur versetzen; die Bewegung setzt das Original-ResetPos im ersten
-        // Spielbild danach an derselben Stelle zurueck (HandleMoveReset) - sonst konnte man sich nicht bewegen (Test v24).
-        // v89: nur die eigene Lage GENAU dieses Stands, und nur mit Abstand zum Helden des Stands - sonst daneben (CoopPlaceBesideHost)
-        std::string lage;
-        PendingMoveReset = true;
-        bool placed = false;
-        const char* why = "keine eigene Lage";
-        if (h.hasPos && h.world == CoopWorldName()) {
-            const float ex = h.pos[0] - hostPos.n[0], ey = h.pos[1] - hostPos.n[1], ez = h.pos[2] - hostPos.n[2];
-            const float d = sqrtf(ex * ex + ey * ey + ez * ez);
-            if (!h.exact)
-                why = "Lage aus einem anderen Stand";
-            else if (d < 150.f)
-                why = "eigene Lage zu nah am Helden des Stands";
-            else {
-                const zVEC3 p(h.pos[0], h.pos[1], h.pos[2]);
-                player->SetCollDet(FALSE);
-                player->SetPositionWorld(p);
-                player->SetCollDet(TRUE);
-                const zVEC3 a(h.at[0], h.at[1], h.at[2]);
-                if (a.n[0] != 0.f || a.n[2] != 0.f)
-                    player->SetHeadingAtWorld(a);
-                lage = "eigene Lage wiederhergestellt";
-                placed = true;
-            }
-        }
-        else if (h.hasPos)
-            why = "Lage aus anderer Welt";
-        if (!placed) {
-            std::string how;
-            CoopPlaceBesideHost(hostPos, hostAt, how);
-            lage = std::string(why) + " - " + how;
-        }
-        SaveSyncLog("eigener Held wiederhergestellt: Stufe %d, %d Gegenstaende (%d ausgeruestet), vorher %d entfernt, %s", h.level, added, equipped, removed, lage.c_str());
+        const std::string lage = CoopHeroPlace(h, hostPos, hostAt);   // v22/v89, u168 (P175)
+        SaveSyncLog("eigener Held wiederhergestellt: Stufe %d, %d Gegenstaende (%d ausgeruestet), vorher %d entfernt, %s%s", h.level, added, equipped,
+            removed, lage.c_str(), again ? " (erneut eingesetzt, Bezug: Held des Stands beim Laden)" : "");
     }
 
     // --- Pruefen, ob gerade gespeichert werden darf -------------------------------------------------
@@ -1804,6 +1960,26 @@ namespace GOTHIC_ENGINE {
         return false;
     }
 
+    // u178 (P181): Fehler mitten im Laden. LoA-Lauf u177 (Client, Laden nach Stillstand der Testinstanz): Zugriffsfehler in
+    // zCView::InsertBack (Gothic2.exe+0x3A61DF, aus einer Skriptkette) mitten in Read_Savegame. Der Fang in _Game_Loop liess die
+    // halb geladene Welt weiterlaufen - danach kam kein Bild mehr, der Client stand 13 min, bis der Runner ihn beendete. Ein
+    // abgebrochenes Laden ist nicht zu retten (Welt, Archiv und Skriptstapel halb): melden und Gothic beenden statt stehen bleiben.
+    void CoopReadSavegameOrExit(int slot, void (*onFail)(const std::string&)) {
+        try {
+            gameMan->Read_Savegame(slot);
+        }
+        catch (...) {
+            const std::string why = "Fehler mitten im Laden von Slot " + std::to_string(slot) + " - die Welt ist nur halb geladen";
+            CoopErrorLog("Laden", why.c_str(), PluginState.c_str());
+            if (CoopErrorSaveDetails())
+                SaveErrorDetails();
+            if (onFail)
+                onFail(why);   // Weltprozess: meldet es dem Host und endet
+            SaveSyncLog("%s - Gothic endet (Code 0xC0DE10AD), bitte neu starten und wieder verbinden", why.c_str());
+            TerminateProcess(GetCurrentProcess(), 0xC0DE10AD);
+        }
+    }
+
     static void CoopDoLoad(int slot) {
         // Slot-Infos neu von der Platte (falls aus dem Archiv kopiert); im Hauptmenue gibt es ogame noch nicht
         oCSavegameManager* sm = (ogame && ogame->savegameManager) ? ogame->savegameManager : (gameMan ? gameMan->savegameManager : NULL);
@@ -1819,7 +1995,7 @@ namespace GOTHIC_ENGINE {
             if (CoopMenuLoadDeferred)
                 return;
         }
-        gameMan->Read_Savegame(slot);
+        CoopReadSavegameOrExit(slot, NULL);   // u178 (P181)
     }
 
     // --- Senden ------------------------------------------------------------------------------------
@@ -5557,6 +5733,7 @@ namespace GOTHIC_ENGINE {
     void CoopResyncReceive(json&, const std::string&) {}
     void CoopSaveSyncOnSaveEnd() {}
     void CoopSaveSyncOnLoadBegin() {}
+    void CoopLegoHandleRepair(int) {}              // u196 (P206)
     void CoopSaveSyncTestLoadInDialog() {}         // u155
     int CoopSaveSyncDialogWaits() { return 0; }
     int CoopSaveSyncTestTakeSlot(const std::string&) { return -1; }   // u159
@@ -5564,6 +5741,8 @@ namespace GOTHIC_ENGINE {
     void CoopSaveSyncTestOwnLoadEnd(int, int) {}
     void CoopSaveSyncWorldLoaded() {}
     void CoopSaveSyncApplyHeroAtLoad() {}
+    void CoopSaveSyncStandHeroForget() {}   // u168
+    bool CoopSaveSyncTestHeroAgain(float& moved, std::string& how) { moved = -1.f; how = "Speichern-Modul aus"; return false; }
     void CoopSaveSyncEntryVarsAtLoad() {}   // u140
     void CoopSaveSyncPeerJoined() {}
     void CoopSaveSyncPeerLeft() {}

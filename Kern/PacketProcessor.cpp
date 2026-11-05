@@ -4,6 +4,7 @@ namespace GOTHIC_ENGINE {
     bool CoopSelfTestHandles(int type);                            // v107: CoopSelfTest.cpp steht jetzt am Ende von Sources.h
     void CoopSelfTestReceive(json& e, const std::string& id);
     void CoopWpHostFeed(const json& j);                            // u33: CoopWorldProcess.cpp - Figur-Pakete an den Weltprozess (u38: auch Client)
+    void CoopTempoReceive(json& e, const std::string& id);         // u181: CoopTempo.cpp
 
     void ProcessCoopPacket(json e, ENetEvent packet) {
         auto id = e["id"].get<std::string>();
@@ -48,6 +49,10 @@ namespace GOTHIC_ENGINE {
         }
         if (type == SYNC_COOP_RULES) {   // v67: Schwierigkeitsgrad des Hosts - auch im Hauptmenue und waehrend einer Pause
             CoopDiffReceive(e, id);
+            return;
+        }
+        if (type == SYNC_TEMPO) {   // u181: gemeinsames Spieltempo der Testinstanzen
+            CoopTempoReceive(e, id);
             return;
         }
 
@@ -220,6 +225,10 @@ namespace GOTHIC_ENGINE {
             packet.packet = NULL;
 
             auto j = json::from_bson(bytesVector);
+            // u164 (P171): Paket mit NaN/unendlich verwerfen (Helpers.cpp) - BSON traegt NaN unveraendert, eine NaN-Lage oder -Blickrichtung
+            // blieb einem NPC fuer immer (Rueckgabe der Kampf-Uebergabe, Testlauf u152)
+            if (!CoopPacketFinite(j, player->name.ToChar()))
+                break;
             j["id"] = player->name.ToChar();
             // u46 (P87): NPC der Welt, in der dieser Client ohne Host ist - nur fuer den eigenen Weltprozess (CoopWorldProcess.cpp),
             // hier nie angewendet und nicht weiterverteilt
@@ -279,6 +288,10 @@ namespace GOTHIC_ENGINE {
             }
 
             auto j = json::from_bson(bytesVector);
+            if (!CoopPacketFinite(j, "HOST")) {   // u164 (P171): wie beim Host oben
+                enet_packet_destroy(packet.packet);
+                break;
+            }
             CoopWpHostFeed(j);   // u38: Figur des Hosts (und anderer Clients) auch an den eigenen Weltprozess
             ProcessCoopPacket(j, packet);
             SaveNetworkPacket(j.dump(-1, ' ', false, json::error_handler_t::ignore).c_str());

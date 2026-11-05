@@ -2,6 +2,7 @@
 
 namespace GOTHIC_ENGINE {
     void CoopLobbyAfterLoad();   // v40: CoopMenuLobby.cpp
+    void CoopTempoPulse();          // u181: CoopTempo.cpp - gemeinsames Spieltempo der Testinstanzen
     void CoopMenuInjectInstall();   // v81: CoopMenuInject.cpp - COOP-Eintraege in Othellos Menues (vor dem ersten Menue)
     bool CoopTitlePulse();          // v82: CoopTitle.cpp - "Hauptmenue" im Esc-Menue, Startmenue aus Game_Loop
     void CoopSteamPulse();          // v87: CoopSteam.cpp - Steam-Rueckrufe, Tunnel, Rich Presence
@@ -28,8 +29,12 @@ namespace GOTHIC_ENGINE {
 #endif
     }
 
+    static std::string CoopScriptSetLog;   // u195 (P204): Ergebnis der Skript-Weiche, ins Log in Game_Init
+
     void Game_Entry() {
         GetCurrentDirectory(MAX_PATH, GothicExeFolderPath);
+        if (!CoopWpIsWorld())
+            CoopScriptSetLog = CoopScriptSetSwitch();   // u195 (P204): Skriptsatz des Profils nach Autorun, bevor Gothic die Skripte liest
         if (CoopWpIsWorld())
             CoopWpEarlyInit();     // u35: Weltprozess - Meldungen und Beenden mitschneiden (CoopWorldProcess.cpp)
         CoopAutoTestEarly();       // u49: Testinstanz (-cooptest:client) - Einzelinstanz-Sperre wie im Weltprozess
@@ -55,6 +60,7 @@ namespace GOTHIC_ENGINE {
                 Message::Error("(Gothic Coop) Invalid config file, please check your GothicCoopConfig.json file!");
                 exit(1);
             }
+            CoopModApplyConfigDefaults();   // u194 (P196): Vorgaben des Mod-Profils fuer Schalter, die die Datei nicht setzt (Mods\CoopMods.cpp)
             if (CoopWpIsWorld())
                 OthelloCompatLog("Konfiguration %s gelesen", configFilePath.c_str());
         }
@@ -68,6 +74,7 @@ namespace GOTHIC_ENGINE {
 
     void Game_Init() {
         MainThreadId = GetCurrentThreadId();
+        CoopLegoNoteEntries();   // u170 (P177): Ziele der GT-Spruenge an den Eingaengen, bevor Skripte (LeGo) einhaken (CoopAudit.cpp)
         ToggleGameLogKey = ReadConfigKey("toggleGameLogKey", "KEY_P");
         ToggleGameStatsKey = ReadConfigKey("toggleGameStatsKey", "KEY_O");
         StartServerKey = ReadConfigKey("startServerKey", "KEY_F1");
@@ -102,6 +109,10 @@ namespace GOTHIC_ENGINE {
         CoopSettingsRefresh(true);   // v55: Gothic.ini [GOTHICCOOP] (COOP-Menue) vor der json
         OthelloCompatLog("%s, gebaut %s", CoopVersionName().c_str(), CoopBuildStamp().c_str());   // v58: Bauzeit im Log
         CoopModulesReport();   // u3: welche Module in dieser Engine nicht laufen
+        CoopModsInit();        // u187: Mod-Profil (Mods\CoopMods.cpp, docs\MODULE.md)
+        if (!CoopScriptSetLog.empty())
+            OthelloCompatLog("%s", CoopScriptSetLog.c_str());   // u195 (P204)
+        CoopScriptMapPulse();  // u195 (P199): Skript-Spur im Absturzprotokoll schon fuer das erste Laden
         {
             std::string unlock = CoopOthelloUnlockLog();   // v79: was DllMain an Othellos Sperre abgeschaltet hat
             while (!unlock.empty() && unlock[unlock.size() - 1] == '\n')
@@ -311,6 +322,7 @@ namespace GOTHIC_ENGINE {
         GameStatsLoop();
         PacketProcessorLoop();
         CoopSlotGuardPulse();     // u88 (P112): geloeschte Gegenstaende in NPC-Slots austragen, bevor die Engine sie anfasst (Helpers.cpp)
+        CoopNpcLagePulse();       // u164 (P171): NPCs mit ungueltiger Lage (NaN) an ihren Ort setzen (Helpers.cpp)
         DamageProcessorLoop();
         SpellCastProcessorLoop();
         ReviveFriendLoop();
@@ -323,6 +335,14 @@ namespace GOTHIC_ENGINE {
         CoopSelfTestPulse();      // v37: Coop-Testlauf (Shift+F11)
         CoopAutoTestPulse();      // u49: automatischer Testlauf (-cooptest:host/client)
         CoopEnsureHookOrder();
+        {   // u170 (P177): LeGo-Haken vor GT - kopierten GT-Sprung versetzen (CoopAudit.cpp)
+            static long long nextLego = 0;
+            if (CurrentMs >= nextLego) {
+                nextLego = CurrentMs + 1000;
+                CoopLegoFixPulse();
+                CoopScriptMapPulse();   // u195 (P199): Skript-Funktionen fuer die Skript-Spur im Absturzprotokoll (Hooks.cpp)
+            }
+        }
         CoopAuditOnce();     // Pruefebene 1: einmal je Start, nach dem CanUse-Vorbau
         CoopTracePulse();    // Pruefebenen 2/3: Schnappschuesse, F7-Testschritte
 
@@ -402,7 +422,7 @@ namespace GOTHIC_ENGINE {
             }
 
             PluginState = "DisplayPing";
-            if (ServerThread || ClientThread) {   // v58: Fassung oben links, solange Coop laeuft (vorher nur "Ping:" beim Client)
+            if ((ServerThread || ClientThread) && !CoopRecordMode()) {   // v58: Fassung oben links, solange Coop laeuft (vorher nur "Ping:" beim Client); u171: nicht in Aufnahmen
                 auto font = screen->GetFontName();
                 auto color = screen->fontColor;
 
@@ -422,6 +442,9 @@ namespace GOTHIC_ENGINE {
                 screen->SetColor(color);
             }
         }
+
+        PluginState = "Tempo";
+        CoopTempoPulse();  // u181: gemeinsames Spieltempo der Testinstanzen (CoopTempo.cpp) - Abgleich, Zeitfaktor, Anzeige oben rechts
 
         PluginState = "CombatLead";
         CoopLeadPulse();  // v72: Kampf-Uebergabe - Host gibt NPCs ab, Client sendet/prueft die selbst gefuehrten
@@ -563,6 +586,9 @@ namespace GOTHIC_ENGINE {
         CoopHitWorldGone();          // Bestrafungs-Merker, Schlag-Erlaubnisse/-Ergebnisse (CoopHitAuthority.cpp)
         CoopFigureHitsWorldGone();   // C20-Merker (Hooks.cpp)
         CoopPartnerMarkerWorldGone(); // v104: Sicht-Merker je Figur (CoopPartnerMarker.cpp)
+        CoopNpcLageWorldGone();      // u164 (P171): Versuche des Lage-Schutzes je NPC (Helpers.cpp)
+        CoopSaveSyncStandHeroForget(); // u168 (P175): Lage des Helden des Stands gilt bis zum naechsten Laden (CoopSaveSync.cpp)
+        CoopMsgItemsWorldGone();       // u169 (P176): gemerkte Gegenstaende laufender Nachrichten (Helpers.cpp)
         while (!ReadyToSyncDamages.isEmpty())
             ReadyToSyncDamages.dequeue();
         while (!ReadyToSyncSpellCasts.isEmpty())
@@ -577,6 +603,7 @@ namespace GOTHIC_ENGINE {
     }
 
     void LoadEnd() {
+        CoopLegoFixPulse();   // u170 (P177): die Skripte des Mods haben beim Laden eingehakt - vor dem ersten Spielbild versetzen
         if (ServerThread || ClientThread) {
             Myself = new LocalNpc(player, MyselfId);
         }
@@ -620,6 +647,7 @@ namespace GOTHIC_ENGINE {
 
         IsLoadingLevel = false;
         CoopRemoveStrayHeroes("geladen");   // u39 (P81): Held aus der getauschten Weltdatei eines Mitspielers (CoopPlace.cpp)
+        CoopHeroSymbolFixNow();             // u195 (P201): PC_HERO/HERO gleich auf den eigenen Helden (CoopDialogSync.cpp)
         CoopRefloorAfterLoad("geladen");    // u50 (P94): Kollisionsstand der alten Welt verwerfen (OthelloCompat.cpp)
         CoopWorldsLoadEnd();     // u29: Schluessel der neuen Welt (Log)
         CoopTeleportAcrossLoadEnd();   // u48 (P90): Teleport ueber Welten - gleich an die letzte Lage des Mitspielers
@@ -649,6 +677,7 @@ namespace GOTHIC_ENGINE {
         }
 
         CoopSaveSyncApplyHeroAtLoad();   // v24: eigener Held + Lage noch im Ladevorgang (kein sichtbarer Sprung)
+        CoopHeroSymbolFixNow();          // u195 (P201): nach dem Einsetzen des eigenen Helden
         CoopTruheLoadEnd(true);          // u97: Inhalt der Coop-Truhe aus dem Slot (Client: bis der Host-Stand kommt)
     }
 

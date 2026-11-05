@@ -1,0 +1,30 @@
+// Vorlage fuer ein Mod-Profil des Gothic-I-II-Universal-Coop (ab u194). So benannt ist sie nicht aktiv.
+//
+// Benutzen: als system\GothicCoopMod-<Ini>.json kopieren. <Ini> ist der Name der Spiel-Ini der Mod ohne ".ini"
+// (Start mit -game:MeineMod.ini -> system\GothicCoopMod-MeineMod.json). Ohne -game (Mod mit eigenem Gothic-Ordner,
+// etwa Othello): system\GothicCoopMod.json. Beide PCs brauchen dieselbe Datei - der Coop vergleicht sie beim Verbinden
+// und im Testlauf. Was gelesen wurde, steht beim Start im Coop-Log ("Mod-Profil ...").
+// Kommentare wie diese sind erlaubt; Eintraege, die mit "_" beginnen, werden uebergangen. Nur ASCII oder UTF-8.
+{
+    // Anzeigename - sonst der Titel aus [INFO] der Ini der Mod
+    "name": "Meine Mod",
+
+    // "G1" = Gothic 1, "G2A" = Gothic 2 Die Nacht des Raben. Bei einer anderen Engine gilt die Datei nicht.
+    "engine": "G1",
+
+    // Skript-Ganzzahlen, die je PC bleiben (nie zum Partner abgeglichen) - Zustand dieses PCs wie Anzeigen,
+    // Menues, Handles. Beim Laden gilt der Wert des Spielstands. "NAME_*" = alle mit dieser Vorsilbe.
+    // Ikarus- und LeGo-Werte schliesst der Coop schon selbst aus.
+    "perPcVars": [ "MEINEMOD_HELD_SPRICHT", "MEINEMOD_ANZEIGE_*" ],
+
+    // ab u197: Werte des eigenen Helden (Talente, Rezepte, Uebung, Erfolge, Boni) - nie abgeglichen und mit dem
+    // Helden gesichert: beim Uebernehmen des Host-Stands (bei jedem Verbinden) behaelt jeder seine eigenen.
+    "heroVars": [ "MEINEMOD_TALENT_*", "MEINEMOD_REZEPT_KUCHEN" ],
+
+    // Vorgaben fuer Coop-Schalter aus GothicCoopConfig.json (nur "coop..."). Sie gelten nur, wenn die
+    // GothicCoopConfig.json des Spielers sie nicht selbst setzt.
+    "configDefaults": { "coopWorldProcessAuto": true },
+
+    // Hinweise, die beim Start ins Log gehen (bekannte Grenzen der Mod)
+    "notes": [ "Beispiel: Im Fenstermodus koennen Videos haengen." ]
+}

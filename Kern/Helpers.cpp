@@ -81,36 +81,81 @@ namespace GOTHIC_ENGINE {
             CoopVtableAdd(set, vt);
     }
 
+    // --- u166 (P173, Liste 1c): Slot-Schutz kennt alle Vob-Klassen und erkennt neu belegten Speicher ----------------------------
+    // Bis u165 lernte CoopVobVtablesBuild mit SearchVobListByClass(zCVob::classDef) - das nimmt nur genau diese Klasse, Gegenstaende,
+    // NPCs, Mobs kamen nie dazu. CoopVobVtablesItem blieb falsch, "fremde vtable" griff nie; der Schutz pruefte nur Lesbarkeit und
+    // Zaehler. Ein freigegebener Block, in dem schon ein Netz-Paket liegt (P142: "{\"by" statt vtable), hat einen lesbaren, oft
+    // positiven "Zaehler" und kam durch. Jetzt: (1) jede vtable muss im Speicher eines geladenen Moduls liegen (VirtualQuery, MEM_IMAGE,
+    // gemerkt) - Daten auf dem Heap tun das nie, echte Objekte immer, also ohne Fehlalarm, auch im Takt; (2) gelernt wird der ganze
+    // Vob-Baum der Welt und das eigene Inventar, "fremde vtable" (ein lebendes Objekt einer Klasse, die in der Welt nicht vorkommt) gilt
+    // nur vor DoDropVob/RemoveVobFromWorld (strict), wo die Engine den Vob gleich aufruft - im Takt verschwindet so kein echter
+    // Gegenstand aus einem Slot. Allgemein (G1/G2)
+    static std::vector<void*> CoopImageVtables;     // vtables im Speicher eines geladenen Moduls (sortiert)
+    static std::vector<void*> CoopUnknownVtables;   // nach einem Neulernen noch fremd - dafuer nicht wieder neu lernen
+
+    static bool CoopVtableInImage(void* vt) {
+        if (std::binary_search(CoopImageVtables.begin(), CoopImageVtables.end(), vt))
+            return true;
+        MEMORY_BASIC_INFORMATION mbi;
+        if (!vt || !VirtualQuery(vt, &mbi, sizeof(mbi)) || mbi.State != MEM_COMMIT || mbi.Type != MEM_IMAGE)
+            return false;
+        CoopVtableAdd(CoopImageVtables, vt);
+        return true;
+    }
+
+    static void CoopVobLearn(zCVob* v) {
+        if (!v)
+            return;
+        CoopPartLearn(CoopVisualVtables, v->visual);   // u89
+        CoopPartLearn(CoopAiVtables, v->callback_ai);
+        if (CoopVtableAdd(CoopVobVtables, *(void**)v) && !CoopVobVtablesItem && zDYNAMIC_CAST<oCItem>(v))
+            CoopVobVtablesItem = true;
+    }
+
+    static void CoopVobTreeLearn(zCTree<zCVob>* node) {
+        for (; node; node = node->GetNextChild()) {
+            CoopVobLearn(node->GetData());
+            CoopVobTreeLearn(node->GetFirstChild());
+        }
+    }
+
     static void CoopVobVtablesBuild() {
         CoopVobVtablesMs = GetCurrentMs();
         oCWorld* w = ogame ? ogame->GetGameWorld() : NULL;
         if (!w)
             return;
-        zCArray<zCVob*> all;
-        w->SearchVobListByClass(zCVob::classDef, all, NULL);
-        for (int i = 0; i < all.GetNumInList(); i++) {
-            zCVob* v = all.GetSafe(i);
-            if (!v)
-                continue;
-            CoopPartLearn(CoopVisualVtables, v->visual);   // u89
-            CoopPartLearn(CoopAiVtables, v->callback_ai);
-            if (CoopVtableAdd(CoopVobVtables, *(void**)v) && !CoopVobVtablesItem && zDYNAMIC_CAST<oCItem>(v))
-                CoopVobVtablesItem = true;
+        CoopVobTreeLearn(w->globalVobTree.GetFirstChild());
+        if (player) {   // Gegenstaende auch dann, wenn keiner in der Welt liegt
+#if ENGINE >= Engine_G2
+            for (zCListSort<oCItem>* n = player->inventory2.inventory.next; n; n = n->next)
+                CoopVobLearn(n->data);
+#else
+            for (int c = 0; c < INV_MAX; c++)
+                for (zCListSort<oCItem>* n = player->inventory2.inventory[c].next; n; n = n->next)
+                    CoopVobLearn(n->data);
+#endif
         }
     }
 
-    // NULL = v lebt, sonst der Grund
-    static const char* CoopVobDeadWhy(const void* v, void** vt, int* ref) {
+    // NULL = v lebt, sonst der Grund. strict: auch ein lebendes Objekt einer Klasse, die in der Welt nicht vorkommt, gilt als tot
+    // (vor DoDropVob, wo die Engine den Vob gleich aufruft); sonst nur sichere Zeichen (u166, P173)
+    static const char* CoopVobDeadWhy(const void* v, void** vt, int* ref, bool strict) {
         *vt = NULL;
         *ref = 0;
         if (!CoopVobPeek(v, vt, ref))
             return "nicht lesbar";
         if (*ref <= 0)
             return "Referenzzaehler <= 0";
-        if (std::binary_search(CoopVobVtables.begin(), CoopVobVtables.end(), *vt))
+        if (!CoopVtableInImage(*vt))
+            return "vtable ausserhalb des Programms";
+        if (!strict || std::binary_search(CoopVobVtables.begin(), CoopVobVtables.end(), *vt))
             return NULL;
-        if (GetCurrentMs() - CoopVobVtablesMs > 1000)   // neue Klasse oder andere Welt: Liste hoechstens einmal je Sekunde ergaenzen
+        // neue Klasse oder andere Welt: hoechstens einmal je Sekunde neu lernen, fuer eine schon erfolglos gesuchte vtable nicht wieder
+        if (GetCurrentMs() - CoopVobVtablesMs > 1000 && !std::binary_search(CoopUnknownVtables.begin(), CoopUnknownVtables.end(), *vt)) {
             CoopVobVtablesBuild();
+            if (!std::binary_search(CoopVobVtables.begin(), CoopVobVtables.end(), *vt))
+                CoopVtableAdd(CoopUnknownVtables, *vt);
+        }
         if (!CoopVobVtablesItem || std::binary_search(CoopVobVtables.begin(), CoopVobVtables.end(), *vt))
             return NULL;
         return "fremde vtable";
@@ -128,10 +173,15 @@ namespace GOTHIC_ENGINE {
             return "nicht lesbar";
         if (*ref <= 0)
             return "Referenzzaehler <= 0";
+        if (!CoopVtableInImage(*vt))   // u166 (P173): neu belegter Speicher - ein sicheres Zeichen
+            return "vtable ausserhalb des Programms";
         if (set.empty() || std::binary_search(set.begin(), set.end(), *vt))
             return NULL;
-        if (GetCurrentMs() - CoopVobVtablesMs > 1000)
-            CoopVobVtablesBuild();
+        if (GetCurrentMs() - CoopVobVtablesMs > 1000 && !std::binary_search(CoopUnknownVtables.begin(), CoopUnknownVtables.end(), *vt)) {
+            CoopVobVtablesBuild();   // u166: ganzer Vob-Baum - fuer eine schon erfolglos gesuchte vtable nicht wieder
+            if (!std::binary_search(set.begin(), set.end(), *vt))
+                CoopVtableAdd(CoopUnknownVtables, *vt);
+        }
         return std::binary_search(set.begin(), set.end(), *vt) ? NULL : "fremde vtable";
     }
 
@@ -201,7 +251,7 @@ namespace GOTHIC_ENGINE {
                 continue;
             void* vt = NULL;
             int ref = 0;
-            const char* why = CoopVobDeadWhy(s->vob, &vt, &ref);
+            const char* why = CoopVobDeadWhy(s->vob, &vt, &ref, false);
             if (!why) {
                 if (!only)   // u89: Visual/AI des lebenden Slot-Vobs (nur sichere Zeichen)
                     CoopVobPartsCheck(s->vob, (std::string("Slot ") + s->name.ToChar()).c_str(), npc, false);
@@ -224,7 +274,7 @@ namespace GOTHIC_ENGINE {
             return false;
         void* vt = NULL;
         int ref = 0;
-        const char* why = CoopVobDeadWhy(vob, &vt, &ref);
+        const char* why = CoopVobDeadWhy(vob, &vt, &ref, true);
         if (!why) {
             CoopVobPartsCheck((zCVob*)vob, where, npc, true);   // u89 (P113): Visual/AI, die AddVobAsChild gleich aufruft
             return true;
@@ -267,7 +317,8 @@ namespace GOTHIC_ENGINE {
             return;
         void* vt = NULL;
         int ref = 0;
-        const char* why = !CoopVobPeek(msg->targetVob, &vt, &ref) ? "nicht lesbar" : ref <= 0 ? "Referenzzaehler <= 0" : NULL;
+        const char* why = !CoopVobPeek(msg->targetVob, &vt, &ref) ? "nicht lesbar" : ref <= 0 ? "Referenzzaehler <= 0" :
+            !CoopVtableInImage(vt) ? "vtable ausserhalb des Programms" : NULL;   // u166 (P173)
         if (!why && CoopItemVtable() && vt != CoopItemVtable())
             why = "fremde vtable";
         if (!why)
@@ -279,6 +330,106 @@ namespace GOTHIC_ENGINE {
                 "Zustand %s - Zeiger geloescht", DiagSeconds(), DiagRole(), where, npc ? CoopSlotOwnerName(npc).c_str() : "-", msg->name.ToChar(),
                 (void*)msg->targetVob, why, vt, ref, npc ? npc->state.curState.name.ToChar() : "-");
         msg->targetVob = NULL;
+    }
+
+    // u169 (P176, Liste 1): Wer gibt den Gegenstand einer laufenden Nachricht frei? Testlaeufe b258/b259: Gothic 1 etwa 15 Faelle je Minute
+    // ("Referenzzaehler <= 0", vor allem Buddler beim Essen im Alten Lager), Othello weniger, Gothic II selten. Der Haken auf
+    // oCNpc::EV_UseItemToState merkt sich jeden Gegenstand mit NPC und Nachricht (CoopMsgItemNote). Gibt die Engine ihn frei (oCItem::~oCItem,
+    // CoopTruhe.cpp), waehrend die Nachricht noch in der Befehlsliste des NPCs steht und nicht gerade selbst laeuft (das waere der normale
+    // Verbrauch beim Benutzen), schreibt GT NPC, Gegenstand, Zustand und die Aufrufer ins Log. Nur Diagnose, aendert nichts
+    struct CoopMsgItemSeen { oCNpc* npc; const void* msg; std::string npcName, item, state; long long ms; };
+    static std::map<const void*, CoopMsgItemSeen> CoopMsgItems;
+    const void* CoopMsgItemInUse = NULL;   // Gegenstand der Nachricht, die gerade laeuft
+    int CoopMsgItemFreed = 0;
+    std::string CoopMsgItemLast;           // letzte Zeile (Testschritt)
+
+    void CoopMsgItemNote(oCNpc* npc, oCMsgManipulate* msg) {
+        if (!npc || !msg || !msg->targetVob)
+            return;
+        const long long now = GetCurrentMs();
+        if (CoopMsgItems.size() > 256)
+            for (auto it = CoopMsgItems.begin(); it != CoopMsgItems.end();)
+                it = now - it->second.ms > 30000 ? CoopMsgItems.erase(it) : std::next(it);
+        CoopMsgItemSeen& e = CoopMsgItems[msg->targetVob];
+        if (e.npc != npc || e.msg != msg) {
+            e.npc = npc;
+            e.msg = msg;
+            e.npcName = CoopSlotOwnerName(npc);
+            e.item = msg->name.ToChar();
+            e.state = npc->state.curState.name.ToChar();
+        }
+        e.ms = now;
+    }
+
+    // Ruecksprungadressen auf dem Stapel (Wert in einem Modul, davor ein call), innen zuerst - wie im Weltprozess (CoopWorldProcess.cpp)
+    static void CoopStackTrail(char* out, size_t size, int max) {
+        size_t len = 0;
+        out[0] = 0;
+        const DWORD* p = (const DWORD*)_AddressOfReturnAddress();
+        const NT_TIB* tib = (const NT_TIB*)NtCurrentTeb();
+        const DWORD* top = (const DWORD*)tib->StackBase;
+        int found = 0;
+        for (int words = 0; p < top && found < max && words < 2048; p++, words++) {
+            const DWORD v = *p;
+            HMODULE m = NULL;
+            if (v < 0x10000 || !GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                (LPCSTR)(ULONG_PTR)v, &m) || !m || v < (DWORD)(ULONG_PTR)m + 0x1000)
+                continue;
+            MEMORY_BASIC_INFORMATION mbi;
+            if (!VirtualQuery((LPCVOID)(ULONG_PTR)(v - 6), &mbi, sizeof(mbi)) || mbi.State != MEM_COMMIT ||
+                !(mbi.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)))
+                continue;
+            const unsigned char* c = (const unsigned char*)(ULONG_PTR)v;
+            const bool call = c[-5] == 0xE8 || (c[-6] == 0xFF && (c[-5] & 0x38) == 0x10) || (c[-2] == 0xFF && (c[-1] & 0x38) == 0x10) ||
+                (c[-3] == 0xFF && (c[-2] & 0x38) == 0x10);
+            if (!call)
+                continue;
+            char mod[128];
+            CoopModuleOf((const void*)(ULONG_PTR)v, mod, sizeof(mod));
+            const int n = _snprintf(out + len, size - len - 1, "%s%s", found ? " < " : "", mod);
+            if (n < 0)
+                break;
+            len += (size_t)n;
+            found++;
+        }
+        out[size - 1] = 0;
+        if (!found)
+            _snprintf(out, size - 1, "keine gefunden");
+    }
+
+    void CoopMsgItemsWorldGone() {   // LoadBegin (Plugin.cpp): die Zeiger gehoeren zur alten Welt
+        CoopMsgItems.clear();
+        CoopMsgItemInUse = NULL;
+    }
+
+    void CoopMsgItemFreeing(const void* item) {
+        auto it = CoopMsgItems.find(item);
+        if (it == CoopMsgItems.end())
+            return;
+        const CoopMsgItemSeen e = it->second;
+        CoopMsgItems.erase(it);
+        if (item == CoopMsgItemInUse || !player)
+            return;   // in der eigenen Nachricht verbraucht
+        void* vt = NULL;
+        int ref = 0;
+        if (!CoopVobPeek(e.npc, &vt, &ref) || ref <= 0 || vt != *(void**)player)
+            return;   // der NPC ist schon weg (oder an seiner Stelle liegt etwas anderes)
+        zCEventManager* em = e.npc->eventManager;   // nicht GetEM: das legte eine Liste an
+        bool held = false;
+        for (int i = 0; em && i < em->messageList.GetNumInList() && !held; i++)
+            held = (const void*)em->messageList[i] == e.msg;
+        if (!held)
+            return;   // Nachricht schon fertig
+        CoopMsgItemFreed++;
+        static char trail[900], line[1400];   // nicht auf dem Stapel - sonst liest CoopStackTrail alte Werte darin mit
+        CoopStackTrail(trail, sizeof(trail), 16);
+        _snprintf(line, sizeof(line), "Gegenstand \"%s\" (%p) der laufenden Nachricht von %s wird freigegeben, Zustand %s (beim Merken %s, vor %lld ms) - "
+            "Aufrufer: %s", e.item.c_str(), item, e.npcName.c_str(), e.npc->state.curState.name.ToChar(), e.state.c_str(), GetCurrentMs() - e.ms, trail);
+        line[sizeof(line) - 1] = 0;
+        CoopMsgItemLast = line;
+        static CoopDiagBudget budget = { 0, 0 };
+        if (CoopDiagAllow(budget, 40))
+            OthelloCompatLog("[%lld s, %s] Absturzschutz-Diagnose: %s", DiagSeconds(), DiagRole(), line);
     }
 
     // --- u90 (P114): Gegenstand stirbt mitten in DoDropVob -------------------------------------------------------------------
@@ -367,6 +518,192 @@ namespace GOTHIC_ENGINE {
                 CoopScrubDeadSlots(l->data, NULL, false);
     }
 
+    // --- u164 (P171): NPC mit ungueltiger Lage (NaN) -------------------------------------------------------------------------
+    // Dauerlauf u163 (Gothic II): Seit dem 02.11. schlugen in fast jeder Pruefrunde vier Vergleiche "NPCs um mich" fehl, immer an
+    // BDT_10314_ADDON_RANGERBANDIT_M - Lage und Blickrichtung NaN auf beiden PCs, so auch im Spielstand. Entstanden nach einer
+    // Kampf-Uebergabe (Testlauf u152): Der Client gab ihn "zu weit" zurueck, die Rueckgabe trug die Blickrichtung aus GetHeading (asin
+    // eines Matrixwerts knapp ueber 1 = NaN), der Host drehte ihn damit (RotateWorldY), beim naechsten Schritt wurde auch die Lage NaN.
+    // Ein NPC mit NaN-Lage ist fuer jede Abstandsfrage unsichtbar (jeder Vergleich mit NaN ist falsch) und bleibt es ueber jedes Speichern.
+    // Jetzt, allgemein (GT): GetHeading begrenzt (unten), der Empfang verwirft Pakete mit NaN/unendlich (CoopPacketFinite, auch der
+    // Weltprozess), und einmal je Sekunde sucht dieser Schutz NPCs, deren Matrix nicht endlich ist: Drehung zurueck und an ihren Ort
+    // (Wegpunkt aus wpname, sonst der erste des Tagesablaufs, sonst ein Vob dieses Namens), Kollision dabei aus, Geschwindigkeit und
+    // Fallhoehe des Bewegungsreglers neu. oCNpc::ResetPos taugt dafuer nicht: Es dreht nur mit gedrueckter Alt-Taste zurueck und stoesst
+    // den NPC mit seinem (NaN-)Blickvektor an. Je NPC hoechstens drei Versuche bis zum naechsten Laden. Pruefsignal: "Lage-Schutz: ..."
+    static int CoopNpcLageFixed = 0;                 // Reparaturen seit dem Start (Testschritt)
+    static std::map<oCNpc*, int> CoopNpcLageTries;   // Versuche je NPC bis zum naechsten Laden
+    static long long CoopNpcLageNextMs = -1;         // -1: nach dem Laden erst 2 s warten
+    static oCNpc* CoopNpcLageLastNpc = NULL;         // u166: letzte Reparatur, NPC und Ziel (Testschritt - wpname kann bis dahin wechseln)
+    static zVEC3 CoopNpcLageLastPos;
+    static volatile LONG CoopNetNanDropped = 0;      // verworfene Pakete mit NaN/unendlich (Empfang, Weltprozess)
+
+    static bool CoopFiniteVec(const zVEC3& v) {
+        return _finite(v.n[0]) && _finite(v.n[1]) && _finite(v.n[2]);
+    }
+
+    bool CoopTrafoFinite(zCVob* v) {
+        const float* m = (const float*)&v->trafoObjToWorld;
+        for (int i = 0; i < 12; i++)   // Drehung und Lage (die vierte Zeile ist fest)
+            if (!_finite(m[i]))
+                return false;
+        return true;
+    }
+
+    // true, wenn alle Zahlen endlich sind; sonst steht in field der Schluessel des ersten Werts mit NaN/unendlich
+    bool CoopJsonFinite(const json& j, std::string& field) {
+        if (j.is_number_float())
+            return _finite(j.get<double>()) != 0;
+        if (j.is_object()) {
+            for (auto it = j.begin(); it != j.end(); ++it)
+                if (!CoopJsonFinite(it.value(), field)) {
+                    if (field.empty())
+                        field = it.key();
+                    return false;
+                }
+        }
+        else if (j.is_array()) {
+            for (auto& x : j)
+                if (!CoopJsonFinite(x, field))
+                    return false;
+        }
+        return true;
+    }
+
+    // Empfang (PacketProcessor.cpp): false = verwerfen, gezaehlt und gemeldet
+    bool CoopPacketFinite(const json& j, const char* from) {
+        std::string field;
+        if (CoopJsonFinite(j, field))
+            return true;
+        const LONG n = InterlockedIncrement(&CoopNetNanDropped);
+        static CoopDiagBudget budget = { 0, 0 };
+        if (CoopDiagAllow(budget, 20)) {
+            const int type = j.contains("type") && j["type"].is_number_integer() ? j["type"].get<int>() : -1;
+            const std::string id = j.contains("id") && j["id"].is_string() ? j["id"].get<std::string>() : std::string("-");
+            OthelloCompatLog("[%lld s, %s] Netz: Paket von %s verworfen - Feld %s ist NaN/unendlich (Typ %d, id %s), zusammen %ld",
+                DiagSeconds(), DiagRole(), from, field.c_str(), type, id.c_str(), (long)n);
+        }
+        return false;
+    }
+
+    // Ort fuer einen NPC ohne gueltige Lage: Wegpunkt aus wpname, sonst der erste seines Tagesablaufs, sonst ein Vob dieses Namens (Freipunkt)
+    bool CoopNpcHomePos(oCNpc* npc, zVEC3& pos, std::string& where) {
+        oCWorld* w = ogame ? ogame->GetGameWorld() : NULL;
+        if (!npc || !w)
+            return false;
+        std::vector<std::string> names;
+        if (!npc->wpname.IsEmpty())
+            names.push_back(npc->wpname.ToChar());
+        auto r = NpcToFirstRoutineWp.find(npc);
+        if (r != NpcToFirstRoutineWp.end() && !r->second.IsEmpty())
+            names.push_back(r->second.ToChar());
+        for (auto& n : names) {
+            if (zCWaypoint* wp = w->wayNet ? w->wayNet->GetWaypoint(zSTRING(n.c_str())) : NULL) {
+                pos = wp->GetPositionWorld();
+                where = "Wegpunkt " + n;
+            }
+            else if (zCVob* v = w->SearchVobByName(zSTRING(n.c_str()))) {
+                pos = v->GetPositionWorld();
+                where = "Ort " + n;
+            }
+            else
+                continue;
+            if (CoopFiniteVec(pos))
+                return true;
+        }
+        return false;
+    }
+
+    // NPC hart an eine Stelle setzen, Kollision aus (wie RemoteNpc::UpdateNpcPosition bei grossem Abstand); resetRot: Drehung zurueck
+    void CoopNpcPlace(oCNpc* npc, const zVEC3& pos, bool resetRot) {
+        const bool inMove = npc->isInMovementMode != 0;
+        if (inMove) {
+#if ENGINE >= Engine_G2
+            npc->EndMovement(false);
+#else
+            npc->EndMovement();
+#endif
+        }
+        npc->SetCollDet(FALSE);
+        if (resetRot)
+            npc->ResetRotationsWorld();
+        npc->SetPositionWorld(pos);
+        npc->SetCollDet(TRUE);
+        if (inMove)
+            npc->BeginMovement();
+    }
+
+    static void CoopNpcLageRepair(oCNpc* npc) {
+        int& tries = CoopNpcLageTries[npc];
+        if (tries >= 3)
+            return;
+        tries++;
+        auto nm = NpcToUniqueNameList.find(npc);
+        const std::string name = nm != NpcToUniqueNameList.end() ? std::string(nm->second.ToChar()) : std::string(npc->GetObjectName().ToChar());
+        const zVEC3 bad = npc->GetPositionWorld();
+        zVEC3 pos;
+        std::string where;
+        static CoopDiagBudget budget = { 0, 0 };
+        if (!CoopNpcHomePos(npc, pos, where)) {
+            tries = 3;
+            if (CoopDiagAllow(budget, 30))
+                OthelloCompatLog("[%lld s, %s] Lage-Schutz: %s hat eine ungueltige Lage (%.0f/%.0f/%.0f, Zustand %s) - kein Ort gefunden (Wegpunkt %s), "
+                    "bleibt so", DiagSeconds(), DiagRole(), name.c_str(), bad.n[0], bad.n[1], bad.n[2], npc->state.curState.name.ToChar(),
+                    npc->wpname.IsEmpty() ? "-" : npc->wpname.ToChar());
+            return;
+        }
+        CoopNpcPlace(npc, pos, true);
+        if (oCAniCtrl_Human* ac = npc->GetAnictrl()) {   // was der Bewegungsregler aus der alten Lage weitertraegt
+            if (!CoopFiniteVec(ac->velocity) || !_finite(ac->velocityLen2)) {
+                ac->velocity = zVEC3(0.f, 0.f, 0.f);
+                ac->velocityLen2 = 0.f;
+            }
+            if (!_finite(ac->fallDownStartY) || !_finite(ac->fallDownDistanceY)) {
+                ac->fallDownStartY = pos.n[1];
+                ac->fallDownDistanceY = 0.f;
+            }
+        }
+        if (npc->physicsEnabled)
+            if (zCRigidBody* rb = npc->GetRigidBody())
+                rb->SetVelocity(zVEC3(0.f, 0.f, 0.f));
+        const bool ok = CoopTrafoFinite(npc);
+        if (ok) {
+            CoopNpcLageFixed++;
+            CoopNpcLageLastNpc = npc;
+            CoopNpcLageLastPos = pos;
+        }
+        if (CoopDiagAllow(budget, 30))
+            OthelloCompatLog("[%lld s, %s] Lage-Schutz: %s hatte eine ungueltige Lage (%.0f/%.0f/%.0f, Zustand %s) - %s %s (%.0f/%.0f/%.0f), Versuch %d",
+                DiagSeconds(), DiagRole(), name.c_str(), bad.n[0], bad.n[1], bad.n[2], npc->state.curState.name.ToChar(),
+                ok ? "gesetzt an" : "NICHT zu reparieren an", where.c_str(), pos.n[0], pos.n[1], pos.n[2], tries);
+    }
+
+    // jedes Bild nach dem Slot-Waechter (Plugin.cpp): alle NPCs der Welt einmal je Sekunde, nach dem Laden erst nach 2 s
+    void CoopNpcLagePulse() {
+        if (!ogame || !player || !ogame->GetGameWorld())
+            return;
+        const long long now = GetCurrentMs();
+        if (CoopNpcLageNextMs < 0)
+            CoopNpcLageNextMs = now + 2000;
+        if (now < CoopNpcLageNextMs)
+            return;
+        CoopNpcLageNextMs = now + 1000;
+        for (zCListSort<oCNpc>* l = CoopWorldNpcListFirst(ogame->GetGameWorld()); l; l = l->next) {
+            oCNpc* npc = l->data;
+            if (npc && npc != player && !PlayerNpcs.count(npc) && !CoopTrafoFinite(npc))
+                CoopNpcLageRepair(npc);
+        }
+    }
+
+    // beim Laden (Plugin.cpp LoadBegin): Zeiger der alten Welt verwerfen
+    void CoopNpcLageWorldGone() {
+        CoopNpcLageTries.clear();
+        CoopNpcLageNextMs = -1;
+    }
+
+    // Testschritt (CoopSelfTest.cpp): Versuche fuer diesen NPC vergessen
+    void CoopNpcLageForget(oCNpc* npc) {
+        CoopNpcLageTries.erase(npc);
+    }
+
     // v39 (Nutzer: "nur noch mit Shift+F1, Shift+F2, Shift+F3, Shift+F4, damit man nicht aus Versehen disconnected"):
     // Shift gedrueckt? Wie CoopSimShiftDown (CoopDialogSync.cpp): zinput, sonst Windows-Taste, wenn das Spielfenster vorn ist.
     bool CoopShiftDown() {
@@ -440,6 +777,11 @@ namespace GOTHIC_ENGINE {
     float GetHeading(oCNpc* npc)
     {
         float x = *(float*)((DWORD)npc + 0x44);
+        // u164 (P171): asin nur von -1 bis 1. Ist die Matrix minimal ueber 1 skaliert und schaut der NPC fast genau entlang x, liegt
+        // der Wert knapp ueber 1 - asin lieferte NaN, und die Rueckgabe der Kampf-Uebergabe drehte den NPC beim Host damit (Testlauf
+        // u152, CoopNpcLagePulse oben). Eine NaN-Matrix ergibt hier einen endlichen Wert statt NaN
+        if (!(x >= -1.f && x <= 1.f))
+            x = x > 1.f ? 1.f : x < -1.f ? -1.f : 0.f;   // NaN -> 0
         float rotx = asin(x) * 180.0f / 3.14f;
         float y = *(float*)((DWORD)npc + 0x64);
         if (y > 0)
@@ -665,12 +1007,20 @@ namespace GOTHIC_ENGINE {
         return abs(CoopHostTimeDiffMin(day, h, m)) <= 2;
     }
 
+    // u186 (Test-Fenster 05.11.: die PC-Uhr sprang um 14:31 eine Stunde zurueck - Zeitzone geaendert, danach Abgleich mit time.windows.com;
+    // in den laufenden Spielen verschoben sich damit alle Fristen um diese Stunde: Test-Ende, Stillstand, Gespraechssperren, Kapitel-Warten):
+    // GetCurrentMs misst nur noch Abstaende, mit der monotonen Uhr (steady_clock, auf Windows QueryPerformanceCounter - auch zwischen den
+    // Prozessen eines PCs gleich, z. B. Weltprozess). Geprueft: Kein Zeitpunkt geht ans Netz oder in eine Datei (nur Abstaende wie
+    // "vor_s"), die Truhen-Epoche wird nur auf Gleichheit verglichen; Uhrzeiten (Spielstaende, Logs, Dateien) kommen weiter aus
+    // GetLocalTime, time und FILETIME. Allgemein.
+    // u187 (Hinweis Test-Fenster): steady_clock zaehlt ab dem Hochfahren des PCs - eine Frist "jetzt > x + N" mit x = 0 ("noch nie") griffe
+    // dann in den ersten N ms nach dem Hochfahren nicht. Darum ein fester Versatz (Uhrzeit beim ersten Aufruf minus steady): Die Werte
+    // liegen wie bisher in der Groessenordnung der Unix-Zeit, der Gang bleibt monoton.
     long long GetCurrentMs() {
-        std::chrono::milliseconds ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch()
-            );
-
-        return ms.count();
+        using namespace std::chrono;
+        static const long long offset = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count()
+            - duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
+        return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count() + offset;
     }
 
     static int GetPartyMemberID() {

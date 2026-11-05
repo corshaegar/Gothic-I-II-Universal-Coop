@@ -193,7 +193,17 @@ namespace GOTHIC_ENGINE {
         j["othello"] = LobbyOthelloStamp();
         j["pc"] = CoopSaveSyncPcId();   // v76: feste PC-Kennung (Spielstaende gehoeren dem PC, nicht der Rolle)
         j["nick"] = MyNickname.ToChar();   // v93: fuer die Durchlauf-Kennung (Datum_Host_Mitspieler)
+        j["profil"] = CoopModProfileStamp();   // u194 (P196): Mod-Profil mit Pruefsumme seiner Daten (Mods\CoopMods.cpp)
         LobbySend(j);
+    }
+
+    // u194 (P196): Mod-Profil des Partners anders als hier (andere Mod, andere Profil-Datei) - Zusatz fuer die Logzeile, sonst leer.
+    // Aeltere Fassungen schicken keins.
+    static std::string LobbyProfileDiff(const json& e) {
+        if (!e.contains("profil") || !e["profil"].is_string())
+            return std::string();
+        const std::string theirs = e["profil"].get<std::string>(), mine = CoopModProfileStamp();
+        return theirs == mine ? std::string() : " (Mod-Profil verschieden: Partner \"" + theirs + "\", hier \"" + mine + "\")";
     }
 
     // Kennungen der eigenen gemeinsamen Staende an den Partner - er sagt, zu welchen er einen eigenen Helden hat (op "have").
@@ -305,8 +315,9 @@ namespace GOTHIC_ENGINE {
                 p.othello = oth;
                 p.verOk = ok;
                 p.nick = nick;
-                LobbyLog("Host: %s meldet Fassung %s (GT %d), Othello %s - %s%s", from.c_str(), ver.c_str(), coop, oth.c_str(),
-                    ok ? "passt" : "PASST NICHT", oth != LobbyOthelloStamp() ? " (Othello-Skripte verschieden!)" : "");
+                LobbyLog("Host: %s meldet Fassung %s (GT %d), Othello %s - %s%s%s", from.c_str(), ver.c_str(), coop, oth.c_str(),
+                    ok ? "passt" : "PASST NICHT", oth != LobbyOthelloStamp() ? " (Othello-Skripte verschieden!)" : "",
+                    LobbyProfileDiff(e).c_str());
                 if (ok)
                     LobbySendSlots();
             }
@@ -319,9 +330,10 @@ namespace GOTHIC_ENGINE {
                 Lobby.hostTakes = Lobby.hostInGame && e.contains("take");
                 Lobby.hostWait.clear();
                 Lobby.hostNick = nick;
-                LobbyLog("Client: Host meldet Fassung %s (GT %d), Othello %s - %s%s%s", ver.c_str(), coop, oth.c_str(),
+                LobbyLog("Client: Host meldet Fassung %s (GT %d), Othello %s - %s%s%s%s", ver.c_str(), coop, oth.c_str(),
                     ok ? "passt" : "PASST NICHT", oth != LobbyOthelloStamp() ? " (Othello-Skripte verschieden!)" : "",
-                    Lobby.hostTakes ? ", Host ist schon im Spiel und schickt den laufenden Stand" : (Lobby.hostInGame ? ", Host ist schon im Spiel" : ""));
+                    Lobby.hostTakes ? ", Host ist schon im Spiel und schickt den laufenden Stand" : (Lobby.hostInGame ? ", Host ist schon im Spiel" : ""),
+                    LobbyProfileDiff(e).c_str());
                 if (!Lobby.helloSent && !(MyselfId == "_player_")) {
                     LobbySendHello();
                     Lobby.helloSent = true;
@@ -514,6 +526,28 @@ namespace GOTHIC_ENGINE {
         Lobby.loadSlot = -1;
         Lobby.ngAct.clear();
         Lobby.allowNewGame = false;
+    }
+
+    // u170: Autotest (CoopAutoTest.cpp, Client mit ":menu") - wie "Ueber IP beitreten" > Verbinden im Hauptmenue: verbinden, dann den
+    // Stand des Hosts laden (wie ein Spieler, der einem neuen Spiel beitritt). Rueckgabe false: laeuft schon eine Verbindung
+    bool CoopLobbyJoinFromMenu() {
+        if (ServerThread || ClientThread)
+            return false;
+        Lobby.active = true;
+        Lobby.role = 2;
+        CoopSaveSyncSetMenu(true);
+        LobbyResetClient();
+        CoopSteamForgetLast();
+        CoopStartClient();
+        LobbyLog("Autotest: Client verbindet aus dem Hauptmenue mit %s:%d als %s", CoopServerIp.c_str(), ConnectionPort, MyNickname.ToChar());
+        return true;
+    }
+
+    // u171: Vorfuehrung (CoopShow.cpp) - der Host wartet im COOP-Menue, bis der Mitspieler verbunden und abgeglichen ist (wie vor
+    // "Neues Spiel": Fassung, gemeinsame Spielstaende)
+    bool CoopLobbyPeersReadyNow() {
+        std::string why;
+        return LobbyPeersReady(why);
     }
 
     static void LobbyCommand(const std::string& cmd, zCMenu* menu) {
@@ -967,13 +1001,14 @@ namespace GOTHIC_ENGINE {
         j["coop"] = COOP_VERSION;
         j["othello"] = LobbyOthelloStamp();
         j["pc"] = CoopSaveSyncPcId();   // v76
+        j["profil"] = CoopModProfileStamp();   // u194 (P196)
         j["ingame"] = 1;
         if (take)
             j["take"] = 1;
         LobbySend(j);
-        LobbyLog("Host im Spiel: %s meldet sich aus dem Hauptmen" COOP_UE " (Fassung %s) - %s", id.c_str(), ver.c_str(),
+        LobbyLog("Host im Spiel: %s meldet sich aus dem Hauptmen" COOP_UE " (Fassung %s) - %s%s", id.c_str(), ver.c_str(),
             take ? "er bekommt den laufenden Stand" : (ok ? "Spielst" COOP_AE "nde getrennt, nur \"Host spielt schon\" gemeldet"
-                                                          : "andere Fassung, nur \"Host spielt schon\" gemeldet"));
+                                                          : "andere Fassung, nur \"Host spielt schon\" gemeldet"), LobbyProfileDiff(e).c_str());
         if (take)
             CoopSaveSyncMenuPeerWantsState(id);
     }
@@ -2010,5 +2045,7 @@ namespace GOTHIC_ENGINE {
     void CoopLangMenuPulse() {}
     bool CoopIngameMenuLoad(int) { return false; }
     void CoopIngameMenuLoadPulse() {}
+    bool CoopLobbyJoinFromMenu() { return false; }   // u170
+    bool CoopLobbyPeersReadyNow() { return false; }    // u171
 #endif
 }

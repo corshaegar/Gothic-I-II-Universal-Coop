@@ -321,6 +321,25 @@ namespace GOTHIC_ENGINE {
         const bool dead = u.contains("dead") && u["dead"].is_number() && u["dead"].get<int>() != 0;
         const char* what = "";
         if (dead && !puppet->IsDead()) {
+            // u186 (P186): Gothic 1 stuerzte zweimal genau hier ab (Aufnahmen 05.11., Client-Held vom Scavenger getoetet) - "refCtr<=0"
+            // im Loeschen eines oCCSPlayer, aufgerufen aus GT. Vor DoDie jetzt: Figur und Angreifer muessen noch lebende NPCs sein
+            // (vtable des Helden, Zaehler > 0), tote Vobs in den Slots der Figur austragen (DoDie laesst die Haende fallen, CoopSlotGuard
+            // laeuft erst nach den Paketen), und eine Logzeile, was vorlag. Allgemein G1/G2.
+            void* vt = NULL;
+            int ref = 0;
+            const bool figOk = CoopVobPeek(puppet, &vt, &ref) && ref > 0 && player && vt == *(void**)player;
+            if (attacker && attacker != puppet && (!CoopVobPeek(attacker, &vt, &ref) || ref <= 0 || !player || vt != *(void**)player)) {
+                SwingLog("Figur %s: Angreifer %s ist kein lebender NPC mehr (%p) - DoDie ohne ihn", who.c_str(), an.c_str(), (void*)attacker);
+                attacker = NULL;
+            }
+            if (!figOk) {
+                SwingLog("Figur %s ist kein lebender NPC mehr (%p) - kein DoDie", who.c_str(), (void*)puppet);
+                return;
+            }
+            const int scrubbed = CoopScrubDeadSlots(puppet, NULL, false);
+            zCEventManager* em = puppet->eventManager;
+            SwingLog("Figur %s stirbt gleich (DoDie, Angreifer %s): %d Befehle, %d tote Slot-Vobs ausgetragen", who.c_str(),
+                attacker ? an.c_str() : "-", em ? em->messageList.GetNumInList() : -1, scrubbed);
             puppet->SetAttribute(NPC_ATR_HITPOINTS, 0);
             puppet->DoDie(attacker ? attacker : puppet);   // vtable -> OTHELLO_ABI+0x7C3F0 (wie C7)
             what = " - Figur stirbt";
@@ -549,9 +568,54 @@ namespace GOTHIC_ENGINE {
         ReadyToSendJsons.enqueue(j);
     }
 
+    // u186 (Gegenversuch zum G1-Absturz beim Tod der Client-Figur, Aufnahmen 05.11.): Testausloeser nur im Autotest (-cooptest).
+    // Liegt <Spiel>\CoopLogs\Test\figur_stirbt.txt, laesst der Host die Figur eines Mitspielers sterben wie bei dessen Meldung "tot"
+    // (CoopApplyHitResult) - Angreifer ist der NPC, dessen GT-Name in der Datei steht, sonst die Figur selbst. Die Datei wird danach
+    // umbenannt (.erledigt). So laesst sich der Fall pruefen, ohne dass die Testinstanz sterben muss. Allgemein.
+    static void CoopHitTestTrigger() {
+        static long long nextMs = 0;
+        if (!ServerThread || CurrentMs < nextMs)
+            return;
+        nextMs = CurrentMs + 1000;
+        static const bool autotest = strstr(GetCommandLineA(), "-cooptest") != NULL;
+        if (!autotest)
+            return;
+        const std::string f = CoopGameRoot() + "\\CoopLogs\\Test\\figur_stirbt.txt";
+        if (GetFileAttributesA(f.c_str()) == INVALID_FILE_ATTRIBUTES)
+            return;
+        std::string att;
+        if (FILE* fp = fopen(f.c_str(), "rb")) {
+            char b[128] = {};
+            fread(b, 1, sizeof(b) - 1, fp);
+            fclose(fp);
+            att = b;
+            while (!att.empty() && (att.back() == '\r' || att.back() == '\n' || att.back() == ' '))
+                att.pop_back();
+        }
+        MoveFileExA(f.c_str(), (f + ".erledigt").c_str(), MOVEFILE_REPLACE_EXISTING);
+        for (auto& p : PlayerNpcs) {
+            oCNpc* fig = p.first;
+            if (!fig || fig == player || !IsCoopPlayer(p.second) || p.second == "HOST")
+                continue;
+            const std::string name = p.second.ToChar();
+            json j;
+            j["att"] = att.empty() ? name : att;
+            j["dmg"] = fig->GetAttribute(NPC_ATR_HITPOINTS);
+            j["hp"] = 0;
+            j["unc"] = 0;
+            j["dead"] = 1;
+            SwingLog("Testausloeser: Figur %s stirbt wie bei der Meldung \"tot\" (Angreifer %s)", name.c_str(),
+                j["att"].get<std::string>().c_str());
+            CoopApplyHitResult(fig, j, name);
+            return;
+        }
+        SwingLog("Testausloeser: keine Mitspieler-Figur gefunden");
+    }
+
     // Jedes Bild (DamageProcessorLoop): Ergebnisse einen Durchlauf spaeter melden (Tod/Bewusstlosigkeit setzt die Engine ggf.
     // erst danach), abgelaufene Erlaubnisse aufraeumen, Aufstehen melden.
     void CoopSwingPulse() {
+        CoopHitTestTrigger();   // u186
         CoopSwingFrame++;
         if (!ClientThread || ServerThread || !player)
             return;

@@ -254,7 +254,8 @@ namespace GOTHIC_ENGINE {
         std::string owner;
     };
     static std::vector<AuditEntry> AuditList;
-    static unsigned long AuditHash = 0, AuditRdHash = 0, AuditHooksActive = 0, AuditHooksTotal = 0;
+    static unsigned long AuditHash = 0, AuditRdHash = 0, AuditHooksActive = 0, AuditHooksTotal = 0, AuditHooksBehindLego = 0;
+    static std::set<DWORD> CoopLegoFixedAt;   // u170 (P177): Eingaenge mit LeGo-Haken davor, kopierter GT-Sprung versetzt ("behandelt")
     static std::map<std::string, unsigned long> AuditOwners, AuditRdOwners;
     static bool AuditHave = false, AuditDumped = false;
     static std::string AuditError;
@@ -388,7 +389,10 @@ namespace GOTHIC_ENGINE {
         }
 
         // GT-Haken aktiv? (Sprung am Eingang ins GT-Modul, auch ueber Union-Trampoline)
-        AuditHooksActive = AuditHooksTotal = 0;
+        // u189 (P191): Ein Haken hinter einem LeGo-Haken, dessen kopierten GT-Sprung P177 versetzt hat, laeuft ebenso - LeGos Puffer
+        // springt nach seinem Skript weiter zu GT. Bis u188 zaehlte er als "nicht aktiv" (LoA: 66 von 72, Pruefschritt "Engine-
+        // Aenderungen wie beim Partner" FEHLER bei gleichem Fingerabdruck). Allgemein (jede Mod mit LeGo-Haken auf GT-Funktionen).
+        AuditHooksActive = AuditHooksTotal = AuditHooksBehindLego = 0;
         const void* gtModule = ModuleOf((const void*)&AuditScan);
         for (auto& h : CoopFnNames) {
             if (!h.hook || CoopHookOffForProfile(h.a))   // u64 (B9): unter Othello absichtlich aus
@@ -398,6 +402,10 @@ namespace GOTHIC_ENGINE {
             const DWORD dest = AuditFollowJumps(h.a, &hops);
             if (hops > 0 && ModuleOf((const void*)dest) == gtModule)
                 AuditHooksActive++;
+            else if (CoopLegoFixedAt.count(h.a)) {
+                AuditHooksActive++;
+                AuditHooksBehindLego++;
+            }
         }
         AuditHave = true;
         AuditError.clear();
@@ -488,6 +496,88 @@ namespace GOTHIC_ENGINE {
         OthelloCompatLog("[%lld s, %s] Haken-Liste Ende", DiagSeconds(), DiagRole());
     }
 
+    // u170 (P177): LeGo-Haken vor GT. LeGo (HookEngineI, in Legend of Ahssun 2.7.1) kopiert die ersten oldInstr Bytes einer Funktion
+    // unveraendert in seinen Sprungpuffer und springt danach mit "push Eingang+oldInstr; ret" zurueck. Hat GT die Funktion schon
+    // eingehaengt, steht dort Unions Sprung zu GT (E9 + Abstand) - an der neuen Stelle zeigt der Abstand ins Leere: Zugriffsfehler beim
+    // ersten Aufruf nach LeGos Skript (LoA: jeder Treffer ueber oCNpc::OnDamage_Hit, dazu ChangeLevel, DoTakeVob, DoDropVob,
+    // EV_AttackFinish). GT merkt sich in Game_Init (vor den Skripten) das Ziel seines Sprungs an jedem Eingang. Steht spaeter ein fremder
+    // Sprung davor, sucht GT in dessen Ziel die unveraenderte Kopie (E9 mit dem alten Abstand, wenige Bytes dahinter LeGos Ruecksprung
+    // "68 <Eingang+n> C3") und versetzt den Abstand, so dass er wieder GT trifft. Allgemein (jeder Mod mit LeGo-Haken auf GT-Funktionen)
+    struct CoopEntryJump { DWORD entry; DWORD target; const char* name; };
+    static std::vector<CoopEntryJump> CoopEntryJumps;   // CoopLegoFixedAt steht oben bei den Zaehlern der Selbstpruefung
+    int CoopLegoFixed = 0;
+
+    void CoopLegoNoteEntries() {   // auch im Weltprozess - dort laufen die Skripte des Mods ebenso
+        if (!CoopEntryJumps.empty())
+            return;
+        for (auto& h : CoopFnNames) {
+            const unsigned char* p = (const unsigned char*)h.a;
+            if (h.hook && IsReadableMemory(p, 5) && p[0] == 0xE9)
+                CoopEntryJumps.push_back({ h.a, h.a + 5 + *(const int*)(p + 1), h.n });
+        }
+    }
+
+    // cur: die 5 Bytes, die jetzt am Eingang stehen (Testschritt: ein nachgebauter Eingang). 1 = Kopie versetzt
+    int CoopLegoFixAt(DWORD entry, const unsigned char* cur, DWORD gt, char* how, size_t hn) {
+        if (cur[0] != 0xE9)
+            return 0;
+        const DWORD front = entry + 5 + *(const int*)(cur + 1);
+        if (front == gt)
+            return 0;   // GT steht vorn
+        const unsigned char* t = (const unsigned char*)front;
+        const int span = 512;
+        if (!IsReadableMemory(t, span))
+            return 0;
+        const int oldRel = (int)(gt - (entry + 5));
+        for (int i = 0; i + 5 + 6 <= span; i++) {
+            if (t[i] != 0xE9 || *(const int*)(t + i + 1) != oldRel)
+                continue;
+            int n = 0;
+            for (int k = 5; k <= 32 && i + k + 6 <= span && !n; k++)
+                if (t[i + k] == 0x68 && *(const DWORD*)(t + i + k + 1) == entry + (DWORD)k && t[i + k + 5] == 0xC3)
+                    n = k;
+            if (!n)
+                continue;
+            unsigned char* w = (unsigned char*)(t + i);
+            DWORD old = 0;
+            if (!VirtualProtect(w, 5, PAGE_EXECUTE_READWRITE, &old))
+                return 0;
+            *(int*)(w + 1) = (int)(gt - ((DWORD)w + 5));
+            VirtualProtect(w, 5, old, &old);
+            FlushInstructionCache(GetCurrentProcess(), w, 5);
+            char who[MAX_PATH];
+            ModuleName((const void*)front, who, sizeof(who));
+            _snprintf(how, hn, "Sprung bei %08X (%s), kopierter GT-Sprung %d Bytes dahinter, %d Bytes alter Code", (unsigned)front, who, i, n);
+            how[hn - 1] = 0;
+            return 1;
+        }
+        return 0;
+    }
+
+    bool CoopLegoFirstEntry(DWORD& entry, DWORD& target, const char*& name) {   // Testschritt
+        if (CoopEntryJumps.empty())
+            return false;
+        entry = CoopEntryJumps[0].entry;
+        target = CoopEntryJumps[0].target;
+        name = CoopEntryJumps[0].name;
+        return true;
+    }
+
+    // LoadEnd (Plugin.cpp) und jede Sekunde im Spiel: billig (je Haken 5 Bytes lesen, gesucht wird nur hinter einem fremden Sprung)
+    void CoopLegoFixPulse() {
+        for (auto& e : CoopEntryJumps) {
+            if (!IsReadableMemory((const void*)e.entry, 5))
+                continue;
+            char how[260];
+            if (CoopLegoFixAt(e.entry, (const unsigned char*)e.entry, e.target, how, sizeof(how))) {
+                CoopLegoFixed++;
+                CoopLegoFixedAt.insert(e.entry);
+                OthelloCompatLog("[%lld s, %s] LeGo-Haken vor GT an %s (%08X): %s - Abstand versetzt, die Kette laeuft wieder bis GT",
+                    DiagSeconds(), DiagRole(), e.name, (unsigned)e.entry, how);
+            }
+        }
+    }
+
     void CoopAuditOnce() {
         static bool done = false;
         if (done || !player || !ogame || !ogame->GetGameWorld() || CoopWpIsWorld())   // u33: nicht im Weltprozess (Datei des Hauptspiels)
@@ -560,6 +650,8 @@ namespace GOTHIC_ENGINE {
             const bool isHook = info && info->hook;
             const char* fname = info ? info->n : "?";
             const char* handled = CoopAuditHandledNote(t);
+            if (!handled && CoopLegoFixedAt.count(t))
+                handled = "LeGo-Haken davor, kopierter GT-Sprung versetzt (P177)";
             char line[512];
             if (memcmp(m, f, 16) == 0) {
                 nSame++;
@@ -665,9 +757,9 @@ namespace GOTHIC_ENGINE {
             nSame, nRedir, nGt, nStub, nRepl, nHandled);
         OthelloCompatLog("Selbstpruefung (v43): .text nach Verursacher: %s", AuditOwnerList(AuditOwners).c_str());
         OthelloCompatLog("Selbstpruefung (v43): .rdata %lu Eintraege: %s", nRd, AuditOwnerList(AuditRdOwners).c_str());
-        OthelloCompatLog("Selbstpruefung (v43): GT-Haken aktiv %lu von %lu; %lu der von GT benutzten Funktionen haben Aenderungen im"
-            " Rumpf (%lu Stellen); Fingerabdruck .text %08lX, .rdata %08lX", AuditHooksActive, AuditHooksTotal, nFnInner, nInner,
-            AuditHash, AuditRdHash);
+        OthelloCompatLog("Selbstpruefung (v43): GT-Haken aktiv %lu von %lu (davon %lu hinter einem LeGo-Haken, P191); %lu der von GT"
+            " benutzten Funktionen haben Aenderungen im Rumpf (%lu Stellen); Fingerabdruck .text %08lX, .rdata %08lX", AuditHooksActive,
+            AuditHooksTotal, AuditHooksBehindLego, nFnInner, nInner, AuditHash, AuditRdHash);
         for (auto& a : alarms)
             OthelloCompatLog("  ALARM (unbehandelt): %s", a.c_str());
         if (alarms.empty())
@@ -676,6 +768,11 @@ namespace GOTHIC_ENGINE {
 
 #else   // Modul in dieser Engine nicht freigegeben (CoopModulesReport)
 
+    int CoopLegoFixed = 0;
+    void CoopLegoNoteEntries() {}
+    int CoopLegoFixAt(DWORD, const unsigned char*, DWORD, char* how, size_t hn) { _snprintf(how, hn, "Selbstpruefung aus"); return 0; }
+    bool CoopLegoFirstEntry(DWORD&, DWORD&, const char*&) { return false; }
+    void CoopLegoFixPulse() {}
     void CoopAuditOnce() {}
     json CoopAuditSummaryJson(bool) { return json::object(); }
     void CoopAuditDumpToLog(const char*) {}

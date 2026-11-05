@@ -400,6 +400,21 @@ namespace GOTHIC_ENGINE {
         int guild = 0;                    // u85: Gilde des eigenen Helden (Aufnahme waehrend des Infos)
     };
 
+    // u163 (P170): Vom Test-Fenster (b214, Gothic 1 Kapitel 4): Cronos' Handelsfenster hatte dieselben 20 Sorten wie am 2.11. - ohne die Ware aus
+    // B_Kapitelwechsel (B_Give_CronosChapter2/3/4Runes: CreateInvItems(Hlp_GetNpc(KDW_604_Cronos), ...), ebenso Fisk, Darrion, Sharky, Wolf, Riordian,
+    // Baal Cadar, Xardas ...). Die Kapitelwechsel 2, 3 und 4 liefen im Gespraech des Clients. Der Abgleich brachte dem Host Variablen, Tagebuch,
+    // NPC-Zustaende und den Kapitel-Bildschirm, nicht aber, was das Skript in die Inventare anderer NPCs legte - die Ware gab es nur beim Client,
+    // nach dem naechsten Laden (Stand des Hosts) auf keinem PC mehr. Gothic 2 fuellt Haendler beim Handel (B_GiveTradeInv, die Merker
+    // *_ITEMSGIVEN_CHAPTER_n gleicht der Abgleich ab) - dort bekam der Haendler des Partners die Ware nie.
+    // Jetzt zaehlen CreateInvItem(s) und Npc_RemoveInvItem(s) an Welt-NPCs (nicht der eigene Held, keine Coop-Figur) mit, solange ein eigenes
+    // Dialogskript laeuft (OnInfo/OnChoice): Menge der Instanz vorher und nachher (oCNpcInventory::GetAmount wie Npc_HasItems), je NPC und Instanz
+    // zusammengezaehlt - was ein NPC erst bekommt und gleich dem Helden gibt (CreateInvItems + B_GiveInvItems), hebt sich auf. Der Unterschied geht
+    // mit dem Fortschritt hinaus ("ni": [Name, Instanz, Menge]); der Partner legt ihn in derselben Welt bei seiner Kopie des NPCs an bzw. nimmt ihn
+    // heraus (DlgInvApply). Nicht dabei: Skripte ausserhalb von Gespraechen (Tagesablauf, Todesskripte - die laufen auf jedem PC), EquipItem,
+    // Mob_CreateItems. Allgemein (G1, G2, Othello).
+    static int DlgInvDepth = 0;   // > 0: eigenes Dialogskript laeuft
+    static std::map<std::pair<std::string, std::string>, int> DlgInvChanges;   // (NPC, Instanz) -> Menge
+
     struct CoopDlgIntSlot {
         zCPar_Symbol* sym;
         int idx;
@@ -475,7 +490,14 @@ namespace GOTHIC_ENGINE {
         "PLAYERMAPINSTANCE", "SC_ISOBSESSED", "SC_OBSESSIONCOUNTER", "SC_OBSESSIONTIMES", "STONEPLATEITEM", "STONEPLATELEVEL",
         "BOOKSTANDMAYAART",
         "KNOWS_LOUSHAMMER", "KNOWS_SCHLAFHAMMER", "KNOWS_SCHNELLERHERING", "KNOWS_MCELIXIER", "KNOWS_BANDITENAXT", "KNOWS_BLOODFLY",
-        "GREEN_EXTREM" };
+        "GREEN_EXTREM",
+        // u195 (P203, aus der Gegenprobe von tools\mod_analyse.py mit Gothic II): Ausbaustufe der Klaue Beliars und Menuestand der
+        // Herstell-Mobsis (Gespraeche des Helden mit sich selbst) - je Held, gingen bisher zum Partner
+        "BELIARDAMAGECHANCE", "BELIARNEXTDAMAGECHANCE", "BELIARWEAPCURRENTLVL", "BELIARWEAPNEXTLVL",
+        "BOOZESTART", "HEALTHSTART", "MANASTART", "SPECIALSTART", "TABAKSTART", "ERZWAFFEN", "NORMALWAFFEN" };
+
+    static bool DlgScriptLibraryVar(const char* nm);   // u196 (P206): weiter unten
+    bool CoopModHeroVar(const char* nm);                // u197 (P207): Mods\CoopMods.cpp - "heroVars" des Mod-Profils
 
     static void StoryBuildHeroVars() {
         StoryHeroVarsBuilt = true;
@@ -572,24 +594,51 @@ namespace GOTHIC_ENGINE {
                 work.insert(work.end(), c->second.begin(), c->second.end());
         }
         std::string sample;
+        int library = 0;   // u196 (P206)
         for (auto& w : writers)
             for (int o : w.second)
                 if (hero.count(o)) {
                     zCPar_Symbol* v = parser->symtab.table[w.first];
+                    // u196 (P206): Ikarus/LeGo/GFA/Spine-Interna (NEXTHANDLE, _TIMER, PRINT_SCREEN, SPINE_...) schreiben Helden-Funktionen nur
+                    // nebenbei (LoA: Anlege-Funktionen legen Buffs/Leisten an -> LeGo new()). Sie gehoeren zum Skriptstand des geladenen
+                    // Spielstands, nicht zum Helden: aus COOPHERO.TXT zurueckgeschrieben passte nach einer Uebernahme der Handle-Zaehler
+                    // NEXTHANDLE (151) nicht mehr zur PermMem-Datei des Hosts (Handles bis 180) - neue LeGo-Objekte bekamen belegte
+                    // Nummern, LoAs LOA_CHANGEHPBAR (INIT_GLOBAL) griff beim naechsten Laden auf ein fremdes Objekt (zCView::InsertBack,
+                    // Absturz LoA u177/u194/u195). Je PC bleiben sie trotzdem (DlgNeverSync). Allgemein (alle Mods mit diesen Paketen).
+                    if (DlgScriptLibraryVar(v->name.ToChar())) {
+                        library++;
+                        break;
+                    }
                     StoryHeroVars.insert(v);
                     if (sample.size() < 300)
                         sample += (sample.empty() ? "" : ", ") + std::string(v->name.ToChar());
                     break;
                 }
+        if (library)
+            DialogLog("Heldenwerte: %d Werte von Ikarus/LeGo/GFA/Spine aus Helden-Funktionen ausgelassen - sie gehoeren zum Spielstand (P206)", library);
         int extra = 0;   // u26
         for (const char* nm : StoryHeroVarsExtra) {
             zCPar_Symbol* v = parser->GetSymbol(zSTRING(nm));
             if (v && v->type == zPAR_TYPE_INT && !(v->flags & (zPAR_FLAG_CONST | zPAR_FLAG_CLASSVAR)) && StoryHeroVars.insert(v).second)
                 extra++;
         }
+        // u197 (P207): "heroVars" des Mod-Profils - Werte des eigenen Helden, die der Aufrufgraph nicht findet (LoA: Talente, Rezepte,
+        // Uebung, Erfolge, Boni - geschrieben beim Lesen, Trinken, Benutzen, nicht in Helden-Funktionen). Bis u196 standen sie nur in
+        // "perPcVars": nie abgeglichen, aber beim Uebernehmen des Host-Stands (bei jedem Verbinden) kamen die Werte des Hosts.
+        int profile = 0;
+        for (int i = 0; i < cnt; i++) {
+            zCPar_Symbol* v = parser->symtab.table[i];
+            if (!v || v->type != zPAR_TYPE_INT || (v->flags & (zPAR_FLAG_CONST | zPAR_FLAG_CLASSVAR | zPAR_FLAG_EXTERNAL)))
+                continue;
+            const char* nm = v->name.ToChar();
+            if (!nm || strchr(nm, '.') || !CoopModHeroVar(nm) || DlgScriptLibraryVar(nm))
+                continue;
+            if (StoryHeroVars.insert(v).second)
+                profile++;
+        }
         DialogLog("Heldenwerte: %u globale Variablen gehoeren zum Helden und werden nicht abgeglichen (%d Anlege-/Ablege-Funktionen, "
-            "%u im Helden-Kontext, %d aus der festen Liste fuer Gegenstaende/Lesepulte/Rezepte), z. B. %s", (unsigned)StoryHeroVars.size(),
-            equipRoots, (unsigned)hero.size(), extra, sample.c_str());
+            "%u im Helden-Kontext, %d aus der festen Liste fuer Gegenstaende/Lesepulte/Rezepte, %d aus dem Mod-Profil), z. B. %s",
+            (unsigned)StoryHeroVars.size(), equipRoots, (unsigned)hero.size(), extra, profile, sample.c_str());
     }
 
     static bool StoryIsHeroVar(zCPar_Symbol* s) {
@@ -936,10 +985,52 @@ namespace GOTHIC_ENGINE {
         return n;
     }
 
+    // u188 (P190): Ikarus und LeGo (viele Mods, z. B. Legend of Ahssun) halten in globalen Ganzzahlen Zeiger, Zaehler und den Zustand
+    // des eigenen PCs. Betroffen sind interne Namen mit "_" (LeGo: _BIN_CRSR, _BIN_MODE, _BAR_SCREEN_X, _TIMER_PIM), Ikarus MEM_ und
+    // MEMINT_ sowie die LeGo-Pakete Cursor (CURSOR_X ...) und Gamestate (GAMESTATE). Der Story-Abgleich schickte sie zum Partner
+    // (LoA-Logs: "_BIN_CRSR=6873, GAMESTATE=3", "CURSOR_X=2"), die Pruefrunde meldete sie als abweichend. Die Regel gilt nur, wenn die
+    // Skripte Ikarus oder LeGo enthalten (MEM_INITALL / LEGO_INIT). Die Original-Skripte haben keine solchen Ganzzahlen, nur
+    // _STR_-Konstanten. Allgemein (alle Ikarus/LeGo-Mods).
+    // u195 (P197): dazu die uebrigen Werte dieser Pakete und zwei weitere Bibliotheken, die viele Mods mitbringen (LoA-Logs u189-u194:
+    // "GFA_BOWDRAWONSET" 237-mal zum Partner, Zeiger und Handles ohne grosse Werte rutschen am Zeiger-Filter vorbei). Je PC bleiben:
+    //  - Ikarus: INSTRINT_ (Instrumentierung)
+    //  - LeGo: NEXTHANDLE und PM_ (PermMem - der Partnerwert zerstoert die eigenen Handles), PRINT_ (Bildschirmmasse), BUFF_ und
+    //    BUFFLIST_ (Buffs, Anzeigen), TRIA_ (Trialoge, NPC-Zeiger)
+    //  - Gothic Free Aim (GFA_INIT): GFA_ - Zielen, Spannen, Mausbewegung, Zeitstempel
+    //  - Spine (SPINE_INIT): SPINE_ - Funktionszeiger der Spine-DLL, Erfolgs-Anzeigen, lokaler Erfolgsstand
+    // Allgemein (alle Mods mit diesen Paketen); Original-Skripte haben keine solchen Namen.
+    static bool DlgScriptLibraryVar(const char* nm) {
+        static zCParser* cached = NULL;
+        static bool lib = false, lego = false, gfa = false, spine = false;
+        if (cached != parser) {
+            cached = parser;
+            lego = parser && parser->GetIndex(zSTRING("LEGO_INIT")) >= 0;
+            lib = lego || (parser && parser->GetIndex(zSTRING("MEM_INITALL")) >= 0);
+            gfa = parser && parser->GetIndex(zSTRING("GFA_INIT")) >= 0;
+            spine = parser && parser->GetIndex(zSTRING("SPINE_INIT")) >= 0;
+            if (lib || gfa || spine)
+                DialogLog("Skripte mit %s%s%s%s: deren Ganzzahlen bleiben je PC (_..., MEM_, MEMINT_, INSTRINT_, CURSOR_, GAMESTATE%s%s%s; P190, P197)",
+                    lib ? "Ikarus" : "", lego ? "/LeGo" : "", gfa ? ", Gothic Free Aim" : "", spine ? ", Spine" : "",
+                    lego ? ", NEXTHANDLE, PM_, PRINT_, BUFF_, BUFFLIST_, TRIA_" : "", gfa ? ", GFA_" : "", spine ? ", SPINE_" : "");
+        }
+        if (!nm)
+            return false;
+        if (lib && (nm[0] == '_' || !strncmp(nm, "MEM_", 4) || !strncmp(nm, "MEMINT_", 7) || !strncmp(nm, "INSTRINT_", 9) ||
+            !strncmp(nm, "CURSOR_", 7) || !strcmp(nm, "GAMESTATE")))
+            return true;
+        if (lego && (!strcmp(nm, "NEXTHANDLE") || !strncmp(nm, "PM_", 3) || !strncmp(nm, "PRINT_", 6) || !strncmp(nm, "BUFF_", 5) ||
+            !strncmp(nm, "BUFFLIST_", 9) || !strncmp(nm, "TRIA_", 5)))
+            return true;
+        return (gfa && !strncmp(nm, "GFA_", 4)) || (spine && !strncmp(nm, "SPINE_", 6));
+    }
+
+    bool CoopModNeverSync(const char* nm);   // Mods\CoopMods.cpp (u188, P190): Werte je PC, die nur eine Mod kennt
+
     // u97: COOP_TRUHE_OEFFNEN - Merker "Coop-Truhe benutzt" (COOP_ITEMS.D) gilt nur auf diesem PC
     static bool DlgNeverSync(const char* nm) {
         return nm && (!strcmp(nm, "PLAYER_MOBSI_PRODUCTION") || !strcmp(nm, "CURRENTLEVEL") || !strcmp(nm, "HERO_HACKCHANCE")
-            || !strcmp(nm, "ZSTALKBUGFIX") || !strcmp(nm, "COOP_TRUHE_OEFFNEN") || DlgWorldEntryVar(nm));
+            || !strcmp(nm, "ZSTALKBUGFIX") || !strcmp(nm, "COOP_TRUHE_OEFFNEN") || DlgWorldEntryVar(nm) || DlgScriptLibraryVar(nm) ||
+            CoopModNeverSync(nm));
     }
 
     static void DlgBuildIntSlots() {
@@ -1130,7 +1221,16 @@ namespace GOTHIC_ENGINE {
         }
         // v31: Quest-EP - was der eigene Held waehrend des Dialogskripts an Erfahrung bekam (Kampf-EP laufen nicht hier)
         const long long xp = b.exp > a.exp ? b.exp - a.exp : 0;
-        if (info.empty() && !nv && !nl && !np && !xp && items.empty() && !join)
+        json ni = json::array();   // u163 (P170): Inventar von Welt-NPCs aus dem Skript
+        std::string niText;
+        for (auto& x : DlgInvChanges)
+            if (x.second) {
+                ni.push_back({ x.first.first, x.first.second, x.second });
+                if (niText.size() < 200)
+                    niText += (niText.empty() ? "" : ", ") + x.first.first + " " + (x.second > 0 ? "+" : "") + std::to_string(x.second) + " " + x.first.second;
+            }
+        DlgInvChanges.clear();
+        if (info.empty() && !nv && !nl && !np && !xp && items.empty() && !join && ni.empty())
             return;
         if (!info.empty())
             j["i"] = info;
@@ -1150,12 +1250,15 @@ namespace GOTHIC_ENGINE {
             j["join"] = b.guild;
         if (!items.empty())
             j["it"] = items;
+        if (!ni.empty())
+            j["ni"] = ni;
         DialogSend(j, SYNC_DIALOG_STATE);
-        DialogLog("Fortschritt (%s %s): %d Variablen, %d Tagebuch-Themen, %d NPCs, %d EP%s%s%s -> Partner", what,
+        DialogLog("Fortschritt (%s %s): %d Variablen, %d Tagebuch-Themen, %d NPCs, %d EP%s%s%s%s -> Partner", what,
             info.empty() ? "-" : info.c_str(), nv, nl, np, (int)xp,
             gi.empty() ? "" : (" - Gilden-Info (Gilde " + DlgGuildText(gi) + ")").c_str(),
             join ? (" - Aufnahme in Gilde " + std::to_string(b.guild) + " (beim Partner nicht erzaehlt)").c_str() : "",
-            items.empty() ? "" : (" - " + std::to_string(items.size()) + " Gegenstandsarten als Belohnung").c_str());
+            items.empty() ? "" : (" - " + std::to_string(items.size()) + " Gegenstandsarten als Belohnung").c_str(),
+            ni.empty() ? "" : (" - Inventar von NPCs (" + std::to_string(ni.size()) + "): " + niText).c_str());
     }
 
     static bool StoryNpcSkip(oCNpc* npc) {
@@ -2113,8 +2216,17 @@ namespace GOTHIC_ENGINE {
         gameMan->IntroduceChapter(zSTRING(t.c_str()), zSTRING(c[1].is_string() ? c[1].get<std::string>().c_str() : ""),
             zSTRING(tex.c_str()), zSTRING(c[3].is_string() ? c[3].get<std::string>().c_str() : ""),
             c[4].is_number() ? c[4].get<int>() : 6000);
-        DialogLog("Kapitel-Bildschirm von %s: %s%s%s", by.c_str(), t.c_str(), how,
-            tex != texIn ? (" - Bild der eigenen Gilde: " + tex).c_str() : "");
+        // u182 (Nutzer zur Aufnahme mit b285: "wieso kam die kapitel 1 anzeige zu spaet beim client"): Gothic zeigt den vorgemerkten
+        // Bildschirm erst ohne eigenes Gespraech (CGameManager::Run nur bei MenuEnabled). Diego sprach gerade mit der Stadtwache - Kapitel 1
+        // kam 29 s nach dem Host. Seit die Zeilen in Aufnahmen ausklingen und der Client Ton hat, dauern solche Gespraeche viel laenger.
+        // Jetzt im eigenen Gespraech gleich zeigen: derselbe Aufruf, den Gothic danach machte (IntroduceChapter ohne Werte, zeigt und
+        // loescht die Vormerkung), von derselben Stelle wie das Video des Partners (DialogPlayVideo). Das Gespraech geht danach weiter.
+        // Allgemein G1/G2.
+        const bool sofort = MyDialogNpcPtr != NULL;
+        if (sofort)
+            gameMan->IntroduceChapter();
+        DialogLog("Kapitel-Bildschirm von %s: %s%s%s%s", by.c_str(), t.c_str(), how,
+            tex != texIn ? (" - Bild der eigenen Gilde: " + tex).c_str() : "", sofort ? " - sofort, mitten im eigenen Gespraech" : "");
     }
 
     // u28 (docs\G2-SKRIPTABGLEICH.md B5): Story-Videos auch beim Partner. Videos aus Dialogen und Ereignissen (G2: Intro_ADDON in
@@ -2290,10 +2402,16 @@ namespace GOTHIC_ENGINE {
     // nur Aenderungen. Host, auf das RESYNC eines Clients nach Laden/Verbinden (CoopSaveSync.cpp): Tagesablauf und dauerhafte Haltung
     // aller lebenden Welt-NPCs einmal ganz; der Client uebernimmt, was abweicht. Nur mit Abgleich "Quests" und "beim Verbinden
     // Host-Stand" (sonst behaelt der Client absichtlich seinen eigenen Stand). Allgemein GT.
+    // u162 (P169, Liste 6o): Haltung je Held (aus Gilden-Infos und Aufnahmen, P156) geht nicht als Gesamtstand hinaus, sondern der Stand
+    // davor - ohne ihn gar keine Haltung. Bis u161 ging die Haltung des Host-Helden mit; der Client streicht sie nur bei Namen, die er
+    // kennt (DlgGuildNpcStrip). Gilden-Probe: Im Clientlauf stand Xardas in 6 von 47 Laeufen auf der Haltung des Host-Helden - das
+    // RESYNC nach dem Laden kam beim Client erst an, nachdem der Schritt "Gildenfortschritt zurueck" den Namen dort geloescht hatte.
+    // Allgemein (G1/G2).
     void CoopStorySendAllNpcs(const char* why) {
         if (!ServerThread || !parser || !ogame || !ogame->GetGameWorld() || !DialogSyncAktiv() || !CoopRuleQuests() || !CoopRuleTakeOnConnect())
             return;
         json p = json::array();
+        int guild = 0;
         for (auto* li = CoopWorldNpcListFirst(ogame->GetGameWorld()); li; li = li->next) {
             oCNpc* npc = li->data;
             if (StoryNpcSkip(npc) || npc->IsDead())
@@ -2306,7 +2424,14 @@ namespace GOTHIC_ENGINE {
             if (npc->daily_routine > 0)
                 if (zCPar_Symbol* rs = parser->GetSymbol(npc->daily_routine))
                     jn["r"] = rs->name.ToChar();
-            jn["at"] = npc->attitude;
+            if (!DlgGuildNpcHas(name))
+                jn["at"] = npc->attitude;
+            else {   // u162 (P169)
+                auto b = DlgGuildNpcBase.find(name);
+                if (b != DlgGuildNpcBase.end())
+                    jn["at"] = b->second.att;
+                guild++;
+            }
             const CoopNpcFields f = DlgNpcFields(npc);   // u139 (P138)
             jn["fl"] = f.flags;
             jn["gu"] = f.guild;
@@ -2322,7 +2447,8 @@ namespace GOTHIC_ENGINE {
         j["full"] = 1;
         j["p"] = p;
         DialogSend(j, SYNC_DIALOG_STATE);
-        DialogLog("Story-Abgleich: Tagesablauf/Haltung/Felder aller %u NPCs an die Clients (%s)", (unsigned)p.size(), why);
+        DialogLog("Story-Abgleich: Tagesablauf/Haltung/Felder aller %u NPCs an die Clients (%s)%s", (unsigned)p.size(), why,
+            guild ? (", " + std::to_string(guild) + " mit Haltung je Held: Stand davor").c_str() : "");
     }
 
     // --- u96: Missions-Gegenstaende spiegeln ---------------------------------------------------------------------------------
@@ -2714,6 +2840,21 @@ namespace GOTHIC_ENGINE {
 
     void CoopTruheReceive(const json& t, const std::string& by);   // u97: CoopTruhe.cpp
 
+    // u163 (P170): Inventar-Aenderung aus dem Gespraech des Partners bei meiner Kopie des NPCs - anlegen wie CreateInvItems (oCNpc::CreateItems),
+    // herausnehmen wie der Welt-Abgleich (NpcRemoveItems). Rueckgabe: geaenderte Stueck, Vorzeichen wie d
+    static int DlgInvApply(oCNpc* npc, const std::string& inst, int d) {
+        const int idx = parser->GetIndex(zSTRING(inst.c_str()));
+        zCPar_Symbol* s = idx >= 0 ? parser->GetSymbol(idx) : NULL;
+        if (!npc || !s || s->type != zPAR_TYPE_INSTANCE || !d || d > 100000 || d < -100000)
+            return 0;
+        if (d < 0)
+            return -NpcRemoveItems(npc, inst, -d);
+        WorldSyncApplying++;
+        npc->CreateItems(idx, d);
+        WorldSyncApplying--;
+        return d;
+    }
+
     static void DialogApplyState(json& ein, const std::string& by, bool sameWorld) {
         if (!parser)
             return;
@@ -2731,7 +2872,7 @@ namespace GOTHIC_ENGINE {
             json f = json::object();
             for (auto it = e.begin(); it != e.end(); ++it) {
                 const std::string k = it.key();
-                if ((!quests && (k == "i" || k == "v" || k == "p" || k == "g" || k == "xp" || k == "ch" || k == "mi" || k == "we")) || (!diary && k == "l"))
+                if ((!quests && (k == "i" || k == "v" || k == "p" || k == "g" || k == "xp" || k == "ch" || k == "mi" || k == "we" || k == "ni")) || (!diary && k == "l"))
                     continue;
                 f[k] = it.value();
             }
@@ -2873,6 +3014,25 @@ namespace GOTHIC_ENGINE {
                     pending++;
                 }
             }
+        if (e.contains("ni") && e["ni"].is_array()) {   // u163 (P170): Inventar von Welt-NPCs aus dem Gespraech des Partners
+            int done = 0, miss = 0;
+            std::string text;
+            for (auto& x : e["ni"]) {
+                if (!sameWorld || !x.is_array() || x.size() != 3 || !x.at(0).is_string() || !x.at(1).is_string() || !x.at(2).is_number_integer())
+                    continue;
+                const std::string n = x.at(0).get<std::string>(), inst = x.at(1).get<std::string>();
+                const int d = x.at(2).get<int>(), got = DlgInvApply(DialogNpcByName(n), inst, d);
+                if (got)
+                    done++;
+                if (got != d)
+                    miss++;
+                if (text.size() < 200)
+                    text += (text.empty() ? "" : ", ") + n + " " + (d > 0 ? "+" : "") + std::to_string(got) + "/" + std::to_string(d) + " " + inst;
+            }
+            DialogLog("Inventar von NPCs aus dem Gespr\xE4" "ch von %s: %s", by.c_str(), sameWorld ?
+                (std::to_string(done) + " von " + std::to_string(e["ni"].size()) + " uebernommen" + (miss ? " (" + std::to_string(miss) + " nicht ganz)" : "") +
+                    " - " + text).c_str() : "andere Welt - nicht uebernommen");
+        }
         int xpGiven = 0;
         if (e.contains("xp") && e["xp"].is_number()) {   // v31: Quest-EP auch fuer den eigenen Helden
             const int xp = e["xp"].get<int>();
@@ -3304,6 +3464,48 @@ namespace GOTHIC_ENGINE {
         DialogSend(j, SYNC_HOST_EVENT);
     }
 
+    // u195 (P202): Laufende Skripte einer Mod (Frame-Funktionen, Schleifen; Legend of Ahssun: 166, docs\mod-analyse\LoA.md) laufen auf
+    // beiden PCs. Was eine davon beim Client einsetzt, ausloest oder anlegt, geht als Anfrage zum Host - und der hat dasselbe aus
+    // seiner eigenen Schleife schon getan oder tut es gleich: Monster, Gegenstaende doppelt, ein Trigger zweimal (ein Tor auf und wieder
+    // zu). Der Host merkt sich je Ereignis (Art, Instanz/Name, Wegpunkt) die eigenen und die angefragten der letzten 3 s, die noch kein
+    // Gegenstueck haben, und verrechnet sie paarweise: Steht einem Ereignis eines der anderen Seite gegenueber, faellt es weg. Dieselbe
+    // Seite darf es beliebig oft (drei Fleischwanzen am selben Wegpunkt aus einem Skript). Allgemein.
+    static std::map<std::string, std::deque<std::pair<long long, int>>> HostEvTwins;   // Schluessel -> offene (Zeit, Seite 0 Host / 1 Client)
+    static int HostEvTwinDropped = 0;
+
+    static std::string HostEvKey(const char* f, const std::string& a, const std::string& b = std::string()) {
+        std::string k = std::string(f) + "|" + a + "|" + b;
+        for (char& c : k)
+            c = (char)toupper((unsigned char)c);
+        return k;
+    }
+
+    static bool HostEvTwinAllow(const std::string& key, int side) {
+        const long long now = GetCurrentMs();
+        std::deque<std::pair<long long, int>>& open = HostEvTwins[key];
+        while (!open.empty() && now - open.front().first > 3000)
+            open.pop_front();
+        for (auto it = open.begin(); it != open.end(); ++it)
+            if (it->second != side) {
+                open.erase(it);
+                HostEvTwinDropped++;
+                return false;
+            }
+        open.push_back(std::make_pair(now, side));
+        if (HostEvTwins.size() > 512)
+            for (auto i = HostEvTwins.begin(); i != HostEvTwins.end();) {
+                while (!i->second.empty() && now - i->second.front().first > 3000)
+                    i->second.pop_front();
+                i = i->second.empty() ? HostEvTwins.erase(i) : std::next(i);
+            }
+        return true;
+    }
+
+    // Host: laeuft gerade ein eigenes Skript, dessen Ereignis gezaehlt wird (nicht Anfrage eines Clients, nicht beim Laden)?
+    static bool HostEvOwnScript() {
+        return ServerThread && !HostEvApplying && DialogSyncAktiv() && zCParser::GetParser() == parser;
+    }
+
     // v41: Laeuft gerade ein Todesskript (SELF ist ein toter NPC, z. B. ZS_Dead)? Jeder Tod beim Client wird beim Host mit
     // eigenem ZS_Dead nachvollzogen (Angriffe, Verfolgungspunkt, Todesmeldung) - Spawns/Trigger daraus nicht noch einmal anfragen.
     static bool HostEvInDeathScript() {
@@ -3315,8 +3517,25 @@ namespace GOTHIC_ENGINE {
     }
 
     static int __cdecl CoopExtWldInsertNpc() {
-        if (!HostEvForward())
+        if (!HostEvForward()) {
+            if (!HostEvOwnScript() || HostEvInDeathScript())
+                return OrigWldInsertNpc ? OrigWldInsertNpc() : 0;
+            // u195 (P202): eigenes Skript des Hosts - Gegenstueck des Clients? Die Zeichenkette muss leben, bis das Original sie gelesen hat
+            zCParser* p = zCParser::GetParser();
+            zSTRING wp;
+            int inst = 0;
+            p->GetParameter(wp);   // letzter Parameter zuerst
+            p->GetParameter(inst);
+            zCPar_Symbol* s = p->GetSymbol(inst);
+            if (!HostEvTwinAllow(HostEvKey("spawn", s ? s->name.ToChar() : "?", wp.ToChar()), 0)) {
+                DialogLog("Host-Ereignis: Wld_InsertNpc(%s, %s) hat der Client eben angefragt und der Host ausgefuehrt - hier nicht "
+                    "noch einmal (P202)", s ? s->name.ToChar() : "?", wp.ToChar());
+                return 0;
+            }
+            DialogPushInt(inst);   // wieder hinlegen, das Original holt sie selbst
+            DialogPushString(&wp);
             return OrigWldInsertNpc ? OrigWldInsertNpc() : 0;
+        }
         zCParser* p = zCParser::GetParser();
         zSTRING wp;
         int inst = 0;
@@ -3356,6 +3575,11 @@ namespace GOTHIC_ENGINE {
         if (ServerThread && !HostEvApplying && DialogSyncAktiv() && zCParser::GetParser() == parser) {
             zSTRING v;
             parser->GetParameter(v);
+            if (!HostEvInDeathScript() && !HostEvTwinAllow(HostEvKey(f, v.ToChar()), 0)) {   // u195 (P202)
+                DialogLog("Host-Ereignis: Wld_Send%s(%s) hat der Client eben angefragt und der Host ausgeloest - nicht noch einmal (P202)",
+                    f[0] == 't' ? "Trigger" : "Untrigger", v.ToChar());
+                return 0;
+            }
             DialogPushString(&v);   // wieder hinlegen, das Original holt ihn selbst
             const int r = orig ? orig() : 0;
             json j;
@@ -3414,6 +3638,14 @@ namespace GOTHIC_ENGINE {
             int inst = 0;
             p->GetParameter(wp);
             p->GetParameter(inst);
+            if (!HostEvInDeathScript()) {   // u195 (P202)
+                zCPar_Symbol* is = p->GetSymbol(inst);
+                if (!HostEvTwinAllow(HostEvKey("item", is ? is->name.ToChar() : "?", wp.ToChar()), 0)) {
+                    DialogLog("Host-Ereignis: Wld_InsertItem(%s, %s) hat der Client eben angefragt und der Host angelegt - nicht noch "
+                        "einmal (P202)", is ? is->name.ToChar() : "?", wp.ToChar());
+                    return 0;
+                }
+            }
             DialogPushInt(inst);   // wieder hinlegen, das Original holt sie selbst
             DialogPushString(&wp);
             const int r = OrigWldInsertItem ? OrigWldInsertItem() : 0;
@@ -3429,6 +3661,203 @@ namespace GOTHIC_ENGINE {
         }
         return OrigWldInsertItem ? OrigWldInsertItem() : 0;
     }
+
+    // u195 (P200): Ereignisse aus Dialogen und Schleifen einer Mod, die einen NPC des Hosts betreffen, liefen beim Client nur dort - der
+    // Host fuehrt den NPC und setzte ihn zurueck (Teleport) bzw. belebte ihn wieder (P155, Skript-Tod). Legend of Ahssun startet aus
+    // Dialogen 219 solcher Ereignisse (docs\mod-analyse\LoA.md: AI_Teleport 84, Npc_ChangeAttribute 21, B_KillNpc 12, Wld_RemoveNpc 3);
+    // in Gothic II tun es einzelne Dialoge selbst.
+    //  - AI_Teleport(npc, wp): Der Client fuehrt es aus und meldet es dem Host ("telereq"), der fuehrt es ueber das External aus.
+    //    CoopTeleport.cpp leitet AI_TELEPORT fuer die Rune um und ruft dort CoopHostEvNpcTeleportPeek.
+    //  - Npc_ChangeAttribute(npc, ATR_HITPOINTS, ...), das den NPC toetet (B_KillNpc, B_RemoveNpc): Der Client fuehrt es aus und meldet
+    //    den Tod ("killreq"), der Host toetet den NPC ohne EP (CoopKillNoXp); der Tod geht wie jeder an die Clients.
+    //  - Wld_RemoveNpc(Instanz) wie Wld_InsertNpc: Der Client fragt an ("removereq"), der Host entfernt und meldet es allen ("remove");
+    //    entfernt ein Skript des Hosts, gilt es ebenso fuer alle (bisher nur beim Host).
+    // Nicht aus Todesskripten (der Host spielt den Tod selbst nach), nur mit Host in derselben Welt (HostEvForward). Allgemein.
+    static CoopParserExternal2 OrigWldRemoveNpc = NULL, OrigNpcChangeAttribute = NULL;
+
+    // NPC-Parameter, ohne ihn vom Stapel zu nehmen: Symbolnummer `below` Plaetze unter dem obersten; nur Welt-NPCs mit GT-Namen
+    static oCNpc* HostEvPeekNpc(int below) {
+        zCParser* p = zCParser::GetParser();
+        if (!p)
+            return NULL;
+        const int* st = p->datastack.stack;
+        const int sp = p->datastack.sptr;
+        const int spMax = (int)(sizeof(p->datastack.stack) / sizeof(p->datastack.stack[0]));
+        if (sp < below + 1 || sp > spMax)
+            return NULL;
+        const int idx = st[sp - 1 - below];
+        zCPar_Symbol* ns = idx > 0 ? p->GetSymbol(idx) : NULL;
+        oCNpc* npc = ns && ns->type == zPAR_TYPE_INSTANCE ? (oCNpc*)ns->offset : NULL;
+        if (!npc || npc == player || IsCoopPlayer(npc->GetObjectName()) || !NpcToUniqueNameList.count(npc))
+            return NULL;
+        return npc;
+    }
+
+    void CoopHostEvNpcTeleportPeek() {
+        zCParser* p = zCParser::GetParser();
+        if (!HostEvForward() || HostEvInDeathScript() || !p || p != parser)
+            return;
+        const int* st = p->datastack.stack;
+        const int sp = p->datastack.sptr;
+        if (sp < 3 || sp > (int)(sizeof(p->datastack.stack) / sizeof(p->datastack.stack[0])) || st[sp - 1] != 0x41 || !st[sp - 2])
+            return;
+        const zSTRING* wp = (const zSTRING*)st[sp - 2];
+        oCNpc* npc = HostEvPeekNpc(2);
+        if (!npc)
+            return;
+        json j;
+        j["f"] = "telereq";
+        j["n"] = NpcToUniqueNameList[npc].ToChar();
+        j["wp"] = wp->ToChar();
+        HostEvSend(j);
+        DialogLog("Host-Ereignis: AI_Teleport(%s, %s) beim Client -> auch beim Host (P200)", NpcToUniqueNameList[npc].ToChar(), wp->ToChar());
+    }
+
+    static int __cdecl CoopExtNpcChangeAttribute() {
+        oCNpc* npc = NULL;
+        if (HostEvForward() && !HostEvInDeathScript() && zCParser::GetParser() == parser) {
+            const int* st = parser->datastack.stack;
+            const int sp = parser->datastack.sptr;
+            if (sp >= 5 && sp <= (int)(sizeof(parser->datastack.stack) / sizeof(parser->datastack.stack[0]))) {
+                const int tok = st[sp - 3], v = st[sp - 4];   // zweiter Parameter: Attribut
+                const int atr = tok == 0x40 ? v : (tok == 0x41 && v) ? *(const int*)v : -1;
+                if (atr == NPC_ATR_HITPOINTS) {
+                    npc = HostEvPeekNpc(4);
+                    if (npc && npc->IsDead())
+                        npc = NULL;
+                }
+            }
+        }
+        const int r = OrigNpcChangeAttribute ? OrigNpcChangeAttribute() : 0;
+        if (npc && npc->GetAttribute(NPC_ATR_HITPOINTS) <= 0) {
+            json j;
+            j["f"] = "killreq";
+            j["n"] = NpcToUniqueNameList[npc].ToChar();
+            HostEvSend(j);
+            DialogLog("Host-Ereignis: ein Skript toetet %s beim Client (Npc_ChangeAttribute) -> auch beim Host (P200)",
+                NpcToUniqueNameList[npc].ToChar());
+        }
+        return r;
+    }
+
+    static void HostEvRunRemoveNpc(const std::string& inst) {
+        const int idx = parser ? parser->GetIndex(zSTRING(inst.c_str())) : -1;
+        if (idx < 0 || !OrigWldRemoveNpc || zCParser::GetParser() != parser) {
+            DialogLog("Host-Ereignis: Wld_RemoveNpc(%s) nicht moeglich", inst.c_str());
+            return;
+        }
+        DialogPushInt(idx);
+        HostEvApplying++;
+        OrigWldRemoveNpc();
+        HostEvApplying--;
+    }
+
+    static int __cdecl CoopExtWldRemoveNpc() {
+        zCParser* p = zCParser::GetParser();
+        const bool forward = HostEvForward() && p == parser && !HostEvInDeathScript();
+        if (!forward && !(HostEvOwnScript() && !HostEvInDeathScript()))
+            return OrigWldRemoveNpc ? OrigWldRemoveNpc() : 0;
+        int inst = 0;
+        p->GetParameter(inst);
+        zCPar_Symbol* s = p->GetSymbol(inst);
+        const std::string nm = s ? s->name.ToChar() : "";
+        json j;
+        j["inst"] = nm;
+        if (forward) {
+            j["f"] = "removereq";
+            HostEvSend(j);
+            DialogLog("Host-Ereignis: Wld_RemoveNpc(%s) -> Anfrage an den Host (P200)", nm.c_str());
+            return 0;
+        }
+        if (!HostEvTwinAllow(HostEvKey("remove", nm), 0)) {
+            DialogLog("Host-Ereignis: Wld_RemoveNpc(%s) hat der Client eben angefragt und der Host ausgefuehrt - nicht noch einmal (P202)", nm.c_str());
+            return 0;
+        }
+        DialogPushInt(inst);   // wieder hinlegen, das Original holt sie selbst
+        const int r = OrigWldRemoveNpc ? OrigWldRemoveNpc() : 0;
+        j["f"] = "remove";
+        HostEvSend(j);
+        DialogLog("Host-Ereignis: Wld_RemoveNpc(%s) ausgefuehrt und an die Clients (P200)", nm.c_str());
+        return r;
+    }
+
+    // u195 (P200): ein External mit einem NPC als erstem Parameter so aufrufen, wie ein Skript es tut (Instanz ueber OTHER, danach
+    // zurueck) - fuer den Host (Anfragen der Clients) und den Selbsttest
+    bool CoopCallNpcExternal(const char* ext, oCNpc* npc, zSTRING* s, const int* ints, int nInts) {
+        zCPar_Symbol* e = parser ? parser->GetSymbol(zSTRING(ext)) : NULL;
+        const int oi = parser ? parser->GetIndex(zSTRING("OTHER")) : -1;
+        zCPar_Symbol* other = oi >= 0 ? parser->GetSymbol(oi) : NULL;
+        if (!npc || !e || !other || e->type != zPAR_TYPE_FUNC || !(e->flags & zPAR_FLAG_EXTERNAL) || !e->single_intdata ||
+            zCParser::GetParser() != parser)
+            return false;
+        void* old = (void*)other->offset;
+        parser->SetInstance(zSTRING("OTHER"), npc);
+        parser->datastack.Push(oi);
+        if (s)
+            DialogPushString(s);
+        for (int i = 0; i < nInts; i++)
+            DialogPushInt(ints[i]);
+        ((CoopParserExternal2)e->single_intdata)();
+        parser->SetInstance(zSTRING("OTHER"), old);
+        return true;
+    }
+
+    static void HostEvRunTeleport(const std::string& n, const std::string& wpName) {
+        auto it = UniqueNameToNpcList.find(string(n.c_str()));
+        oCNpc* npc = it != UniqueNameToNpcList.end() ? it->second : NULL;
+        zSTRING wp(wpName.c_str());
+        HostEvApplying++;
+        const bool ok = npc && npc != player && CoopCallNpcExternal("AI_TELEPORT", npc, &wp, NULL, 0);
+        HostEvApplying--;
+        DialogLog("Host-Ereignis: AI_Teleport(%s, %s) des Clients %s (P200)", n.c_str(), wpName.c_str(), ok ? "ausgefuehrt" : "nicht moeglich (NPC unbekannt)");
+    }
+
+    static void HostEvRunKill(const std::string& n) {
+        auto it = UniqueNameToNpcList.find(string(n.c_str()));
+        oCNpc* npc = it != UniqueNameToNpcList.end() ? it->second : NULL;
+        if (!npc || npc == player || IsCoopPlayer(npc->GetObjectName())) {
+            DialogLog("Host-Ereignis: Skript-Tod von %s beim Client - NPC hier unbekannt (P200)", n.c_str());
+            return;
+        }
+        if (npc->IsDead())
+            return;
+        CoopKillNoXp(npc, NULL, "Skript beim Client (P200)");
+        DialogLog("Host-Ereignis: %s per Skript beim Client getoetet - hier auch (P200)", n.c_str());
+    }
+
+    // u163 (P170): CreateInvItem(s) und Npc_RemoveInvItem(s) im eigenen Dialogskript (siehe DlgInvChanges). Parameter ansehen wie CheckInfoPeek, ohne sie
+    // vom Stapel zu nehmen: oben n int-Parameter (letzter zuerst, [Wert, 0x40] bzw. [Adresse, 0x41]), darunter die Symbolnummer des NPCs; die Instanz ist
+    // der erste. Die Umleitungen der Coop-Truhe (CoopTruhe.cpp, nur fuer den eigenen Helden) liegen davor oder dahinter - jede ruft die andere als Original.
+    static CoopParserExternal2 OrigCreateInvItem = NULL, OrigCreateInvItems = NULL, OrigRemoveInvItem = NULL, OrigRemoveInvItems = NULL;
+
+    static int DlgInvExt(CoopParserExternal2 orig, int n) {
+        zCParser* p = zCParser::GetParser();
+        if (!DlgInvDepth || !orig || p != parser)
+            return orig ? orig() : 0;
+        const int* st = p->datastack.stack;
+        const int sp = p->datastack.sptr;
+        const int spMax = (int)(sizeof(p->datastack.stack) / sizeof(p->datastack.stack[0]));
+        if (sp < 2 * n + 1 || sp > spMax)
+            return orig();
+        const int tok = st[sp + 1 - 2 * n], v = st[sp - 2 * n], idx = st[sp - 1 - 2 * n];
+        const int inst = tok == 0x40 ? v : (tok == 0x41 && v) ? *(const int*)v : -1;
+        zCPar_Symbol* ns = idx > 0 ? p->GetSymbol(idx) : NULL;
+        zCPar_Symbol* is = inst > 0 ? p->GetSymbol(inst) : NULL;
+        oCNpc* npc = ns && ns->type == zPAR_TYPE_INSTANCE ? (oCNpc*)ns->offset : NULL;
+        if (!npc || npc == player || !NpcToUniqueNameList.count(npc) || !is || is->type != zPAR_TYPE_INSTANCE || IsCoopPlayer(npc->GetObjectName()))
+            return orig();
+        const int before = npc->inventory2.GetAmount(inst);
+        const int r = orig();
+        const int d = npc->inventory2.GetAmount(inst) - before;
+        if (d)
+            DlgInvChanges[std::make_pair(DialogNpcName(npc), std::string(is->name.ToChar()))] += d;
+        return r;
+    }
+
+    static int __cdecl CoopExtCreateInvItem() { return DlgInvExt(OrigCreateInvItem, 1); }
+    static int __cdecl CoopExtCreateInvItems() { return DlgInvExt(OrigCreateInvItems, 2); }
+    static int __cdecl CoopExtRemoveInvItem() { return DlgInvExt(OrigRemoveInvItem, 1); }
+    static int __cdecl CoopExtRemoveInvItems() { return DlgInvExt(OrigRemoveInvItems, 2); }
 
     // v92 (Test v91: "Kapitel 1 wird nicht angezeigt" beim Client): Kapitel-Bildschirme kommen aus Skripten - B_Kapitelwechsel ruft
     // IntroduceChapter(titel, untertitel, bild, ton, ms); Kapitel 1 z. B. aus Diegos Begruessung (INFO_DIEGO_GAMESTART_INFO), die nur
@@ -3651,6 +4080,12 @@ namespace GOTHIC_ENGINE {
         HostEvInstallOne("WLD_INSERTITEM", OrigWldInsertItem, &CoopExtWldInsertItem);   // u27 (D13d)
         HostEvInstallOne("PLAYVIDEO", OrigPlayVideo, &CoopExtPlayVideo);                // u28 (B5)
         HostEvInstallOne("PLAYVIDEOEX", OrigPlayVideoEx, &CoopExtPlayVideoEx);
+        HostEvInstallOne("CREATEINVITEM", OrigCreateInvItem, &CoopExtCreateInvItem);           // u163 (P170)
+        HostEvInstallOne("CREATEINVITEMS", OrigCreateInvItems, &CoopExtCreateInvItems);
+        HostEvInstallOne("NPC_REMOVEINVITEM", OrigRemoveInvItem, &CoopExtRemoveInvItem);
+        HostEvInstallOne("NPC_REMOVEINVITEMS", OrigRemoveInvItems, &CoopExtRemoveInvItems);
+        HostEvInstallOne("NPC_CHANGEATTRIBUTE", OrigNpcChangeAttribute, &CoopExtNpcChangeAttribute);   // u195 (P200)
+        HostEvInstallOne("WLD_REMOVENPC", OrigWldRemoveNpc, &CoopExtWldRemoveNpc);
 #if ENGINE >= Engine_G2
         HostEvInstallOne("EXITSESSION", OrigExitSession, &CoopExtExitSession);          // u147 (P149)
 #endif
@@ -3855,10 +4290,23 @@ namespace GOTHIC_ENGINE {
     static void HostEvReceive(json& e, const std::string& by, bool relay) {
         const std::string f = e.contains("f") && e["f"].is_string() ? e["f"].get<std::string>() : std::string();
         if (ServerThread && !relay) {   // Anfrage eines Clients
-            if (f == "spawnreq")
-                HostEvRunInsertNpc(e.at("inst").get<std::string>(), e.at("wp").get<std::string>());
+            // u195 (P202): Gegenstueck eines eigenen Ereignisses der letzten 3 s (Schleife auf beiden PCs) - nicht noch einmal
+            auto twin = [&](const std::string& key) {
+                if (HostEvTwinAllow(key, 1))
+                    return true;
+                DialogLog("Host-Ereignis: Anfrage %s von %s hat der Host eben selbst ausgefuehrt - nicht noch einmal (P202)", key.c_str(), by.c_str());
+                return false;
+            };
+            if (f == "spawnreq") {
+                const std::string inst = e.at("inst").get<std::string>(), wp = e.at("wp").get<std::string>();
+                if (!twin(HostEvKey("spawn", inst, wp)))
+                    return;
+                HostEvRunInsertNpc(inst, wp);
+            }
             else if (f == "itemreq") {   // u27 (D13d): Gegenstand anlegen und allen melden (auch dem Anfragenden)
                 const std::string inst = e.at("inst").get<std::string>(), wp = e.at("wp").get<std::string>();
+                if (!twin(HostEvKey("item", inst, wp)))
+                    return;
                 if (CoopRuleWorld() && HostEvRunInsertItem(inst, wp)) {
                     json j;
                     j["f"] = "item";
@@ -3870,12 +4318,28 @@ namespace GOTHIC_ENGINE {
             else if (f == "triggerreq" || f == "untriggerreq") {
                 const std::string s = e.at("s").get<std::string>();
                 const bool trig = f == "triggerreq";
+                if (!twin(HostEvKey(trig ? "trigger" : "untrigger", s)))
+                    return;
                 HostEvRunTrigger(trig ? OrigWldSendTrigger : OrigWldSendUntrigger, s);
                 CoopTestTrigCount++;
                 CoopTestTrigLast = std::string(trig ? "trigger:" : "untrigger:") + s;
                 json j;
                 j["f"] = trig ? "trigger" : "untrigger";
                 j["s"] = s;
+                HostEvSend(j);
+            }
+            else if (f == "telereq")   // u195 (P200)
+                HostEvRunTeleport(e.value("n", std::string()), e.value("wp", std::string()));
+            else if (f == "killreq")
+                HostEvRunKill(e.value("n", std::string()));
+            else if (f == "removereq") {
+                const std::string inst = e.value("inst", std::string());
+                if (!twin(HostEvKey("remove", inst)))
+                    return;
+                HostEvRunRemoveNpc(inst);
+                json j;
+                j["f"] = "remove";
+                j["inst"] = inst;
                 HostEvSend(j);
             }
             DialogLog("Host-Ereignis: Anfrage %s von %s ausgefuehrt", f.c_str(), by.c_str());
@@ -3895,6 +4359,11 @@ namespace GOTHIC_ENGINE {
             HostEvRunTrigger(f == "trigger" ? OrigWldSendTrigger : OrigWldSendUntrigger, s);
             CoopTestTrigCount++;
             CoopTestTrigLast = f + ":" + s;
+        }
+        else if (f == "remove") {   // u195 (P200): Wld_RemoveNpc des Hosts auch hier
+            const std::string inst = e.value("inst", std::string());
+            HostEvRunRemoveNpc(inst);
+            DialogLog("Host-Ereignis: Wld_RemoveNpc(%s) vom Host - hier auch (P200)", inst.c_str());
         }
     }
 
@@ -4055,7 +4524,48 @@ namespace GOTHIC_ENGINE {
         return pid == GetCurrentProcessId() && (GetAsyncKeyState(VK_CONTROL) & 0x8000);
     }
 
+    // u190 (P193): Die Instanz des eigenen Helden (PC_HERO) und HERO zeigen auf den eigenen Helden. Manche Mods holen den Helden selbst:
+    // Legend of Ahssun setzt hero = Hlp_GetNpc(PC_HERO) in SCHLEIFE_ALL und INIT_GLOBAL, Gothic II tut das nie. Hlp_GetNpc liefert den
+    // NPC, auf den das Instanz-Symbol zeigt. Beim Client von LoA war das nicht der eigene Held, also gingen EP und Gegenstaende aus
+    // Skripten an einen anderen NPC (voller Coop-Test u189: "Quest-EP +10 (Dialog)" ohne EP, Npc_HasItems(Held, Apfel) = 0). GT prueft
+    // das jede Sekunde und stellt es zurueck; das Log nennt, worauf es zeigte. Allgemein.
+    static long long CoopHeroSymbolNext = 0;
+
+    static void CoopHeroSymbolPulse() {
+        if (!player || !parser || !(ServerThread || ClientThread) || IsLoadingLevel || CurrentMs < CoopHeroSymbolNext)
+            return;
+        CoopHeroSymbolNext = CurrentMs + 1000;
+        static CoopDiagBudget budget = { 0, 0 };
+        auto fix = [&](zCPar_Symbol* s) {
+            if (!s || s->type != zPAR_TYPE_INSTANCE || (oCNpc*)s->offset == player)
+                return;
+            oCNpc* was = (oCNpc*)s->offset;
+            std::string wasName = "nichts";
+            if (was) {
+                auto pn = PlayerNpcs.find(was);
+                auto un = NpcToUniqueNameList.find(was);
+                wasName = pn != PlayerNpcs.end() ? std::string("Figur ") + pn->second.ToChar() :
+                    un != NpcToUniqueNameList.end() ? std::string(un->second.ToChar()) : std::string("unbekannt");
+            }
+            const std::string nm = s->name.ToChar();
+            parser->SetInstance(zSTRING(nm.c_str()), player);
+            if (CoopDiagAllow(budget, 10))
+                DialogLog("Instanz %s zeigte auf %s (%p) statt auf den eigenen Helden - zurueckgestellt (P193)", nm.c_str(), wasName.c_str(), was);
+        };
+        fix(parser->GetSymbol(player->GetInstance()));
+        fix(parser->GetSymbol(zSTRING("HERO")));
+    }
+
+    // u195 (P201): gleich nach dem Laden pruefen, nicht erst bis zu 1 s spaeter (Plugin.cpp LoadEnd, nach dem Entfernen fremder Helden
+    // und nach dem Einsetzen des eigenen). Legend of Ahssun holt den Helden in Frame-Funktionen ueber Hlp_GetNpc(PC_HERO)
+    // (LOA_CHANGEFOCUSBAR, SCHLEIFE_ALL - docs\mod-analyse\LoA.md); dazwischen konnte PC_HERO auf einen entfernten Helden zeigen.
+    void CoopHeroSymbolFixNow() {
+        CoopHeroSymbolNext = 0;
+        CoopHeroSymbolPulse();
+    }
+
     void CoopDialogSyncPulse() {
+        CoopHeroSymbolPulse();   // u190 (P193)
         MiKennPulse(false);   // u104: Kennzeichnung gespiegelter Missions-Gegenstaende (ohne Coop nur zurueck)
         DlgGuildNpcPendingApply();   // u152 (P156)
         if (!DialogSyncAktiv())
@@ -4150,6 +4660,11 @@ namespace GOTHIC_ENGINE {
         return r;
     }
 
+#if COOP_BUILD(HooksExt)
+    bool CoopPercPuppetHere(oCNpc* npc);   // Hooks.cpp (u188, P189)
+    int CoopPercCount(oCNpc* npc);
+#endif
+
     // Spricht ein Mitspieler gerade mit diesem NPC, darf der eigene Held ihn nicht ansprechen.
     int __fastcall oCNpc_AssessTalk_S_Coop(oCNpc* _this, void* vtable, oCNpc* other);
     CInvoke<int(__thiscall*)(oCNpc*, oCNpc*)> Ivk_oCNpc_AssessTalk_S_Coop(CoopAddr::oCNpc_AssessTalk_S, &oCNpc_AssessTalk_S_Coop,
@@ -4165,7 +4680,29 @@ namespace GOTHIC_ENGINE {
                 return 0;
             }
         }
-        return Ivk_oCNpc_AssessTalk_S_Coop(_this, other);
+        int r = Ivk_oCNpc_AssessTalk_S_Coop(_this, other);
+#if COOP_BUILD(HooksExt)
+        // u188 (P189): Rest der Taubheit beim Client. Hat ein NPC, den der Host fuehrt, gar keine Wahrnehmung mehr, nimmt er kein
+        // Gespraech an. Ursache war eine gesperrte Reaktion vor u188 oder ein anderer Weg. Dann die Gespraechs-Wahrnehmung
+        // einschalten wie das Skript (Npc_PercEnable(self, PERC_ASSESSTALK, B_AssessTalk)) und noch einmal ansprechen.
+        // die Testinstanz macht es seit b19 fuer sich selbst.
+        if (!r && other && other == player && _this && CoopPercPuppetHere(_this) && !_this->IsDead() && !_this->IsUnconscious() &&
+            _this->GetWeaponMode() == NPC_WEAPON_NONE && !CoopDialogNpcBusy(_this) && CoopPercCount(_this) == 0 && parser) {
+            static zCParser* fParser = NULL;
+            static int f = -1;
+            if (fParser != parser) {
+                fParser = parser;
+                f = parser->GetIndex(zSTRING("B_ASSESSTALK"));
+            }
+            if (f >= 0) {
+                _this->EnablePerception(NPC_PERC_ASSESSTALK, f);
+                r = Ivk_oCNpc_AssessTalk_S_Coop(_this, other);
+                DialogLog("%s hatte beim Client keine Wahrnehmung - Gespraechs-Wahrnehmung eingeschaltet, Ansprechen %s",
+                    _this->GetObjectName().ToChar(), r ? "klappt" : "weiter abgelehnt");
+            }
+        }
+#endif
+        return r;
     }
 
     // NPC im Dialog eines Mitspielers: ZS-Schleife (Tagesablauf) aussetzen, Warteschlange laeuft weiter.
@@ -4203,7 +4740,10 @@ namespace GOTHIC_ENGINE {
         CoopDlgSnap a, b;
         DlgSnapshot(a);
         const std::string name = info->name.ToChar();
+        DlgInvChanges.clear();   // u163 (P170)
+        DlgInvDepth++;
         Ivk_oCInformationManager_OnInfo_Coop(_this, info);
+        DlgInvDepth--;
         try {
             DlgSnapshot(b);
             DlgSendDiff(a, b, name, "Info", info);
@@ -4225,7 +4765,10 @@ namespace GOTHIC_ENGINE {
         CoopDlgSnap a, b;
         DlgSnapshot(a);
         oCInfo* cur = _this ? _this->Info : NULL;   // u85: die Auswahl gehoert zum laufenden Info (Gilden-Regel)
+        DlgInvChanges.clear();   // u163 (P170)
+        DlgInvDepth++;
         Ivk_oCInformationManager_OnChoice_Coop(_this, choice);
+        DlgInvDepth--;
         try {
             DlgSnapshot(b);
             DlgSendDiff(a, b, std::string(), "Auswahl", cur);

@@ -68,29 +68,60 @@ namespace GOTHIC_ENGINE {
     }
 
     // Aus DamageProcessorLoop, vor der eigentlichen Verarbeitung.
+    // u165 (P172, Liste 2): Die Nachmessung (HP vorher - HP jetzt) galt je Treffer. Treffen ein Opfer zwei Treffer im selben Bild, enthielt
+    // die des frueheren den spaeteren mit: Sturz in Gothic II "113" und "uebertragen 214" statt 101 (zusammen 327 statt 214), unter Othello
+    // zwei Angreifer "uebertragen 203 | real 70". Jetzt je Opfer einmal: jeder Treffer behaelt seinen Wert beim Sound-Haken, nur was die
+    // Nachmessung darueber hinaus findet (hoechstes HP vorher - HP jetzt - Summe), geht an den letzten der Folge (kleinstes HP vorher);
+    // noch wartende juengere Treffer desselben Opfers begrenzen die Nachmessung nach unten (ihr Schaden kommt mit ihnen). Ein einzelner
+    // Treffer misst wie bisher (Othello zieht den Schaden erst nach dem Sound-Haken ab). Allgemein (G1/G2)
     void CoopDamageFinalizePending() {
         CoopDamageFrame++;
+        std::vector<PlayerHit> due;
         for (size_t i = 0; i < CoopPendingHits.size();) {
-            PlayerHit h = CoopPendingHits[i];
-            if (h.frame + 1 >= CoopDamageFrame) {      // im selben Durchlauf entstanden: warten
+            if (CoopPendingHits[i].frame + 1 >= CoopDamageFrame) {      // im selben Durchlauf entstanden: warten
                 i++;
                 continue;
             }
+            due.push_back(CoopPendingHits[i]);
             CoopPendingHits.erase(CoopPendingHits.begin() + i);
-
+        }
+        std::map<oCNpc*, std::vector<size_t>> byVictim;
+        for (size_t i = 0; i < due.size(); i++) {
+            if (due[i].damage < 0)
+                due[i].damage = 0;
+            byVictim[due[i].npc].push_back(i);
+        }
+        for (auto& kv : byVictim) {
+            oCNpc* v = kv.first;
+            if (!CoopDamageNpcAlive(v))
+                continue;
+            int floorHp = v->GetAttribute(NPC_ATR_HITPOINTS);
+            for (auto& p : CoopPendingHits)
+                if (p.npc == v && p.hpBefore > floorHp)
+                    floorHp = p.hpBefore;
+            int maxBefore = due[kv.second[0]].hpBefore;
+            size_t last = kv.second[0];
+            float sum = 0.f;
+            for (size_t i : kv.second) {
+                sum += due[i].damage;
+                if (due[i].hpBefore > maxBefore)
+                    maxBefore = due[i].hpBefore;
+                if (due[i].hpBefore < due[last].hpBefore)
+                    last = i;
+            }
+            const float extra = (float)(maxBefore - floorHp) - sum;
+            if (extra > 0.f)
+                due[last].damage += extra;
+        }
+        for (PlayerHit& h : due) {
             int hpNow = -1;
             if (CoopDamageNpcAlive(h.npc)) {
                 hpNow = h.npc->GetAttribute(NPC_ATR_HITPOINTS);
-                const int later = h.hpBefore - hpNow;
-                if (later > h.damage)
-                    h.damage = (float)later;
                 if (h.npc->IsDead())
                     h.isDead = true;
                 if (h.npc->IsUnconscious())
                     h.isUnconscious = 1;
             }
-            if (h.damage < 0)
-                h.damage = 0;
 
             const bool coop = h.attacker == player || h.npc == player ||
                 PlayerNpcs.count(h.attacker) > 0 || PlayerNpcs.count(h.npc) > 0;

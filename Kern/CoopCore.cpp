@@ -9,7 +9,7 @@ namespace GOTHIC_ENGINE {
     // OthelloCompatLog/DiagSeconds nicht (Plan Phase 1, Schritt 1). Hier steht nur engine-neutraler Code (Windows-Aufrufe,
     // keine Engine-Stelle); Othello-Eigenes bleibt in OthelloCompat.cpp.
 
-#define COOP_FASSUNG "u160"
+#define COOP_FASSUNG "u197"
 
     // Auswahl je Engine, z. B. Adressen: COOP_ENGINE_SWITCH(G1, G1A, G2, G2A). ENGINE wird erst an der Stelle des Gebrauchs
     // eingesetzt - in Mehr-Engine-Builds (MP x2/x4) bindet Interface.cpp Sources.h je Engine neu ein.
@@ -265,7 +265,11 @@ namespace GOTHIC_ENGINE {
     // in Data\ (dieselben Dateien wie der Skriptstempel in CoopMenuLobby.cpp). Sonst das Spiel selbst (Vanilla).
     // u1 benutzt das Profil fuer Namen (Hauptprotokoll, Partner-Kopien, Kopfzeile). Die Othello-Sonderwege erkennen sich weiter
     // selbst an den Engine-Bytes ("sonst Original") und wandern schrittweise hinter CoopProfileIsOthello().
-    enum CoopProfileId { COOP_PROFILE_VANILLA, COOP_PROFILE_OTHELLO };
+    // u187 (Fundament mit Mod-Varianten, docs\MODULE.md): COOP_PROFILE_LOA (Legend of Ahssun) und COOP_PROFILE_MOD (jede andere Mod, die
+    // Gothic mit -game:<ini> startet - es laeuft das Fundament, das Log nennt die Mod). Bekannte Mods stehen in Mods\CoopModList.h.
+    // u194 (P196): Daten eines Profils auch als Datei (system\GothicCoopMod-<Ini>.json bzw. system\GothicCoopMod.json,
+    // Mods\CoopModProfile.h) - jede Mod bekommt so Werte je PC, Vorgaben und Hinweise ohne neuen Bau.
+    enum CoopProfileId { COOP_PROFILE_VANILLA, COOP_PROFILE_OTHELLO, COOP_PROFILE_LOA, COOP_PROFILE_MOD };
 
     struct CoopProfileInfo {
         CoopProfileId id = COOP_PROFILE_VANILLA;
@@ -274,12 +278,31 @@ namespace GOTHIC_ENGINE {
         std::string tag;       // Kopfzeile des Hauptprotokolls "GothicCoop <tag>-Fassung ..." (Othello wie bis v106)
         std::string logBase;   // system\<logBase>.log, Partner-Kopien <logBase>Host.log / <logBase>Client.log
         std::string why;       // woran erkannt
+        std::string modIni;    // u187: Spiel-Ini der Mod aus -game:<ini> (leer ohne Mod)
     };
+
+    // u187: Spiel-Ini aus der Befehlszeile ("-game:LoA.ini", auch in Anfuehrungszeichen); leer ohne -game
+    static std::string CoopProfileGameIni() {
+        const char* c = GetCommandLineA();
+        for (const char* p = c; p && *p; p++) {
+            if ((p == c || p[-1] == ' ' || p[-1] == '"') && !_strnicmp(p, "-game:", 6)) {
+                std::string ini;
+                for (const char* q = p + 6; *q && *q != ' ' && *q != '"'; q++)
+                    ini += *q;
+                return ini;
+            }
+        }
+        return std::string();
+    }
+
+#include "Mods\CoopModList.h"   // u187: bekannte Mods (Ini-Name -> Profil) - im Namensraum der Engine, ohne #pragma once (je Engine)
 
     static bool CoopProfileFileExists(const std::string& path) {
         const DWORD a = GetFileAttributesA(path.c_str());
         return a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_DIRECTORY);
     }
+
+#include "Mods\CoopModProfile.h"   // u194 (P196): Mod-Profil als Datei (system\GothicCoopMod[-<Ini>].json) und eingebaute Profile
 
     static const CoopProfileInfo& CoopProfile() {
         static const CoopProfileInfo profile = [] {
@@ -305,6 +328,23 @@ namespace GOTHIC_ENGINE {
                     p.why = hit;
                 }
             }
+            // u187: jede andere Mod mit eigener Spiel-Ini (-game:<ini>, nicht Gothics eigene) - Name aus [INFO] Title der Ini, eigenes
+            // Profil nur fuer bekannte Mods (Mods\CoopModList.h); Kopfzeile (tag) und Logname bleiben die des Spiels
+            const std::string ini = CoopProfileGameIni();
+            const CoopModKnown* known = NULL;
+            std::string base;   // u194: Ini-Name ohne Endung - Name der Profil-Datei
+            if (p.id == COOP_PROFILE_VANILLA && !ini.empty() && _stricmp(ini.c_str(), "Gothic.ini") && _stricmp(ini.c_str(), "GothicGame.ini")) {
+                const size_t dot = ini.find_last_of('.');
+                base = dot == std::string::npos ? ini : ini.substr(0, dot);
+                char title[160] = {};
+                GetPrivateProfileStringA("INFO", "Title", "", title, sizeof(title), (CoopGameRoot() + "\\system\\" + ini).c_str());
+                known = CoopModFind(base);
+                p.id = known ? known->id : COOP_PROFILE_MOD;
+                p.name = title[0] ? title : known ? known->name : base;
+                p.modIni = ini;
+                p.why = "-game:" + ini + (known ? " (bekannte Mod)" : " (Mod ohne eigenes Profil - Fundament)");
+            }
+            CoopModDataLoad(p, known, base);   // u194 (P196): eingebautes Profil und system\GothicCoopMod[-<Ini>].json (ohne Log)
             return p;
         }();
         return profile;
@@ -312,6 +352,95 @@ namespace GOTHIC_ENGINE {
 
     static inline bool CoopProfileIsOthello() {
         return CoopProfile().id == COOP_PROFILE_OTHELLO;
+    }
+
+    // u187: Legend of Ahssun (Mods\ModLoA.cpp)
+    static inline bool CoopProfileIsLoA() {
+        return CoopProfile().id == COOP_PROFILE_LOA;
+    }
+
+    // --- u195 (P204): Skript-Weiche - ein Paket fuer alle Mods einer Engine -------------------------------------------------
+    // Nutzer: "soll aber jetzt eine Mod installiert werden, die mit allen kompatibel ist automatisch, also auch wenn dann die Gothic
+    // erweiterung gewechselt wird". Ein Spielordner behaelt seine Engine, die Mod darin wechselt (GothicStarter, Othello spaeter
+    // installiert oder entfernt). Gothic 2, Legend of Ahssun, Gothic II Classic und andere G2-Mods laufen mit denselben Skripten
+    // (Satz g2); Gothic 1 und Othello brauchen eigene (Satz g1 bzw. othello: Hauptmenue, Neues Spiel, Figur, Coop-Rune). Installer
+    // und Pakete legen alle Saetze der Engine nach system\GothicCoop\Skripte\<Satz>\ (Union reiht nur Skripte aus system\Autorun
+    // ein) und einen davon nach system\Autorun. Beim Start (Game_Entry - zParserExtender liest die Dateien erst beim Laden der
+    // Parser) legt GT den Satz des erkannten Profils dorthin: eine Datei, die Byte fuer Byte zu einem anderen Satz gehoert, wird
+    // ersetzt; eine fehlende kommt dazu (wirkt erst beim naechsten Start - Union hat seine Liste schon); eine eigene oder andere
+    // Fassung bleibt (Hinweis im Log). Ohne den Ordner (aeltere Installation, Testinstanz) und im Weltprozess tut sie nichts.
+    // Geschrieben wird ueber eine neue Datei und Umbenennen (eine harte Verknuepfung auf die alte Datei bleibt unberuehrt).
+    static const char* const CoopScriptSetFiles[] = { "COOP_MENU.D", "COOP_ITEMS.D", "PC_MULTIPLAYER_HERO.D" };
+
+    static bool CoopReadWholeFile(const std::string& path, std::string& out) {
+        out.clear();
+        FILE* f = fopen(path.c_str(), "rb");
+        if (!f)
+            return false;
+        char buf[16384];
+        size_t n;
+        while ((n = fread(buf, 1, sizeof(buf), f)) > 0)
+            out.append(buf, n);
+        fclose(f);
+        return true;
+    }
+
+    static std::string CoopScriptSetSwitch() {
+        const std::string store = CoopGameRoot() + "\\system\\GothicCoop\\Skripte\\";
+        const DWORD attr = GetFileAttributesA(store.c_str());
+        if (attr == INVALID_FILE_ATTRIBUTES || !(attr & FILE_ATTRIBUTE_DIRECTORY))
+            return std::string();
+        const std::string want = CoopProfileIsOthello() ? "othello" : COOP_ENGINE_SWITCH("g1", "g1a", "g2", "g2");
+        std::vector<std::string> sets;   // alle Saetze (Unterordner)
+        bool haveWant = false;
+        WIN32_FIND_DATAA fd;
+        HANDLE h = FindFirstFileA((store + "*").c_str(), &fd);
+        if (h != INVALID_HANDLE_VALUE) {
+            do {
+                if ((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) && fd.cFileName[0] != '.') {
+                    sets.push_back(fd.cFileName);
+                    haveWant |= !_stricmp(fd.cFileName, want.c_str());
+                }
+            } while (FindNextFileA(h, &fd));
+            FindClose(h);
+        }
+        const std::string head = "Skript-Weiche (P204, " + CoopProfile().name + "): Satz " + want;
+        if (!haveWant)
+            return head + " fehlt in system\\GothicCoop\\Skripte - Skripte in Autorun unveraendert";
+        std::string done;
+        int same = 0;
+        for (const char* name : CoopScriptSetFiles) {
+            std::string wanted, have, other;
+            if (!CoopReadWholeFile(store + want + "\\" + name, wanted))
+                continue;   // Satz ohne diese Datei
+            const std::string target = CoopGameRoot() + "\\system\\Autorun\\" + name;
+            const bool exists = CoopReadWholeFile(target, have);
+            if (exists && have == wanted) {
+                same++;
+                continue;
+            }
+            std::string from;   // Satz, zu dem die vorhandene Datei gehoert
+            for (size_t k = 0; exists && from.empty() && k < sets.size(); k++)
+                if (_stricmp(sets[k].c_str(), want.c_str()) && CoopReadWholeFile(store + sets[k] + "\\" + name, other) && other == have)
+                    from = sets[k];
+            if (!done.empty())
+                done += "; ";
+            if (exists && from.empty()) {
+                done += std::string(name) + " eigene Fassung - bleibt";
+                continue;
+            }
+            const std::string tmp = target + ".coopneu";
+            FILE* f = fopen(tmp.c_str(), "wb");
+            bool ok = f && fwrite(wanted.data(), 1, wanted.size(), f) == wanted.size();
+            if (f)
+                ok = fclose(f) == 0 && ok;
+            ok = ok && MoveFileExA(tmp.c_str(), target.c_str(), MOVEFILE_REPLACE_EXISTING);
+            if (!ok)
+                DeleteFileA(tmp.c_str());   // nur die eigene halbe Zwischendatei
+            done += std::string(name) + (exists ? " " + from + " -> " + want : std::string(" fehlte, gelegt (wirkt ab dem naechsten Start)")) +
+                (ok ? "" : " - FEHLER beim Schreiben, bleibt");
+        }
+        return head + ", " + std::to_string(same) + " Dateien passen" + (done.empty() ? std::string() : " - " + done);
     }
 
     // Eigene Dateien (Modell, Textur) in Gothics Ordner fuer vorkompilierte Daten legen - zoptions DIR_COMPILED_MESHES /

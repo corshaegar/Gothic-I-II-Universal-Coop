@@ -1,7 +1,7 @@
-GothicCoop u160 - Gothic 1 ohne Mod (Union-Coop)
+GothicCoop u197 - Gothic 1 ohne Mod (Union-Coop)
 
 Voraussetzung: Gothic 1 (Steam/GOG, Fassung 1.08k). Union 1.0m (mit zParserExtender) liegt bei.
-Beide PCs brauchen dieselbe GothicCoop-Fassung (u160).
+Beide PCs brauchen dieselbe GothicCoop-Fassung (u197).
 
 Installation: den Inhalt dieser ZIP in den Gothic-Ordner entpacken (den Ordner, in dem "system" liegt) und
 vorhandene Dateien ersetzen. War Union noch nicht installiert: danach system\dinput.dll entfernen (der Lader von
@@ -9,6 +9,7 @@ SystemPack - Union laedt SystemPack selbst). Bequemer und rueckgaengig machbar: 
   Data\Union.vdf, system\Union.patch, Shw32.dll, Vdfs32g.dll, stdhost.exe, msvcp100.dll, msvcr100.dll   Union 1.0m
   system\Autorun\              GothicCoop-DLL und drei Skripte
   system\GothicCoopConfig.json  Vorgaben (Name, Adresse, Aussehen - im Spiel unter COOP aenderbar)
+  system\GothicCoopMod.vorlage.json  Vorlage fuer ein Mod-Profil (so benannt nicht aktiv, siehe unten)
   system\steam_api.dll und steam_appid.txt   fuer "Coop ueber Steam" (Steam muss laufen)
   system\GD3D11\Bin\g1_avx2.dll  Coop-Renderer - nur wirksam, wenn GD3D11 installiert ist (3D-Vorschau der
                                  Figur, Zuschau-Fenster beim Mitspieler, Bild des Weltprozesses)
@@ -28,3 +29,9 @@ bekommt einer einen, hat ihn der Partner auch; gibt einer ihn ab, verliert ihn d
 Coop-Inventar - eine gemeinsame Truhe; die Taste (Vorgabe I, Einstellungen > COOP) oeffnet sie ohne Bewegung, beide koennen sie
 gleichzeitig offen haben, der Inhalt liegt beim Host und im Spielstand, Gegenstaende daraus zaehlen bei Quests. Ab u105: Auto-Sicherung
 auch alle 3 Minuten. Diese Neuerungen sind in Gothic 1 automatisch geprueft (ab u134), aber noch nicht von Hand gespielt.
+Ab u194: Mod-Profil als Datei - eine Mod, die der Coop nicht kennt, bekommt ihre Anpassungen (Skriptwerte, die je PC bleiben,
+Vorgaben fuer Coop-Schalter, Hinweise) ohne neue DLL ueber system\GothicCoopMod-<Ini>.json (<Ini> = Spiel-Ini der Mod ohne
+".ini"; ohne -game: system\GothicCoopMod.json). Vorlage mit Erklaerung: system\GothicCoopMod.vorlage.json. Beide PCs brauchen
+dieselbe Datei; das Log nennt beim Start, was gelesen wurde ("Mod-Profil ...").
+Ab u195: ein Paket fuer Gothic 1 und Othello - system\GothicCoop\Skripte haelt beide Skriptsaetze, der Coop legt beim Start
+den passenden nach system\Autorun (auch wenn Othello spaeter installiert oder entfernt wird; Log: "Skript-Weiche").

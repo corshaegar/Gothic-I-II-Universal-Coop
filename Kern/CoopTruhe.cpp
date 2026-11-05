@@ -642,12 +642,26 @@ namespace GOTHIC_ENGINE {
         &oCNpc_EV_UseItemToState_Truhe, COOP_IVK(Save));
     int __fastcall oCNpc_EV_UseItemToState_Truhe(oCNpc* _this, void* vtable, oCMsgManipulate* msg) {
         CoopMsgVobCheck(_this, msg, "EV_UseItemToState");   // u142 (P142, Helpers.cpp)
+        CoopMsgItemNote(_this, msg);                         // u169 (P176): Diagnose, wer den Gegenstand freigibt
         if (_this && _this == player && msg && TruheIstGegenstand(msg->targetVob)) {
             TruheDirektZahl++;
             TruheDirekt("benutzt");
             return TRUE;
         }
-        return Ivk_oCNpc_EV_UseItemToState_Truhe(_this, msg);
+        const void* keep = CoopMsgItemInUse;
+        CoopMsgItemInUse = msg ? msg->targetVob : NULL;
+        const int r = Ivk_oCNpc_EV_UseItemToState_Truhe(_this, msg);
+        CoopMsgItemInUse = keep;
+        return r;
+    }
+
+    // u169 (P176, Liste 1): Diagnose - gibt die Engine einen Gegenstand frei, den eine laufende Nachricht haelt (Helpers.cpp)
+    void __fastcall oCItem_Dtor_Coop(oCItem* _this, void* vtable);
+    CInvoke<void(__thiscall*)(oCItem*)> Ivk_oCItem_Dtor_Coop(CoopAddr::oCItem_Dtor, &oCItem_Dtor_Coop, COOP_IVK(Save));
+    void __fastcall oCItem_Dtor_Coop(oCItem* _this, void* vtable) {
+        if (!CoopMsgItems.empty())
+            CoopMsgItemFreeing(_this);
+        Ivk_oCItem_Dtor_Coop(_this);
     }
 
     // u101 (P123): Hinueberschieben aus dem eigenen Inventar bei offenem Coop-Inventar - die Coop-Truhe selbst bleibt, wo sie ist

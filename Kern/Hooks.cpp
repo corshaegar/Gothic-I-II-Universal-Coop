@@ -343,6 +343,20 @@ namespace GOTHIC_ENGINE {
     // (zCSession::csMan +0x04, SetOwnerManager 0x0041C840 - nur das Feld) und laesst den Aufruf laufen; geht das nicht (anderer
     // Player, kein Manager), liefert er NULL - wie die Engine, wenn Cutscenes gesperrt sind (DoAIState prueft auf NULL).
     // Allgemein G1 (Engine-Luecke; Ausloeser offen).
+    // u192 (P194): Name des Vobs nur lesen, wenn er lesbar ist. Im vollen Coop-Test in Legend of Ahssun kam CreateNewOutputUnit ohne
+    // Manager mit Vob 0x1 an (beim Entfernen einer Waffe aus dem Inventar). Die Logzeile hier las dessen Namen und loeste selbst den
+    // Zugriffsfehler aus (zSTRING::ToChar, Lesen von 0x19). Der Schutz darunter (NULL statt Start) blieb richtig. Allgemein.
+    static void CoopCsVobName(zCVob* vob, char* out, size_t n) {
+        __try {
+            const char* s = vob->GetObjectName().ToChar();
+            _snprintf(out, n, "%s", s ? s : "");
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {
+            _snprintf(out, n, "Vob %p (nicht lesbar)", (void*)vob);
+        }
+        out[n - 1] = 0;
+    }
+
     static bool CoopCsOwnerCheck(zCCSPlayer* p, const char* what, const char* name, zCVob* vob) {
         if (!p || p->ownerManager)
             return true;
@@ -357,12 +371,18 @@ namespace GOTHIC_ENGINE {
         if (man && worldPlayer)
             p->SetOwnerManager(man);
         static CoopDiagBudget budget = { 0, 0 };
-        if (CoopDiagAllow(budget, 10))
+        if (CoopDiagAllow(budget, 10)) {
+            char vobName[128] = "-";
+            if (vob == player && vob)
+                _snprintf(vobName, sizeof(vobName), "eigenem Helden");
+            else if (vob)
+                CoopCsVobName(vob, vobName, sizeof(vobName));   // u192 (P194)
+            vobName[sizeof(vobName) - 1] = 0;
             OthelloCompatLog("[%lld s, %s] Absturzschutz: %s(%s) an %s - Cutscene-Player %p ohne Manager (Welt-Player %s, Manager der "
-                "Sitzung %p mit %d Playern, darin %s) - %s", DiagSeconds(), DiagRole(), what, name,
-                vob ? (vob == player ? "eigenem Helden" : vob->GetObjectName().ToChar()) : "-", (void*)p, worldPlayer ? "ja" : "nein",
-                (void*)man, man ? man->csPlayerList.GetNum() : 0, listed ? "ja" : "nein",
+                "Sitzung %p mit %d Playern, darin %s) - %s", DiagSeconds(), DiagRole(), what, name, vobName, (void*)p,
+                worldPlayer ? "ja" : "nein", (void*)man, man ? man->csPlayerList.GetNum() : 0, listed ? "ja" : "nein",
                 p->ownerManager ? "wieder angehaengt, laeuft" : "nicht gestartet");
+        }
         return p->ownerManager != NULL;
     }
 
@@ -425,6 +445,127 @@ namespace GOTHIC_ENGINE {
         return false;
     }
 
+    // u193 (P195): Zustaende, in denen ein Mensch den Ausloeser angreift. Das entspricht dem, was B_AssessDamage, B_Attack oder die
+    // Bestrafung setzen. Nur dann wird er beim Client feindlich zum eigenen Helden. Beobachtende Reaktionen (ZS_ASSESSMURDER,
+    // ZS_WATCHFIGHT, ZS_REACTTOWEAPON, ZS_ASSESSFIGHTER, Flucht ...) entscheiden erst im Zustand, ob es Feindschaft gibt. Das tut der
+    // Host, der den NPC fuehrt, und seine Haltung kommt mit dem Story-Abgleich. Allgemein (G1/G2A).
+    static bool CoopClientAttackStateName(const char* n) {
+        static const char* list[] = { "ZS_ATTACK", "ZS_REACTTODAMAGE", "ZS_PROCLAIMANDPUNISH", "ZS_ASSESSENEMY" };
+        for (const char* s : list)
+            if (n && _stricmp(n, s) == 0)
+                return true;
+        return false;
+    }
+
+    // u179 (P182): OTHER (0) bzw. VICTIM (1) des Parsers - der Instanzzeiger, den die Engine vor StartAIState setzt
+    static oCNpc* CoopParserNpcSymbol(int which) {
+        static zCParser* cacheParser = NULL;
+        static zCPar_Symbol* sym[2] = { NULL, NULL };
+        if (!parser || which < 0 || which > 1)
+            return NULL;
+        if (cacheParser != parser) {
+            cacheParser = parser;
+            sym[0] = parser->GetSymbol(zSTRING("OTHER"));
+            sym[1] = parser->GetSymbol(zSTRING("VICTIM"));
+        }
+        return sym[which] ? (oCNpc*)sym[which]->offset : NULL;
+    }
+
+    // u179: Name nur fuer bekannte Figuren (eigener Held, Mitspieler, abgeglichene NPCs) - fremde Zeiger nicht anfassen
+    static std::string CoopKnownNpcName(oCNpc* n) {
+        if (!n)
+            return "-";
+        if (n == player)
+            return "eigener Held";
+        auto p = PlayerNpcs.find(n);
+        if (p != PlayerNpcs.end())
+            return std::string("Figur ") + p->second.ToChar();
+        auto u = NpcToUniqueNameList.find(n);
+        if (u != NpcToUniqueNameList.end())
+            return u->second.ToChar();
+        return "unbekannt";
+    }
+
+    // u188 (P189): Gothic II schaltet vor fast jeder Reaktion alle Wahrnehmungen eines NPCs ab: B_Attack, B_AssessFightSound,
+    // B_AssessDrawWeapon, B_AssessPlayer, B_AssessDamage, B_MM_AssessEnemy und andere rufen Npc_ClearAIQueue, B_ClearPerceptions
+    // und dann AI_StartState(ZS_...). Im Einzelspiel setzt der neue Zustand sie wieder, nach seinem Ende der Tagesablauf. Beim
+    // Client sperrt GT diese Zustaende fuer NPCs, die der Host fuehrt (C16, unten). Der NPC blieb im alten Zustand, aber ohne jede
+    // Wahrnehmung, oft bis zum naechsten Laden:
+    // - Er nahm kein Gespraech mehr an (Testinstanz b19: "AssessTalk_S 0" bei Lord Hagen in ZS_OBSERVEPLAYER, Liste 4).
+    // - Er sah den Helden des Clients nicht mehr; Torwachen warnten ihn nicht (Liste 5).
+    // Ein Kampf in der Naehe genuegte (B_AssessFightSound -> ZS_WATCHFIGHT gesperrt).
+    // Jetzt sichert GT beim Client die Wahrnehmungen eines solchen NPCs vor dem ersten Abschalten (Haken
+    // oCNpc::DisablePerception). Startet er den Reaktionszustand nicht, bekommt er sie zurueck. Gothic 1 schaltet nur einzelne
+    // Wahrnehmungen ab (B_AssessThreat, B_AssessWarn ...), dort greift es seltener. Allgemein (GT).
+    bool CoopPercPuppetHere(oCNpc* npc) {
+        return npc && ((ClientThread && !ServerThread && !CoopClientAlone()) || CoopWpMirroring()) && !WorldEditMode && !IsLoadingLevel &&
+            npc != player && !PlayerNpcs.count(npc) && NpcToUniqueNameList.count(npc) && !CoopLeadIsMine(npc);
+    }
+
+    int CoopPercCount(oCNpc* npc) {
+        int n = 0;
+        for (int i = 0; npc && i < npc->percActive && i < NPC_PERC_MAX; i++)
+            if (npc->percList[i].percID > 0)
+                n++;
+        return n;
+    }
+
+    struct CoopPercSave {
+        TNpcPerc list[NPC_PERC_MAX];
+        int active;
+        long long ms;
+    };
+    static std::unordered_map<oCNpc*, CoopPercSave> CoopPercSaves;
+
+    void __fastcall oCNpc_DisablePerception_Coop(oCNpc* _this, void* vtable, int percType);
+    CInvoke<void(__thiscall*)(oCNpc*, int)> Ivk_oCNpc_DisablePerception_Coop(CoopAddr::oCNpc_DisablePerception, &oCNpc_DisablePerception_Coop,
+        COOP_IVK(HooksExt));
+    void __fastcall oCNpc_DisablePerception_Coop(oCNpc* _this, void* vtable, int percType) {
+        if (_this && _this->HasPerception(percType) && CoopPercPuppetHere(_this)) {
+            if (CoopPercSaves.size() > 256) {
+                for (auto it = CoopPercSaves.begin(); it != CoopPercSaves.end();)
+                    it = CurrentMs - it->second.ms > 10000 ? CoopPercSaves.erase(it) : std::next(it);
+            }
+            CoopPercSave& s = CoopPercSaves[_this];
+            if (CurrentMs - s.ms > 1000) {   // erstes Abschalten einer Folge - B_ClearPerceptions schaltet alle im selben Bild ab
+                memcpy(s.list, _this->percList, sizeof(s.list));
+                s.active = _this->percActive;
+                s.ms = CurrentMs;
+            }
+        }
+        Ivk_oCNpc_DisablePerception_Coop(_this, percType);
+    }
+
+    // Gesperrter Reaktionszustand: Wahrnehmungen von vor dem Abschalten zurueck. Nur bei NPCs, die vorher Gespraeche annahmen
+    // (Menschen, redende Orks) - Monster fuehrt der Host ohnehin, bei ihnen gaebe es nur eine Schleife aus Abschalten und Sperren.
+    static void CoopPercRestore(oCNpc* npc, const char* state) {
+        auto it = CoopPercSaves.find(npc);
+        if (it == CoopPercSaves.end())
+            return;
+        const CoopPercSave s = it->second;
+        CoopPercSaves.erase(it);
+        if (CurrentMs - s.ms > 2000)
+            return;
+        bool talk = false;
+        for (int i = 0; i < s.active && i < NPC_PERC_MAX; i++)
+            if (s.list[i].percID == NPC_PERC_ASSESSTALK)
+                talk = true;
+        if (!talk)
+            return;
+        int n = 0;
+        for (int i = 0; i < s.active && i < NPC_PERC_MAX; i++) {
+            const int id = s.list[i].percID;
+            if (id > 0 && id < NPC_PERC_MAX && !npc->HasPerception(id)) {
+                npc->EnablePerception(id, s.list[i].percFunc);
+                n++;
+            }
+        }
+        static CoopDiagBudget budget = { 0, 0 };
+        if (n && CoopDiagAllow(budget, 20))
+            OthelloCompatLog("[%lld s, %s] Wahrnehmungen von %s zurueck (%d, %s gesperrt) - nimmt Gespraeche und den eigenen Helden wieder wahr",
+                DiagSeconds(), DiagRole(), npc->GetObjectName().ToChar(), n, state);
+    }
+
     int __fastcall oCNpc_States_StartAIState_Coop(oCNpc_States* _this, void* vtable, int index, int endOld, int timeBehaviour, float timed, int isRtnState);
     CInvoke<int(__thiscall*)(oCNpc_States*, int, int, int, float, int)> Ivk_oCNpc_States_StartAIState_Coop(CoopAddr::oCNpc_States_StartAIState, &oCNpc_States_StartAIState_Coop,
         COOP_IVK(HooksExt));
@@ -434,6 +575,20 @@ namespace GOTHIC_ENGINE {
             allowed = (CoopConfig.contains("coopClientNpcCombat") && CoopConfig["coopClientNpcCombat"].is_boolean() &&
                 CoopConfig["coopClientNpcCombat"].get<bool>()) ? 1 : 0;
         oCNpc* npc = _this ? _this->npc : NULL;
+        // u161 (P168): K.o. mitten in einer Gegenstands-Benutzung. Beim Wechsel in einen neuen Zustand bricht die Engine laufende
+        // Befehle nur ab (Interrupt, ClearEM), wenn der NPC weder ein Mobsi noch einen Gegenstand benutzt (G1 0x006C5974, G2A
+        // 0x0076CD1A). Faellt der Held beim Trinken um, bleibt EV_UseItemToState in seiner Befehlsliste und wird nie fertig; DoAIState
+        // setzt die Ohnmacht aber erst bei leerer Liste ein - der Held wacht nie auf (Testinstanzen u160/b201: beide Helden ueber 30 min
+        // bewusstlos; seit u140 alle 14 K.o.s ueber 60 s beim Trinken, ohne Trinken hoechstens 21 s). Darum beim eigenen Helden die
+        // Benutzung vorher beenden wie oCNpc::Interrupt (SetInteractItem(NULL) legt den Gegenstand aus der Hand zurueck ins
+        // Inventar) - dann bricht die Engine ab wie bei jedem anderen K.o. Allgemein (G1/G2A).
+        if (index == NPC_AISTATE_UNCONSCIOUS && !endOld && npc && npc == player && npc->interactItem && !npc->GetInteractMob()) {
+            const std::string item = npc->interactItem->GetInstanceName().ToChar();
+            npc->SetInteractItem(NULL);
+            npc->interactItemCurrentState = -1;
+            OthelloCompatLog("[%lld s, %s] K.o. beim Benutzen von %s: Benutzung beendet, damit die Ohnmacht anlaeuft", DiagSeconds(),
+                DiagRole(), item.c_str());
+        }
         // v72: beim Host fuer einen NPC, den ein Client im Kampf fuehrt (Puppe), dieselbe Sperre (CoopCombatLead.cpp)
         if (ServerThread && !WorldEditMode && !IsLoadingLevel && !isRtnState && index >= 0 && npc && CoopLeadIsRemote(npc) &&
             !npc->IsDead() && parser) {
@@ -490,12 +645,28 @@ namespace GOTHIC_ENGINE {
             }
             const bool party = (aivParty >= 0 && npc->aiscriptvars[aivParty]) || (aivMmParty >= 0 && npc->aiscriptvars[aivMmParty]);
             if (name && !party && CoopClientCombatStateName(name)) {
-                if (npc->IsHuman() && player)
+                // u179 (P182): feindlich zum eigenen Helden nur, wenn er der Ausloeser ist. Bis u178 jede gesperrte Reaktion - auch
+                // ZS_ASSESSMURDER/ZS_WATCHFIGHT, die ein anderer ausloeste (Mord der Figur des Hosts, fremder Kampf); die Wache war
+                // dann nur hier feindlich, beim Host ruhig (Liste 6w, G1-Aufnahme b264: GRD_275_BRUECKENWACHE). OTHER/VICTIM setzt
+                // die Engine vor StartAIState (EV_DoState, Wahrnehmungen) - nur Zeiger vergleichen, Namen nur bekannter Figuren.
+                oCNpc* other = CoopParserNpcSymbol(0);
+                oCNpc* victim = CoopParserNpcSymbol(1);
+                const bool byHero = player && (other == player || npc->enemy == player);
+                // u193 (P195): feindlich nur bei einem echten Angriff auf den eigenen Helden (CoopClientAttackStateName). Bis u192
+                // auch bei beobachtenden Reaktionen. G1-Gegentest b291 beim Client: STT_336_CAVALORN sah den Helden einen Scavenger
+                // toeten, ZS_ASSESSMURDER gesperrt, "feindlich zum Helden". Beim Host blieb er ruhig, beim Client galt er als Feind.
+                // Ebenso ORG_859_AIDAN nach zwei Woelfen. Beide standen an den einzigen Wegen zum Alten und Neuen Lager.
+                const bool hostile = npc->IsHuman() && byHero && CoopClientAttackStateName(name);
+                if (hostile)
                     npc->SetTmpAttitude(NPC_ATT_HOSTILE);
                 static CoopDiagBudget budget = { 0, 0 };
                 if (CoopDiagAllow(budget, 30))
-                    OthelloCompatLog("[%lld s, %s] Kampf-KI hier aus: %s startet %s nicht (der Host fuehrt den NPC; bleibt in %s)",
-                        DiagSeconds(), DiagRole(), npc->GetObjectName().ToChar(), name, _this->curState.name.ToChar());
+                    OthelloCompatLog("[%lld s, %s] Kampf-KI hier aus: %s startet %s nicht (der Host fuehrt den NPC; bleibt in %s; Ausloeser %s, Opfer %s%s)",
+                        DiagSeconds(), DiagRole(), npc->GetObjectName().ToChar(), name, _this->curState.name.ToChar(),
+                        CoopKnownNpcName(other).c_str(), CoopKnownNpcName(victim).c_str(),
+                        !npc->IsHuman() ? "" : hostile ? " - feindlich zum Helden" : byHero ? " - Haltung bleibt (beobachtet nur, P195)" :
+                        " - Haltung bleibt");
+                CoopPercRestore(npc, name);   // u188 (P189)
                 return 1;
             }
         }
@@ -1147,6 +1318,37 @@ namespace GOTHIC_ENGINE {
         return n;
     }
 
+    // u196 (P205): Rueckspruenge in GTs eigene DLL weiter oben auf dem Stapel (bis 128 KB) - zeigt, ob GT den Ablauf gestartet hat
+    // (LoA-Absturz beim Laden: die ersten 24 Rueckspruenge lagen alle in zCParser::DoStack). Wie CoopCrashScanStack, nur eigene DLL.
+    static int CoopCrashScanOwn(DWORD esp, DWORD* out, int max) {
+        HMODULE self = NULL;
+        if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCSTR)&CoopCrashIsCode, &self) || !self)
+            return 0;
+        int n = 0;
+        __try {
+            const NT_TIB* tib = (const NT_TIB*)NtCurrentTeb();
+            DWORD top = (DWORD)tib->StackBase;
+            if (esp < (DWORD)tib->StackLimit || esp >= top)
+                return 0;
+            if (top > esp + 0x20000)
+                top = esp + 0x20000;
+            for (DWORD p = esp; p + 4 <= top && n < max; p += 4) {
+                const DWORD a = *(const DWORD*)p;
+                HMODULE m = NULL;
+                if (!CoopCrashIsCode(a) || !CoopCrashIsCode(a - 7) ||
+                    !GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCSTR)a, &m) || m != self)
+                    continue;
+                const unsigned char* c = (const unsigned char*)a;
+                if (c[-5] == 0xE8 || (c[-6] == 0xFF && (c[-5] & 0x38) == 0x10) || (c[-3] == 0xFF && (c[-2] & 0x38) == 0x10) ||
+                    (c[-2] == 0xFF && (c[-1] & 0x38) == 0x10))
+                    out[n++] = a;
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {
+        }
+        return n;
+    }
+
     static void CoopCrashWhere(DWORD addr, char* out, size_t len) {
         HMODULE m = NULL;
         char path[MAX_PATH] = "";
@@ -1157,6 +1359,108 @@ namespace GOTHIC_ENGINE {
         }
         else
             _snprintf(out, len, "0x%08X", addr);
+        out[len - 1] = 0;
+    }
+
+    // u195 (P199): Skript-Spur im Absturzprotokoll. Ruft ein Skript (Ikarus, LeGo) eine Engine-Funktion auf und die stuerzt ab, stand
+    // bisher nur zCParser::DoStack auf dem Stapel (LoA u194: Zugriffsfehler in zCView::InsertBack beim Laden; in LoA rufen es LeGos
+    // VIEWPTR_SETTEXTURE und damit Leisten, Fadenkreuz von Gothic Free Aim und LoAs Fokusleiste). Jetzt: die gerade laufende
+    // Skriptfunktion (Lesestelle des Parsers) und - geschaetzt - weitere: Werte auf dem Stapel, die in den Skript-Code zeigen. Die
+    // Liste Code-Anfang -> Funktion entsteht ausserhalb eines Absturzes (CoopScriptMapPulse aus Game_Init und Game_Loop). Allgemein.
+    static std::vector<std::pair<int, int>> CoopScriptMap;   // Code-Anfang, Symbolnummer - sortiert
+    static zCParser* CoopScriptMapParser = NULL;
+    static int CoopScriptMapCount = -1;
+
+    void CoopScriptMapPulse() {
+        if (!parser)
+            return;
+        const int cnt = parser->symtab.table.GetNum();
+        if (parser == CoopScriptMapParser && cnt == CoopScriptMapCount)
+            return;
+        std::vector<std::pair<int, int>> m;
+        m.reserve(cnt / 4 + 16);
+        for (int i = 0; i < cnt; i++) {
+            zCPar_Symbol* s = parser->symtab.table[i];
+            if (!s || (s->flags & zPAR_FLAG_EXTERNAL) || !(s->flags & zPAR_FLAG_CONST))
+                continue;   // Externals haben keinen Skript-Code, Variablen vom Typ func/instance keinen eigenen
+            if (s->type != zPAR_TYPE_FUNC && s->type != zPAR_TYPE_PROTOTYPE && s->type != zPAR_TYPE_INSTANCE)
+                continue;
+            const int off = s->single_intdata;
+            if (off > 0 && off < parser->stack.stacksize)
+                m.push_back(std::make_pair(off, i));
+        }
+        std::sort(m.begin(), m.end());
+        CoopScriptMap.swap(m);
+        CoopScriptMapParser = parser;
+        CoopScriptMapCount = cnt;
+    }
+
+    static const char* CoopScriptFuncAt(int off) {   // nur lesen - auch im Absturz
+        if (CoopScriptMap.empty() || !CoopScriptMapParser || off < 0)
+            return NULL;
+        auto it = std::upper_bound(CoopScriptMap.begin(), CoopScriptMap.end(), std::make_pair(off, INT_MAX));
+        if (it == CoopScriptMap.begin())
+            return NULL;
+        --it;
+        if (it->second < 0 || it->second >= CoopScriptMapParser->symtab.table.GetNum())
+            return NULL;
+        zCPar_Symbol* s = CoopScriptMapParser->symtab.table[it->second];
+        return s ? s->name.ToChar() : NULL;
+    }
+
+    // u196 (P205): ist off der Anfang einer Skriptfunktion? (Ziel eines CALL)
+    static bool CoopScriptIsFuncStart(int off) {
+        auto it = std::lower_bound(CoopScriptMap.begin(), CoopScriptMap.end(), std::make_pair(off, INT_MIN));
+        return it != CoopScriptMap.end() && it->first == off;
+    }
+
+    static void CoopScriptTrace(DWORD esp, char* out, size_t len) {
+        out[0] = 0;
+        __try {
+            zCParser* p = CoopScriptMapParser;
+            if (!p || p != parser || CoopScriptMap.empty())
+                return;
+            const DWORD base = (DWORD)p->stack.stack, size = (DWORD)p->stack.stacksize;
+            if (!base || !size)
+                return;
+            const unsigned char* code = (const unsigned char*)base;
+            size_t n = 0;
+            const DWORD cur = (DWORD)p->stack.stackptr;
+            const char* now = cur >= base && cur < base + size ? CoopScriptFuncAt((int)(cur - base)) : NULL;
+            n = (size_t)_snprintf(out, len, "Lesestelle %s", now ? now : "-");
+            const NT_TIB* tib = (const NT_TIB*)NtCurrentTeb();
+            DWORD top = (DWORD)tib->StackBase;
+            if (n >= len || esp < (DWORD)tib->StackLimit || esp >= top)
+                return;
+            if (top > esp + 0x8000)
+                top = esp + 0x8000;
+            const char* last = now;
+            int count = 0;
+            for (DWORD a = esp; a + 4 <= top && count < 14 && n + 2 < len; a += 4) {
+                const DWORD v = *(const DWORD*)a;
+                // u196 (P205): zCParser::DoStack haelt die Ruecksprungstelle als Abstand im Code (G2A: GetPopPos 0x007A4B10 -> ebx,
+                // das verschachtelte DoStack legt ebx auf den Stapel) - also auch Abstaende direkt hinter einem CALL auf einen
+                // Funktionsanfang (zPAR_TOK_CALL + 4 Byte Ziel). Bis u195 nur Zeiger in den Code - fanden im LoA-Absturz nichts.
+                int off = -1;
+                if (v >= base && v < base + size)
+                    off = (int)(v - base);
+                else if (v >= 5 && v < size && code[v - 5] == zPAR_TOK_CALL && CoopScriptIsFuncStart(*(const int*)(code + v - 4)))
+                    off = (int)v;
+                if (off < 0)
+                    continue;
+                const char* nm = CoopScriptFuncAt(off);
+                if (!nm || nm == last)
+                    continue;
+                const int k = _snprintf(out + n, len - n, "%s%s", count ? " <- " : "; Stapel (geschaetzt, neueste zuerst): ", nm);
+                if (k < 0)
+                    break;
+                n += (size_t)k;
+                last = nm;
+                count++;
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {
+        }
         out[len - 1] = 0;
     }
 
@@ -1185,6 +1489,24 @@ namespace GOTHIC_ENGINE {
             chain += w;
         }
         OthelloCompatLog("  Rueckspruenge vom Stapel (neueste zuerst): %s", n ? chain.c_str() : "-");
+        DWORD own[12];
+        const int no = CoopCrashScanOwn(c->Esp, own, 12);   // u196 (P205)
+        if (no) {
+            std::string s;
+            for (int i = 0; i < no; i++) {
+                char w[160];
+                CoopCrashWhere(own[i], w, sizeof(w));
+                s += i ? " <- " : "";
+                s += w;
+            }
+            OthelloCompatLog("  GT-Rueckspruenge weiter oben (P205): %s", s.c_str());
+        }
+        if (GetCurrentThreadId() == MainThreadId) {   // u195 (P199): nur der Hauptfaden fuehrt Skripte aus
+            char trace[700];
+            CoopScriptTrace(c->Esp, trace, sizeof(trace));
+            if (trace[0])
+                OthelloCompatLog("  Skript (P199): %s", trace);
+        }
     }
 
     // Einmal je Absturz: ins Log, dann das Spielfenster auf die Taskleiste (Fehlerfenster sichtbar)
@@ -1409,6 +1731,20 @@ namespace GOTHIC_ENGINE {
 
         // Gegenstaende aus der Welt meldet seit v14 CoopWorldSync (RemoveVob -> Inventar), wegunabhaengig.
         return Ivk_oCNpc_DoTakeVob(_this, vob);
+    }
+
+    // u186 (P188): Aufheben ueber die Befehlsliste - oCMsgManipulate::targetVob haelt keinen Verweis, wie bei EV_UseItemToState (P142).
+    // Testlauf Gothic 1 (Client, 03.11. 21:43): Zugriffsfehler in oCNpc::EV_TakeVob +0x118, Aufruf ueber eine leere vtable-Stelle - der
+    // Gegenstand der Nachricht war schon frei. Gothic 2 NotR faengt das selbst ab (EV_TakeVob "TakeVob Crash-Hack", try/catch), Gothic 1
+    // nicht. Jetzt prueft GT den Zeiger vorher (CoopMsgVobCheck, Helpers.cpp) und loescht ihn; ohne Gegenstand spielt die Engine nur das
+    // Buecken und beendet die Nachricht. Pruefsignal: "Absturzschutz: EV_TakeVob an ... - Gegenstand ... der Nachricht ist schon frei".
+    // Allgemein G1/G2.
+    int __fastcall oCNpc_EV_TakeVob_Coop(oCNpc* _this, void* vtable, oCMsgManipulate* msg);
+    CInvoke<int(__thiscall*)(oCNpc*, oCMsgManipulate*)> Ivk_oCNpc_EV_TakeVob_Coop(CoopAddr::oCNpc_EV_TakeVob, &oCNpc_EV_TakeVob_Coop,
+        COOP_IVK(HooksExt));
+    int __fastcall oCNpc_EV_TakeVob_Coop(oCNpc* _this, void* vtable, oCMsgManipulate* msg) {
+        CoopMsgVobCheck(_this, msg, "EV_TakeVob");
+        return Ivk_oCNpc_EV_TakeVob_Coop(_this, msg);
     }
 
     int __fastcall oCNpc_DoDropVob(oCNpc*, void*, zCVob*);

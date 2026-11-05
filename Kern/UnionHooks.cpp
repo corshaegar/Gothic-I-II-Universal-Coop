@@ -236,8 +236,16 @@ namespace GOTHIC_ENGINE {
         }
     }
 
+    void CoopLegoHandleRepair(int slot);   // u196 (P206): CoopSaveSync.cpp
+
     void _Game_LoadBegin_SaveGame() {
         CoopDialogSyncLoadKind(false);
+        try {
+            CoopLegoHandleRepair(UnionCore::SaveLoadGameInfo.slotID);   // u196 (P206): LeGo-Zaehler vor dem Lesen der Dateien (auch Weltprozess)
+        }
+        catch (...) {
+            CoopErrorLog("CoopLegoHandleRepair", "Ausnahme", PluginState.c_str());
+        }
         try {
             if (!CoopWpIsWorld()) {          // u33: im Weltprozess kein gemeinsames Laden
                 CoopSaveSyncOnLoadBegin();   // v17: Partner laedt denselben Stand mit

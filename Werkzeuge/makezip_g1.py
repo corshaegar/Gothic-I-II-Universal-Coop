@@ -6,9 +6,12 @@ Inhalt (Ordner wie im Spielordner, zum Entpacken in den Gothic-Ordner):
   system/Autorun/COOP_ITEMS.D           Coop-Gegenstaende (scripts\\g1)
   system/Autorun/PC_MULTIPLAYER_HERO.D  Coop-Figur        (scripts\\g1)
   system/GothicCoopConfig.json          Vorgaben - ohne sie beendet GT das Spiel beim Start (Plugin.cpp)
+  system/GothicCoopMod.vorlage.json     Vorlage fuer ein Mod-Profil (ab u194, inaktiv - Mods\\CoopModProfile.h)
   system/steam_api.dll, steam_appid.txt Steam-Verbindung (assets\\steam: Steam API mit SteamAPI_InitFlat, App 65540)
   system/GD3D11/Bin/g1_avx2.dll         Coop-Renderer (ab u42 coop8, wirkt nur mit installiertem GD3D11)
-  GothicCoop-LIESMICH.txt               kurze Anleitung
+  system/GothicCoop/Skripte/g1|othello/ beide Skriptsaetze der Gothic-1-Engine (u195, P204: die Skript-Weiche der DLL legt beim
+                                        Start den Satz des erkannten Spiels nach system\\Autorun - ein Paket fuer Gothic 1 und Othello)
+  GothicCoop-LIESMICH.txt               kurze Anleitung (dazu die der anderen Variante: -Othello.txt bzw. -Gothic1.txt)
   Data/Union.vdf, system/Union.patch ... die sieben Dateien von Union 1.0m (ab u62, wie makezip_g2.union_entries; fuer G1
                                         und G2 dieselben - binkw32.dll/Mss32.dll, die Unions Setup bei G1 auch schreibt,
                                         noch nicht: eine G1-Vorlage fehlt)
@@ -34,6 +37,7 @@ SystemPack - Union laedt SystemPack selbst). Bequemer und rueckgaengig machbar: 
   Data\\Union.vdf, system\\Union.patch, Shw32.dll, Vdfs32g.dll, stdhost.exe, msvcp100.dll, msvcr100.dll   Union 1.0m
   system\\Autorun\\              GothicCoop-DLL und drei Skripte
   system\\GothicCoopConfig.json  Vorgaben (Name, Adresse, Aussehen - im Spiel unter COOP aenderbar)
+  system\\GothicCoopMod.vorlage.json  Vorlage fuer ein Mod-Profil (so benannt nicht aktiv, siehe unten)
   system\\steam_api.dll und steam_appid.txt   fuer "Coop ueber Steam" (Steam muss laufen)
   system\\GD3D11\\Bin\\g1_avx2.dll  Coop-Renderer - nur wirksam, wenn GD3D11 installiert ist (3D-Vorschau der
                                  Figur, Zuschau-Fenster beim Mitspieler, Bild des Weltprozesses)
@@ -53,7 +57,20 @@ bekommt einer einen, hat ihn der Partner auch; gibt einer ihn ab, verliert ihn d
 Coop-Inventar - eine gemeinsame Truhe; die Taste (Vorgabe I, Einstellungen > COOP) oeffnet sie ohne Bewegung, beide koennen sie
 gleichzeitig offen haben, der Inhalt liegt beim Host und im Spielstand, Gegenstaende daraus zaehlen bei Quests. Ab u105: Auto-Sicherung
 auch alle 3 Minuten. Diese Neuerungen sind in Gothic 1 automatisch geprueft (ab u134), aber noch nicht von Hand gespielt.
+Ab u194: Mod-Profil als Datei - eine Mod, die der Coop nicht kennt, bekommt ihre Anpassungen (Skriptwerte, die je PC bleiben,
+Vorgaben fuer Coop-Schalter, Hinweise) ohne neue DLL ueber system\\GothicCoopMod-<Ini>.json (<Ini> = Spiel-Ini der Mod ohne
+".ini"; ohne -game: system\\GothicCoopMod.json). Vorlage mit Erklaerung: system\\GothicCoopMod.vorlage.json. Beide PCs brauchen
+dieselbe Datei; das Log nennt beim Start, was gelesen wurde ("Mod-Profil ...").
+Ab u195: ein Paket fuer Gothic 1 und Othello - system\\GothicCoop\\Skripte haelt beide Skriptsaetze, der Coop legt beim Start
+den passenden nach system\\Autorun (auch wenn Othello spaeter installiert oder entfernt wird; Log: "Skript-Weiche").
 """
+
+SKRIPTE = ('COOP_MENU.D', 'COOP_ITEMS.D', 'PC_MULTIPLAYER_HERO.D')
+
+
+def store_entries(saetze):
+    """u195 (P204): Skriptsaetze nach system/GothicCoop/Skripte/<Satz>/ - Quelle der Skript-Weiche (CoopCore.cpp)"""
+    return [('system/GothicCoop/Skripte/%s/%s' % (satz, s), os.path.join(pfade.SKRIPTE[satz], s)) for satz in saetze for s in SKRIPTE]
 
 
 def sha16(data):
@@ -86,6 +103,7 @@ def main():
         ('system/Autorun/PC_MULTIPLAYER_HERO.D', os.path.join(scripts, 'PC_MULTIPLAYER_HERO.D')),
         # Othello hat keine eigene Vorgabe - die von Gothic 1 (wie im Installer)
         ('system/GothicCoopConfig.json', os.path.join(pfade.SKRIPTE['g1'], 'GothicCoopConfig.json')),
+        ('system/GothicCoopMod.vorlage.json', os.path.join(pfade.SKRIPTE['g1'], 'GothicCoopMod.vorlage.json')),   # u194 (P196)
     ]
     if a.steam != '-':
         entries += [('system/steam_api.dll', pfade.STEAM_API), ('system/steam_appid.txt', pfade.STEAM_APPID['g1'])]
@@ -94,10 +112,14 @@ def main():
     if a.union_dir != '-' and not a.othello:   # u62: Union 1.0m dazu (geprueft); Othello bringt Union selbst mit
         import makezip_g2
         entries += makezip_g2.union_entries(a.union_dir)
-    text = LIESMICH
-    if a.othello:
-        text = open(os.path.join(ROOT, pfade.INSTALLER, 'texte', 'LIESMICH-Othello.txt'), encoding='utf-8').read()
-    readme = text.format(f=a.fassung).replace('\r\n', '\n').replace('\n', '\r\n').encode('cp1252')
+    entries += store_entries(('g1', 'othello'))   # u195 (P204)
+
+    def text_of(othello):
+        t = open(os.path.join(ROOT, pfade.INSTALLER, 'texte', 'LIESMICH-Othello.txt'), encoding='utf-8').read() if othello else LIESMICH
+        return t.format(f=a.fassung).replace('\r\n', '\n').replace('\n', '\r\n').encode('cp1252')
+    readme = text_of(a.othello)
+    # u195: die Anleitung der anderen Variante dazu - dasselbe Paket gilt fuer beide
+    extra = [('GothicCoop-LIESMICH-Gothic1.txt' if a.othello else 'GothicCoop-LIESMICH-Othello.txt', text_of(not a.othello))]
 
     os.makedirs(os.path.dirname(out), exist_ok=True)
     tmp = out + '.part'
@@ -107,18 +129,20 @@ def main():
             info = zipfile.ZipInfo(arc, time.localtime(os.path.getmtime(path))[:6])
             info.compress_type = zipfile.ZIP_DEFLATED
             z.writestr(info, open(path, 'rb').read())
-        info = zipfile.ZipInfo('GothicCoop-LIESMICH.txt', time.localtime()[:6])
-        info.compress_type = zipfile.ZIP_DEFLATED
-        z.writestr(info, readme)
+        for arc, data in [('GothicCoop-LIESMICH.txt', readme)] + extra:
+            info = zipfile.ZipInfo(arc, time.localtime()[:6])
+            info.compress_type = zipfile.ZIP_DEFLATED
+            z.writestr(info, data)
 
     # zuruecklesen und mit den Quellen vergleichen
+    texts = dict([('GothicCoop-LIESMICH.txt', readme)] + extra)
     with zipfile.ZipFile(tmp) as z:
         bad = z.testzip()
         if bad:
             sys.exit('ZIP fehlerhaft bei %s' % bad)
-        for arc, src in entries + [('GothicCoop-LIESMICH.txt', None)]:
+        for arc, src in entries + [(n, None) for n in texts]:
             got = z.read(arc)
-            want = readme if src is None else open(os.path.join(ROOT, src), 'rb').read()
+            want = texts[arc] if src is None else open(os.path.join(ROOT, src), 'rb').read()
             print('%-42s %9d  %s  %s' % (arc, len(got), sha16(got), 'gleich' if got == want else 'ABWEICHUNG'))
             if got != want:
                 sys.exit('Inhalt weicht ab: %s' % arc)

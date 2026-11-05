@@ -13,6 +13,7 @@ RENDERER = {'g1': os.path.join(EINGABEN, 'g1_avx2-v17.9.7-coop8.dll'), 'g2': os.
             'g2_original': os.path.join(EINGABEN, 'g2a_avx2-v17.9.7-original.dll')}
 RENDERER_PATCHES = [os.path.join('Renderer', 'coop%d.patch' % n) for n in (6, 7, 8, 9)]
 LIZENZEN = 'Lizenzen'
+QUELLE = 'Kern'   # Quelltext der DLL (installer_bau.py liest Mods\CoopModList.h - Liste "Unterstuetzt" im Installer)
 INSTALLER = 'Installer'
 WERKZEUGE = 'Werkzeuge'
 BAU = 'Bau'   # Bau\uNN\Gothic1Coop-uNN.dll bzw. Gothic2Coop-uNN.dll, Bau\zip\ die Pakete

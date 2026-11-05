@@ -1226,10 +1226,90 @@ namespace GOTHIC_ENGINE {
         WorldSyncLog("Ausloeser fuer Geschosse in %s: %d im Abgleich (%s), %d andere Klassen", w.c_str(), synced, names.c_str(), other);
     }
 
+    // --- u167 (P174, Liste 6n): Mover, die selbst auf Beruehrung reagieren -----------------------------------------------------
+    // zCMover hat ein eigenes OnTouch (G1 0x005E6410, G2A 0x00613340), der Haken auf zCTrigger::OnTouch (P163) sieht es nicht. Tritt ein
+    // Held auf so einen Mover (Gothic 1: Zielsteine und Tor im Schlaefertempel, zwei Mover in WORLD; Gothic II: Vinos Kellertuer), bewegte
+    // er sich nur auf dessen PC - im Schlaefertempel haengt das Raetsel daran. Jetzt wie P163: Loest die Beruehrung durch den eigenen Helden
+    // (beim Host auch durch einen NPC) den Mover aus - sein Zustand ist danach ein anderer -, gehen Name, Lage, neuer Zustand und Schloss
+    // ueber das Mechanismus-Paket hinaus. Der Partner ruft TriggerMover(NULL); bei Zweizustands-Movern nur, wenn seiner nicht schon in diese
+    // Richtung laeuft (beide zugleich), und ein beim Absender aufgeschlossener Mover ist auch hier offen. Figur und Abbild loesen einen
+    // ruhenden Mover nicht aus (das meldet der PC des Helden bzw. der Host). Allgemein (G1/G2)
+    int CoopMoverTouchSent = 0;   // Testlauf
+
+    struct MoverSnap {
+        int st, kf, trig;
+        float adv, open;
+        char lk;
+    };
+
+    static MoverSnap MoverSnapOf(zCMover* m) {
+        MoverSnap s = { (int)m->moverState, m->actKeyframe, m->numTriggerEvents, m->advanceDir, m->stayOpenTimeDest, m->moverLocked };
+        return s;
+    }
+
+    static bool MoverSnapSame(const MoverSnap& a, const MoverSnap& b) {
+        return a.st == b.st && a.kf == b.kf && a.trig == b.trig && a.adv == b.adv && a.open == b.open && a.lk == b.lk;
+    }
+
+    static bool MoverResting(zCMover* m) {
+        return m->sleepingMode == zVOB_SLEEPING || m->advanceDir == 0;
+    }
+
+    static zCMover* MoverFind(const zVEC3& p, const std::string& name) {
+        zCArray<zCVob*> vobs;
+        if (name.empty())
+            vobs = CollectVobsInRadius(p, 300);
+        else
+            ogame->GetGameWorld()->SearchVobListByName(zSTRING(name.c_str()), vobs);
+        zCMover* best = NULL;
+        float bestD = name.empty() ? 300.f : 5000.f;   // ein Mover mit Namen darf schon woanders stehen (anderer Zustand)
+        for (int i = 0; i < vobs.GetNumInList(); i++) {
+            zCMover* m = zDYNAMIC_CAST<zCMover>(vobs.GetSafe(i));
+            if (!m)
+                continue;
+            const float d = CoopDist(m->GetPositionWorld(), p);
+            if (d < bestD) {
+                bestD = d;
+                best = m;
+            }
+        }
+        return best;
+    }
+
+    static void MoverTouchApply(const json& e, const std::string& by, const char* why) {
+        zVEC3 p;
+        if (!CoopPosFromJson(e.at("k"), p))
+            return;
+        const std::string name = e.at("mov").get<std::string>();
+        zCMover* m = MoverFind(p, name);
+        if (!m) {
+            WorldSyncLog("Mover %s bei %s von %s: hier nicht gefunden", name.c_str(), CoopPosKey(p).c_str(), by.c_str());
+            return;
+        }
+        const int st = e.value("st", -1), was = (int)m->moverState;
+        const bool openThere = st == zCMover::MOVER_STATE_OPENING || st == zCMover::MOVER_STATE_OPEN;
+        const bool openHere = was == zCMover::MOVER_STATE_OPENING || was == zCMover::MOVER_STATE_OPEN;
+        if (m->moverBehavior == zCMover::MB_2STATE_TOGGLE && st >= 0 && openThere == openHere) {
+            WorldSyncLog("Mover %s bei %s von %s (%s): dort Zustand %d, hier %d - laeuft schon so, nicht noch einmal", name.c_str(),
+                CoopPosKey(p).c_str(), by.c_str(), why, st, was);
+            return;
+        }
+        if (m->moverLocked && e.value("lk", 1) == 0)
+            m->moverLocked = 0;   // beim Absender aufgeschlossen
+        MobChainUntilMs = GetCurrentMs() + 300000;   // wie beim Ausloeser: Kette ohne Skript und Kamera
+        m->TriggerMover(NULL);
+        WorldSyncLog("Mover %s bei %s von %s (%s): ausgeloest, Zustand %d -> %d (dort %d)", name.c_str(), CoopPosKey(p).c_str(), by.c_str(), why,
+            was, (int)m->moverState, st);
+    }
+
     // u145 (P146): false, wenn die Benutzung nur die eigene wiederholt - dann auch nicht weiterreichen
     static bool MobApplyEvent(const json& e, const std::string& by, const char* why) {
         if (e.contains("hit")) {   // u146 (P147)
             HitTriggerApply(e, by, why);
+            return true;
+        }
+        if (e.contains("mov")) {   // u167 (P174)
+            MoverTouchApply(e, by, why);
             return true;
         }
         zVEC3 p;
@@ -2275,6 +2355,45 @@ namespace GOTHIC_ENGINE {
         }
     }
 
+    // u167 (P174): Mover beruehrt - Zustand vorher und nachher, ausgeloest hat er, wenn er sich danach unterscheidet
+    void __fastcall zCMover_OnTouch_Coop(zCMover* _this, void* vtable, zCVob* other);
+    CInvoke<void(__thiscall*)(zCMover*, zCVob*)> Ivk_zCMover_OnTouch_Coop(CoopAddr::zCMover_OnTouch, &zCMover_OnTouch_Coop, COOP_IVK(World));
+    void __fastcall zCMover_OnTouch_Coop(zCMover* _this, void* vtable, zCVob* other) {
+        oCNpc* npc = other ? zDYNAMIC_CAST<oCNpc>(other) : NULL;
+        if (!npc || !player || !MobSyncBase() || !_this->filterFlags.reactToOnTouch) {
+            Ivk_zCMover_OnTouch_Coop(_this, other);
+            return;
+        }
+        const bool rest = MoverResting(_this);
+        if (npc != player && (PlayerNpcs.count(npc) || (!ServerThread && !CoopClientAlone()))) {
+            if (!rest) {   // laeuft schon: nur Blocker-Logik, die loest nichts aus
+                Ivk_zCMover_OnTouch_Coop(_this, other);
+                return;
+            }
+            CoopTouchSkips++;
+            static CoopDiagBudget budget = { 0, 0 };
+            if (CoopDiagAllow(budget, 20))
+                WorldSyncLog("Mover %s: von %s %s beruehrt - hier nicht, das meldet %s", _this->GetObjectName().ToChar(),
+                    PlayerNpcs.count(npc) ? "der Figur" : "dem Abbild", npc->GetObjectName().ToChar(), PlayerNpcs.count(npc) ? "sein PC" : "der Host");
+            return;
+        }
+        const MoverSnap before = MoverSnapOf(_this);
+        Ivk_zCMover_OnTouch_Coop(_this, other);
+        if (!rest || !(npc == player || ServerThread) || MoverSnapSame(before, MoverSnapOf(_this)))
+            return;
+        json j;
+        j["k"] = CoopPosJson(_this->GetPositionWorld());
+        j["mov"] = _this->GetObjectName().ToChar();
+        j["st"] = (int)_this->moverState;
+        j["lk"] = _this->moverLocked ? 1 : 0;
+        if (ServerThread)
+            j["by"] = MyselfId.ToChar();
+        WorldSyncSend(j, SYNC_MOB_STATE);
+        CoopMoverTouchSent++;
+        WorldSyncLog("Mover %s bei %s: %s beruehrt, Zustand %d -> %d - an den Partner", _this->GetObjectName().ToChar(),
+            CoopPosKey(_this->GetPositionWorld()).c_str(), npc == player ? "vom Helden" : "von einem NPC", before.st, (int)_this->moverState);
+    }
+
     static bool MobChainNow(zCVob* instigator) {
         return !instigator && MobChainUntilMs && GetCurrentMs() < MobChainUntilMs;
     }
@@ -2357,6 +2476,37 @@ namespace GOTHIC_ENGINE {
         }
     }
 
+    // u173 (P180): LoA-Lauf u170 (Client, 04.11. 17:16, nach 43 min): Zugriffsfehler in oCNpc::DoShootArrow +0x10B (G2A 0x007447BB,
+    // Lesen von 0x264 = oCItem::munition) ueber oCNpc::OnMessage -> EV_ShootAt -> FinalizeAim -> RobustTrace. Der Schuetze hatte keine
+    // angelegte Fernkampfwaffe (GetEquippedRangedWeapon NULL) - beim Client fehlt sie einem Abbild, dessen Bogenhaltung vom Host kam bzw.
+    // dessen Kampf er fuehrt (Kampf-Uebergabe, v72). Ohne Waffe kein Schuss: DoShootArrow liefert dann 0, die Engine liest nichts. Allgemein.
+    static int CoopShootGuards = 0;
+    int __fastcall oCNpc_DoShootArrow_Coop(oCNpc* _this, void* vtable, int autoAim);
+    CInvoke<int(__thiscall*)(oCNpc*, int)> Ivk_oCNpc_DoShootArrow_Coop(CoopAddr::oCNpc_DoShootArrow, &oCNpc_DoShootArrow_Coop, COOP_IVK(World));
+    // u177: LoA-Lauf u174 (Client, 19:52): derselbe Absturz trotz Haken - DoShootArrow liest die Munition der Waffe IN DER HAND
+    // (G2A 0x0074471C bzw. 0x007447BB: GetSlotItem(NPC_NODE_LEFTHAND) im Bogen-, GetSlotItem(NPC_NODE_RIGHTHAND) im Armbrust-Modus,
+    // dann [Waffe+0x264]), nicht die angelegte. Beim Abbild war die Armbrust angelegt, die Hand aber leer. Jetzt beides pruefen
+    int __fastcall oCNpc_DoShootArrow_Coop(oCNpc* _this, void* vtable, int autoAim) {
+        if (_this) {
+            const char* node = _this->fmode == 5 ? "ZS_LEFTHAND" : _this->fmode == 6 ? "ZS_RIGHTHAND" : NULL;   // Bogen links, Armbrust rechts
+            const bool noWeapon = !_this->GetEquippedRangedWeapon();
+            const bool emptyHand = !noWeapon && node && !_this->GetSlotItem(zSTRING(node));
+            if (noWeapon || emptyHand) {
+                if (++CoopShootGuards <= 20)
+                    WorldSyncLog("Schuss %s abgefangen: %s (Kampfmodus %d, %s) - kein Pfeil, sonst Zugriffsfehler (P180)",
+                        noWeapon ? "ohne Fernkampfwaffe" : "mit leerer Hand", _this->GetInstanceName().ToChar(), (int)_this->fmode,
+                        _this == player ? "Held" : "NPC");
+                return 0;
+            }
+        }
+        return Ivk_oCNpc_DoShootArrow_Coop(_this, autoAim);
+    }
+
+    // u173 (P180): Testschritt (CoopSelfTest.cpp) - DoShootArrow mit einem NPC ohne Fernkampfwaffe; Rueckgabe: Zahl der Abfaenge vorher
+    int CoopShootGuardCount() {
+        return CoopShootGuards;
+    }
+
     int __fastcall oCNpc_DoThrowVob_Coop(oCNpc* _this, void* vtable, zCVob* vob, float force);
     CInvoke<int(__thiscall*)(oCNpc*, zCVob*, float)> Ivk_oCNpc_DoThrowVob_Coop(CoopAddr::oCNpc_DoThrowVob, &oCNpc_DoThrowVob_Coop, COOP_IVK(World));
     int __fastcall oCNpc_DoThrowVob_Coop(oCNpc* _this, void* vtable, zCVob* vob, float force) {
@@ -2371,6 +2521,7 @@ namespace GOTHIC_ENGINE {
     }
 
 #else   // Modul in dieser Engine nicht freigegeben (CoopModulesReport)
+    int CoopShootGuardCount() { return -1; }   // u173 (P180)
     int CoopNpcDropsSent = 0, CoopNpcDropsRemoved = 0, CoopNpcDropsSpawned = 0;   // u156
     int CoopHostNpcGoneSent = 0;                                                    // u157
     int CoopTouchSent = 0, CoopTouchSkips = 0, CoopNpcDropTakenEarly = 0;           // u158

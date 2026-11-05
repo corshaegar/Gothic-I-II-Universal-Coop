@@ -57,13 +57,49 @@ namespace GOTHIC_ENGINE {
             w->traceRayReport.foundHit);
     }
 
+    // u168 (P175): Boden unter (x, z) - Strahl von top bis bottom (statische Polygone und Vobs, ohne Figuren, mit Wasser)
+    static bool CoopFloorRay(zCWorld* w, float x, float z, float top, float bottom, float& y) {
+        const zVEC3 start(x, top, z);
+        const zVEC3 ray(0.f, bottom - top, 0.f);
+        if (!w->TraceRayNearestHit(start, ray, (zCVob*)player, zTRACERAY_STAT_POLY | zTRACERAY_VOB_IGNORE_CHARACTER | zTRACERAY_POLY_TEST_WATER) ||
+            !w->traceRayReport.foundHit)
+            return false;
+        y = w->traceRayReport.foundIntersection.n[1];
+        return true;
+    }
+
+    // u168 (P175): Faellt es neben p tief ab? Testlaeufe b256/b257: 2,5 m neben der eigenen Lage lag der Rand einer Klippe, der Held lief nach
+    // der Uebernahme in seiner Blickrichtung aus und fiel 24 m. Je 8 Richtungen auf Ringen zu 0,7 m (rings Ringe, 3 = bis 2,1 m): Boden
+    // hoechstens 2 m unter dem bei p. Trifft der Strahl von 2,5 m ueber dem Boden nichts (Start in einem Felsen), noch einmal von 10 m - ein
+    // Fels oder eine Wand daneben ist keine Kante. Rueckgabe: Tiefe in cm, 0 = keine Kante, 9999 = kein Boden. Allgemein (G1/G2).
+    static float CoopPlaceDrop(zCWorld* w, const zVEC3& p, int rings) {
+        float f0 = 0.f;
+        if (!CoopFloorRay(w, p.n[0], p.n[2], p.n[1] + 80.f, p.n[1] - 400.f, f0))
+            return 9999.f;
+        for (int ring = 1; ring <= rings; ring++)
+            for (int k = 0; k < 8; k++) {
+                const float a = k * 0.78539816f, r = 70.f * ring;
+                const float x = p.n[0] + cosf(a) * r, z = p.n[2] + sinf(a) * r;
+                float fy = 0.f;
+                if (!CoopFloorRay(w, x, z, f0 + 250.f, f0 - 450.f, fy) && !CoopFloorRay(w, x, z, f0 + 1000.f, f0 - 450.f, fy))
+                    return 9999.f;
+                if (fy < f0 - 200.f)
+                    return f0 - fy;
+            }
+        return 0.f;
+    }
+
     // v102: whom - fuer die Meldung (Teleport-Rune, CoopTeleport.cpp: "den Mitspieler")
-    static bool CoopPlaceBesideHost(const zVEC3& host, const zVEC3& hostAt, std::string& how, const char* whom = "den Helden des Stands") {
+    // u168 (P175): zwei Durchgaenge - erst ohne Kante bis 2,1 m, sonst ohne Kante bis 0,7 m (schmaler Steg, Bruecke). dry: nur suchen, den
+    // Helden nicht versetzen (Testschritt). Ohne Stelle kommt die Kollision des Helden wieder wie vorher (Vorsicht; SearchNpcPosition laesst sie an)
+    static bool CoopPlaceBesideHost(const zVEC3& host, const zVEC3& hostAt, std::string& how, const char* whom = "den Helden des Stands",
+        zVEC3* dry = NULL) {
         zCWorld* w = ogame ? ogame->GetGameWorld() : NULL;
         if (!w || !player) {
             how = "keine Welt - Lage unveraendert";
             return false;
         }
+        const int cdStat = player->collDetectionStatic, cdDyn = player->collDetectionDynamic;
         float ax = hostAt.n[0], az = hostAt.n[2];
         const float al = sqrtf(ax * ax + az * az);
         if (al < 0.01f) { ax = 0.f; az = 1.f; }
@@ -77,6 +113,7 @@ namespace GOTHIC_ENGINE {
         static const float dists[] = { 250.f, 350.f, 180.f };
         int tried = 0;
         const char* lastWhy = "-";
+        for (int pass = 0; pass < 2; pass++)
         for (float d : dists) {
             for (float ang : angles) {
                 tried++;
@@ -93,19 +130,28 @@ namespace GOTHIC_ENGINE {
                 const float ex = p.n[0] - host.n[0], ez = p.n[2] - host.n[2];
                 const float dist = sqrtf(ex * ex + ez * ez);
                 if (dist < 120.f || dist > 700.f || fabsf(p.n[1] - host.n[1]) > 150.f) { lastWhy = "Suche zu weit/zu nah"; continue; }
+                if (CoopPlaceDrop(w, p, pass == 0 ? 3 : 1) > 0.f) { lastWhy = "Kante"; continue; }   // u168 (P175)
                 if (!CoopClearLine(w, eye, zVEC3(p.n[0], p.n[1] + 60.f, p.n[2]))) { lastWhy = "Wand nach der Suche"; continue; }
+                char b[220];
+                _snprintf(b, sizeof(b), "neben %s %s (%.1f m, Richtung %d Grad, %d. Stelle%s, %.0f/%.0f/%.0f)", whom, dry ? "gefunden" : "gesetzt",
+                    dist / 100.f, (int)ang, tried, pass ? ", Kante naeher als 2,1 m" : "", p.n[0], p.n[1], p.n[2]);
+                b[sizeof(b) - 1] = 0;
+                how = b;
+                if (dry) {
+                    player->SetCollDetStat(cdStat);
+                    player->SetCollDetDyn(cdDyn);
+                    *dry = p;
+                    return true;
+                }
                 player->SetCollDet(FALSE);
                 player->SetPositionWorld(p);
                 player->SetCollDet(TRUE);
                 player->SetHeadingAtWorld(zVEC3(ax, 0.f, az));
-                char b[200];
-                _snprintf(b, sizeof(b), "neben %s gesetzt (%.1f m, Richtung %d Grad, %d. Stelle, %.0f/%.0f/%.0f)",
-                    whom, dist / 100.f, (int)ang, tried, p.n[0], p.n[1], p.n[2]);
-                b[sizeof(b) - 1] = 0;
-                how = b;
                 return true;
             }
         }
+        player->SetCollDetStat(cdStat);   // u168 (P175)
+        player->SetCollDetDyn(cdDyn);
         how = std::string("keine legale Stelle neben ") + whom + " (zuletzt: " + lastWhy + ") - Lage unveraendert";
         return false;
     }

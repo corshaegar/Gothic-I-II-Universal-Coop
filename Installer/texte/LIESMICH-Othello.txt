@@ -11,6 +11,8 @@ Dateien (vom Installer geschrieben bzw. in dieser ZIP; die ZIP in den Gothic-Ord
   system\GothicCoopConfig.json          Vorgaben (der Installer nur, wenn es sie noch nicht gab)
   system\steam_api.dll, steam_appid.txt Coop ueber Steam (Steam muss laufen)
   system\GD3D11\...                     Coop-Renderer (der Installer bringt GD3D11 v17.9.7 mit, falls es fehlt)
+  system\GothicCoop\Skripte\            ab u195: die Skripte fuer Gothic 1 und fuer Othello - der Coop legt beim Start den
+                                        passenden Satz nach system\Autorun (ein Paket fuer beide; Log: "Skript-Weiche")
 
 Spielen: Hauptmenue > COOP > Figur waehlen > "Weiter: Verbinden" > "Spiel hosten" bzw. "Ueber IP beitreten"
 (Port 9955). Protokoll: system\GothicCoopOthello.log.

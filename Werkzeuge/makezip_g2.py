@@ -6,9 +6,12 @@ Inhalt (Ordner wie im Spielordner, zum Entpacken in den Gothic-2-Ordner):
   system/Autorun/PC_MULTIPLAYER_HERO.D  Coop-Figur   (scripts\\g2)
   system/Autorun/COOP_ITEMS.D           Merker des Testlaufs (ab u12), Teleport-Rune (ab u17)
   system/GothicCoopConfig.json          Vorgaben - ohne sie beendet GT das Spiel beim Start (Plugin.cpp)
+  system/GothicCoopMod.vorlage.json     Vorlage fuer ein Mod-Profil (ab u194, inaktiv - Mods\\CoopModProfile.h)
   system/steam_api.dll                  Steam API mit SteamAPI_InitFlat (assets\\steam, wie Gothic 1)
   system/steam_appid.txt                39510 = Gothic II Gold Edition auf Steam (assets\\steam\\g2)
   GothicCoop-LIESMICH.txt               kurze Anleitung mit dem Stand der Freigaben
+  GothicCoop-LIESMICH-<Mod>.txt         u195: Anleitung je Mod mit eigenem Profil (makezip_mod.MODS, z. B. LoA)
+  system/GothicCoop/Skripte/g2/         u195 (P204): Skriptsatz der Gothic-2-Engine - Quelle der Skript-Weiche (CoopCore.cpp)
   system/GD3D11/Bin/g2a_avx2.dll        Coop-Renderer (ab u10, --renderer)
   Data/Union.vdf, system/Union.patch ... die sieben Dateien von Union 1.0m (ab u62, --union-dir; geprueft gegen
                                         installer_bau.UNION_FILES) - Nutzer: "die Dateien von Union werden direkt reingepackt"
@@ -33,6 +36,7 @@ SystemPack - Union laedt SystemPack selbst). Bequemer und rueckgaengig machbar: 
   Data\\Union.vdf, system\\Union.patch, Shw32.dll, Vdfs32g.dll, stdhost.exe, msvcp100.dll, msvcr100.dll   Union 1.0m
   system\\Autorun\\              GothicCoop-DLL und drei Skripte
   system\\GothicCoopConfig.json  Vorgaben (Name, Adresse, Aussehen - im Spiel unter COOP aenderbar)
+  system\\GothicCoopMod.vorlage.json  Vorlage fuer ein Mod-Profil (so benannt nicht aktiv, siehe unten)
   system\\steam_api.dll und steam_appid.txt (39510)   fuer "Coop ueber Steam" (Steam muss laufen)
   system\\GD3D11\\Bin\\g2a_avx2.dll  Coop-Renderer (GD3D11 v17.9.7 + coop9) - nur wirksam, wenn GD3D11 installiert ist
                                   (3D-Vorschau der Figur, Zuschau-Fenster beim Mitspieler, eigenes Log im Weltprozess,
@@ -136,6 +140,13 @@ Coop-Inventar - eine gemeinsame Truhe; die Taste (Vorgabe I, Einstellungen > COO
 gleichzeitig offen haben, der Inhalt liegt beim Host und im Spielstand, Gegenstaende daraus zaehlen bei Quests. Ab u105: Auto-Sicherung
 auch alle 3 Minuten. Ab u135 (Renderer coop9): kein Absturz mehr beim Speichern mit offenem Zuschau-Fenster, wenn in den
 GD3D11-Einstellungen AtmosphericScattering aus ist; das Zuschau-Fenster zeigt dann statt des Himmels die Nebelfarbe.
+Ab u194: Mod-Profil als Datei - eine Mod, die der Coop nicht kennt, bekommt ihre Anpassungen (Skriptwerte, die je PC bleiben,
+Vorgaben fuer Coop-Schalter, Hinweise) ohne neue DLL ueber system\\GothicCoopMod-<Ini>.json (<Ini> = Spiel-Ini der Mod ohne
+".ini", z. B. GothicCoopMod-LoA.json). Vorlage mit Erklaerung: system\\GothicCoopMod.vorlage.json. Beide PCs brauchen dieselbe
+Datei; das Log nennt beim Start, was gelesen wurde ("Mod-Profil ...").
+Ab u195: ein Paket fuer Gothic 2 und jede Mod darin (Legend of Ahssun, Gothic II Classic, ...): der Coop erkennt beim Start, was
+laeuft (Log: "Profil"), die Skripte liegen zusaetzlich in system\\GothicCoop\\Skripte\\g2 (die Skript-Weiche ergaenzt fehlende).
+Anleitung fuer Legend of Ahssun: GothicCoop-LIESMICH-LoA.txt.
 
 Spielen: Hauptmenue > COOP > Figur waehlen > "Weiter: Verbinden" > "Spiel hosten" bzw. "Ueber IP beitreten"
 (Port 9955) oder ueber Steam. Protokoll: system\\GothicCoop.log.
@@ -179,6 +190,7 @@ def main():
         ('system/Autorun/PC_MULTIPLAYER_HERO.D', os.path.join(a.scripts, 'PC_MULTIPLAYER_HERO.D')),
         ('system/Autorun/COOP_ITEMS.D', os.path.join(a.scripts, 'COOP_ITEMS.D')),   # u12
         ('system/GothicCoopConfig.json', os.path.join(a.scripts, 'GothicCoopConfig.json')),
+        ('system/GothicCoopMod.vorlage.json', os.path.join(a.scripts, 'GothicCoopMod.vorlage.json')),   # u194 (P196)
         ('system/steam_api.dll', pfade.STEAM_API),
         ('system/steam_appid.txt', pfade.STEAM_APPID['g2']),
     ]
@@ -186,7 +198,13 @@ def main():
         entries.append(('system/GD3D11/Bin/g2a_avx2.dll', a.renderer))
     if a.union_dir != '-':   # u62: Union 1.0m dazu (geprueft)
         entries += union_entries(a.union_dir)
+    import makezip_g1, makezip_mod
+    entries += makezip_g1.store_entries(('g2',))   # u195 (P204): Quelle der Skript-Weiche
     readme = LIESMICH.format(f=a.fassung).replace('\n', '\r\n').encode('cp1252')
+    # u195: Anleitungen der Mods mit eigenem Profil (makezip_mod.MODS) - dasselbe Paket gilt fuer sie
+    extra = [('GothicCoop-LIESMICH-%s.txt' % m['kurz'], m['liesmich'].format(f=a.fassung).replace('\n', '\r\n').encode('cp1252', errors='replace'))
+             for m in makezip_mod.MODS.values() if m['basis'] == 'Gothic II']
+    texts = dict([('GothicCoop-LIESMICH.txt', readme)] + extra)
 
     os.makedirs(os.path.dirname(out), exist_ok=True)
     tmp = out + '.part'
@@ -196,17 +214,18 @@ def main():
             info = zipfile.ZipInfo(arc, time.localtime(os.path.getmtime(path))[:6])
             info.compress_type = zipfile.ZIP_DEFLATED
             z.writestr(info, open(path, 'rb').read())
-        info = zipfile.ZipInfo('GothicCoop-LIESMICH.txt', time.localtime()[:6])
-        info.compress_type = zipfile.ZIP_DEFLATED
-        z.writestr(info, readme)
+        for arc, data in texts.items():
+            info = zipfile.ZipInfo(arc, time.localtime()[:6])
+            info.compress_type = zipfile.ZIP_DEFLATED
+            z.writestr(info, data)
 
     with zipfile.ZipFile(tmp) as z:
         bad = z.testzip()
         if bad:
             sys.exit('ZIP fehlerhaft bei %s' % bad)
-        for arc, src in entries + [('GothicCoop-LIESMICH.txt', None)]:
+        for arc, src in entries + [(n, None) for n in texts]:
             got = z.read(arc)
-            want = readme if src is None else open(os.path.join(ROOT, src), 'rb').read()
+            want = texts[arc] if src is None else open(os.path.join(ROOT, src), 'rb').read()
             print('%-42s %9d  %s  %s' % (arc, len(got), sha16(got), 'gleich' if got == want else 'ABWEICHUNG'))
             if got != want:
                 sys.exit('Inhalt weicht ab: %s' % arc)
