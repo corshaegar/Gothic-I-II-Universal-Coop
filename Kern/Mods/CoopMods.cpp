@@ -53,6 +53,18 @@ namespace GOTHIC_ENGINE {
         return false;
     }
 
+    // u200 (P224): "worldVars" des Profils - reiner Waechter einer Welt-Init -> Welt (wie WxWorldTag), sonst NULL (CoopDialogSync.cpp,
+    // DlgWorldEntryVarWorld: nie im Abgleich, mit der Weltdatei in COOPMERKER_<Welt>.TXT)
+    const char* CoopModWorldVar(const char* nm) {
+        if (!nm || !*nm)
+            return NULL;
+        const CoopModData& d = CoopModDataGet();
+        if (d.worldVars.empty())
+            return NULL;
+        auto it = d.worldVars.find(std::string(nm));
+        return it != d.worldVars.end() ? it->second.c_str() : NULL;
+    }
+
     // u199 (P221): "heroStates" des Profils - KI-Zustaende, in denen HERO den Spieler dort meint (CoopDialogSync.cpp, DoAIState).
     // CoopModHeroStatesAny ist der schnelle Vorab-Test (je Bild fuer jeden NPC gefragt).
     bool CoopModHeroStatesAny() {
@@ -145,9 +157,14 @@ namespace GOTHIC_ENGINE {
             if (!zpre.empty())
                 zs += (zs.empty() ? "" : ", ") + zpre;
             const unsigned nz = (unsigned)(d.zsExact.size() + d.zsPrefix.size());
+            std::string wv;   // u200 (P224)
+            for (auto& w : d.worldVars)
+                if (wv.size() < 200)
+                    wv += (wv.empty() ? "" : ", ") + w.first + " (" + w.second + ")";
             OthelloCompatLog("Mod-Profil %s (%s): %u Werte je PC%s%s, %u Heldenwerte%s%s, %u Zaehler als Aenderung%s%s, %u Zustaende mit HERO "
-                "des Spielers dort%s%s, %u Vorgaben, %u Hinweise - Kennung \"%s\"", p.name.c_str(), d.source.c_str(), n, n ? ": " : "", vars.c_str(),
-                nh, nh ? ": " : "", hero.c_str(), nd, nd ? ": " : "", delta.c_str(), nz, nz ? ": " : "", zs.c_str(),
+                "des Spielers dort%s%s, %u Welt-Waechter%s%s, %u Vorgaben, %u Hinweise - Kennung \"%s\"", p.name.c_str(), d.source.c_str(), n,
+                n ? ": " : "", vars.c_str(), nh, nh ? ": " : "", hero.c_str(), nd, nd ? ": " : "", delta.c_str(), nz, nz ? ": " : "", zs.c_str(),
+                (unsigned)d.worldVars.size(), d.worldVars.empty() ? "" : ": ", wv.c_str(),
                 (unsigned)d.configDefaults.size(), (unsigned)d.notes.size(), CoopModProfileStamp().c_str());
         }
         else if (p.id == COOP_PROFILE_MOD)

@@ -4,6 +4,17 @@ Projektversion (Veröffentlichung) und je Spiel/Mod die Coop-Fassung `uNN`. Vorg
 (github.com/corshaegar/Othello-Coop, 0.1.0–0.1.2, nur Othello). Die Fassungen dazwischen (u1–u61) stehen im Entwicklungsverlauf;
 hier beginnt der Verlauf mit u62.
 
+## 0.7.1 – Legend of Ahssun: weitere Werte je PC und je Held, mehr NPC-Zustände mit „dem Spieler dort“ (Gothic I u200, Gothic II u200, Othello u200, Legend of Ahssun u200)
+
+Aus der weiteren Durchsicht der Analyse von Legend of Ahssun (Werte-Vorschläge und alle NPC-Zustände, die den Helden ansprechen), am Code geprüft, im automatischen Testlauf; im echten Spielablauf noch nicht gesehen.
+
+**Korrekturen**
+
+- **Legend of Ahssun** (u200): Der Traum sperrte auch beim Partner das Inventar; eine Antwort beim Thronwächter sperrte die Gespräche beider Spieler; Kälte- und Durst-Leiste sprangen zwischen den Werten beider Helden; Koch-Talent, Wasser-Wissen, eine Infektion, einmalige EP beim Lesen und Menüstände (Beten, Farben mischen, Tabak) gingen zum Partner; offene Anzeigen, Glücksspiel-Einsätze, Taschendiebstahl und Effekte des Magus-Kampfs mischten sich zwischen den PCs.
+- **Legend of Ahssun, NPCs** (u200): Hinterhalte, Wachen, Wartende, Führer, Begleit-Tiere, Schlafende und ein Geist reagieren auf den Spieler, der dort ist, nicht immer auf den Host – der Geist traf bisher beide Helden. Begleiter und Beschwörungen folgen weiter ihrem eigenen Spieler.
+- **Legend of Ahssun, Welten** (u200): Wer die Goldmine in Kapitel 4 als Zweiter allein betrat, fand dort noch alle Bewohner lebend – die Welt-Init übersprang den Block, weil der Merker vom Partner kam. Solche Merker gehören jetzt zur Weltdatei (neuer Profil-Eintrag `worldVars`); ebenso das Inventar des Untoten Drachen.
+- **Legend of Ahssun, Zähler** (u200): Gute Taten, abgebautes Erz und 24 weitere Zähler aus Gesprächen (Respekt der Handwerker und Rekruten, Stimmen der Kämpfer, gewonnene Kämpfe …) zählen beide Schritte, wenn zwei Spieler gleichzeitig verschiedene Gespräche führen.
+
 ## 0.7.0 – Legend of Ahssun vollständig analysiert, Begleiter und Beschwörungen des Clients, Skript-Ereignisse beim Client sofort (Gothic I u199, Gothic II u199, Othello u199, Legend of Ahssun u199)
 
 Die Änderungen aus der Analyse von Legend of Ahssun sind am Code der Mod geprüft und, wo es dabei steht, im automatischen Testlauf; im echten Spielablauf hat sie noch niemand gesehen.

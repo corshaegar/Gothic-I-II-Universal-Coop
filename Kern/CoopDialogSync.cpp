@@ -926,7 +926,11 @@ namespace GOTHIC_ENGINE {
     // selben Wegpunkt, 1111 statt 820 NPCs, und weil die Namen dadurch verschieden wurden, liefen auch diese NPCs nicht mehr im Abgleich.
     // Die Merker gehoeren also zur Datei: Wer die Weltdatei eines Partners nimmt, nimmt auch dessen Merker dieser Welt (CoopSaveSync.cpp
     // WxApply, im Slot COOPMERKER_<Welt>.TXT). Wer seine eigene Datei behaelt, behaelt seine eigenen.
+    const char* CoopModWorldVar(const char* nm);   // u200 (P224): Mods\CoopMods.cpp - "worldVars" des Mod-Profils
+
     static const char* DlgWorldEntryVarWorld(const char* nm) {   // Welt wie WxWorldTag (ohne Pfad und Endung), NULL = kein Merker
+        if (const char* w = CoopModWorldVar(nm))   // u200 (P224): reine Waechter aus Welt-Inits einer Mod (LoA: Goldmine, Wueste, Tempel)
+            return w;
         static const struct { const char* name; const char* world; } list[] = {
             { "ENTEROW_KAPITEL", "OLDWORLD" }, { "ENTER_OLDWORLD_FIRSTTIME_TRIGGER_ONETIME", "OLDWORLD" }, { "ENTERNW_KAPITEL", "NEWWORLD" },
             { "ENTERADW_KAPITEL", "ADDONWORLD" }, { "ENTER_ADDONWORLD_FIRSTTIME_TRIGGER_ONETIME", "ADDONWORLD" }, { "ENTERDI_KAPITEL", "DRAGONISLAND" },
@@ -5254,6 +5258,26 @@ namespace GOTHIC_ENGINE {
         return best;
     }
 
+    // u200 (P223): Gruppenmitglieder (AIV_PARTYMEMBER, Gothic 1 auch AIV_MM_PARTYMEMBER) folgen ihrem Spieler - die des Hosts HERO,
+    // die eines Clients seiner Figur (P217). Die Regel "naechster Spieler" liesse eine Beschwoerung des Hosts zum Client laufen, sobald
+    // der naeher steht (LoA: Irrlicht, Begleit-Tiere in ZS_MM_RTN_FOLLOW_*)
+    static bool HeroStatePartyMember(oCNpc* npc) {
+        const int a = PartyAiv();
+        if (a >= 0 && npc->aiscriptvars[a])
+            return true;
+        static zCParser* pp = NULL;
+        static int mm = -1;
+        if (pp != parser) {
+            pp = parser;
+            mm = -1;
+            if (zCPar_Symbol* s = parser ? parser->GetSymbol(zSTRING("AIV_MM_PARTYMEMBER")) : NULL)
+                s->GetValue(mm, 0);
+            if (mm < 0 || mm >= COOP_AIV_MAX)
+                mm = -1;
+        }
+        return mm >= 0 && npc->aiscriptvars[mm];
+    }
+
     static void HeroStateNote(oCNpc* npc, oCNpc* t, const char* zs) {
         auto it = HeroStateTold.find(npc);
         if (it != HeroStateTold.end() && it->second == t)
@@ -5308,7 +5332,7 @@ namespace GOTHIC_ENGINE {
                     zs = _this->nextState.name.ToChar();
                 }
             }
-            if (listed && !npc->IsDead())
+            if (listed && !npc->IsDead() && (npc == CoopHeroStateTestNpc || !HeroStatePartyMember(npc)))   // u200 (P223)
                 if (oCNpc* t = npc == CoopHeroStateTestNpc && HeroStateCandidate(CoopHeroStateTestForce) ? CoopHeroStateTestForce : CoopHeroStatePick(npc))
                     if (t != player) {
                         HeroStateNote(npc, t, zs);

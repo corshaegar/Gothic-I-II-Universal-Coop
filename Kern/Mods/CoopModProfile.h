@@ -18,6 +18,9 @@
 //   "heroStates"      u199 (P221): KI-Zustaende von NPCs (ZS_...), deren Skripte HERO als "den Spieler hier" meinen (Beschwoerung um den
 //                     Helden, Hinrichtung, Arena-Regeln): waehrend des Zustands zeigt HERO auf den Spieler, gegen den der NPC kaempft,
 //                     sonst auf den naechsten Spieler. Schreibweise wie oben ("ZS_ARENA_*")
+//   "worldVars"       u200 (P224): reine Waechter aus Welt-Inits {"NAME": "WELT"} (WELT = Dateiname ohne Pfad und Endung, z. B. "GOLDMINE"):
+//                     wie Gothics Eintritts-Merker (P139) nie im Abgleich, sie gehoeren zur Weltdatei - wer die Welt mit der eigenen Datei
+//                     betritt, fuehrt ihren Init-Block selbst aus. Nur fuer Werte, die allein die Welt-Init setzt
 //   "configDefaults"  Vorgaben fuer Schalter aus GothicCoopConfig.json ("coop..."), solange die Datei des Spielers sie nicht setzt
 //   "notes"           Hinweise, die beim Start ins Log gehen (bekannte Grenzen der Mod)
 // Kommentare (// und /* */) sind erlaubt, Eintraege mit "_" am Anfang werden uebergangen. Hier wird nur gelesen, kein Log
@@ -38,6 +41,7 @@ struct CoopModData {
     std::vector<std::string> deltaPrefix;  // u199 (P213): "deltaVars" mit * am Ende (nur die Vorsilbe)
     std::vector<std::string> zsExact;      // u199 (P221): "heroStates" ohne *
     std::vector<std::string> zsPrefix;     // u199 (P221): "heroStates" mit * am Ende (nur die Vorsilbe)
+    std::map<std::string, std::string> worldVars;   // u200 (P224): "worldVars" Name -> Welt (beides gross)
     json configDefaults = json::object();  // "configDefaults" (nur "coop..."-Schalter)
     std::vector<std::string> notes;        // "notes"
     std::vector<std::string> warnings;     // uebergangene Eintraege (Log)
@@ -132,6 +136,20 @@ static bool CoopModParse(const std::string& text, const std::string& what, CoopM
                     prefix.push_back(s.substr(0, star));
             }
         }
+        else if (k == "worldVars") {   // u200 (P224)
+            if (!v.is_object()) {
+                d.warnings.push_back(what + ": \"worldVars\" ist kein Objekt { \"NAME\": \"WELT\" } - uebergangen");
+                continue;
+            }
+            for (auto c = v.begin(); c != v.end(); ++c) {
+                const std::string n = CoopModUpperTrim(c.key());
+                if (n.empty() || n.find('*') != std::string::npos || !c.value().is_string() || CoopModUpperTrim(c.value().get<std::string>()).empty()) {
+                    d.warnings.push_back(what + ": \"" + c.key() + "\" in \"worldVars\" ungueltig (Name ohne *, Welt als Text) - uebergangen");
+                    continue;
+                }
+                d.worldVars[n] = CoopModUpperTrim(c.value().get<std::string>());
+            }
+        }
         else if (k == "configDefaults") {
             if (!v.is_object()) {
                 d.warnings.push_back(what + ": \"configDefaults\" ist kein Objekt { ... } - uebergangen");
@@ -181,7 +199,7 @@ static void CoopModFinish(CoopModData& d) {
         v->erase(std::unique(v->begin(), v->end()), v->end());
     }
     if (d.perPcExact.empty() && d.perPcPrefix.empty() && d.heroExact.empty() && d.heroPrefix.empty() && d.deltaExact.empty() &&
-        d.deltaPrefix.empty() && d.zsExact.empty() && d.zsPrefix.empty() && d.configDefaults.empty() && d.notes.empty()) {
+        d.deltaPrefix.empty() && d.zsExact.empty() && d.zsPrefix.empty() && d.worldVars.empty() && d.configDefaults.empty() && d.notes.empty()) {
         d.stamp = 0;
         return;
     }
@@ -214,6 +232,11 @@ static void CoopModFinish(CoopModData& d) {
             all += s + ",";
         for (const std::string& s : d.zsPrefix)
             all += s + "*,";
+    }
+    if (!d.worldVars.empty()) {   // u200 (P224): nur mit Welt-Waechtern - aeltere Kennungen bleiben gleich
+        all += "|world:";
+        for (auto& w : d.worldVars)
+            all += w.first + "=" + w.second + ",";
     }
     d.stamp = CoopModFnv(all);
     if (!d.stamp)

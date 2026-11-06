@@ -30,6 +30,10 @@
     // Arena-Regeln). Waehrenddessen ist HERO der Spieler, gegen den der NPC kaempft, sonst der naechste Spieler.
     "heroStates": [ "ZS_MEINEMOD_RITUAL", "ZS_MEINEMOD_ARENA_*" ],
 
+    // ab u200: Waechter, die allein die Init einer Welt setzt (Name -> Weltdatei ohne Pfad und Endung). Sie gehoeren zur
+    // Weltdatei wie Gothics Eintritts-Merker: wer die Welt mit der eigenen Datei betritt, fuehrt den Block selbst aus.
+    "worldVars": { "MEINEMOD_MINE_ERSTES_MAL": "MEINEMINE" },
+
     // Vorgaben fuer Coop-Schalter aus GothicCoopConfig.json (nur "coop..."). Sie gelten nur, wenn die
     // GothicCoopConfig.json des Spielers sie nicht selbst setzt.
     "configDefaults": { "coopWorldProcessAuto": true },
