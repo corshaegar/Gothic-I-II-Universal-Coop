@@ -6,6 +6,19 @@ namespace GOTHIC_ENGINE {
     void CoopWpHostFeed(const json& j);                            // u33: CoopWorldProcess.cpp - Figur-Pakete an den Weltprozess (u38: auch Client)
     void CoopTempoReceive(json& e, const std::string& id);         // u181: CoopTempo.cpp
 
+    // u198 (P209): Der Host spielt ein anderes Spiel (andere Engine oder Mod, CoopGameMismatch in CoopCore.cpp) - Verbindung beenden,
+    // bevor sein Stand kommt (im Spiel hier, im Hauptmenue CoopMenuLobby.cpp). Nachfolgende Pakete verwirft die Paketschleife,
+    // sobald CoopClientStop gesetzt ist.
+    void CoopGameRefused(const std::string& why) {
+        static long long lastChatMs = -100000;
+        CoopClientStop = 1;
+        OthelloCompatLog("[%lld s, %s] Netz: Beitritt abgebrochen (P209) - %s", DiagSeconds(), DiagRole(), why.c_str());
+        if (GetCurrentMs() - lastChatMs > 5000) {
+            lastChatMs = GetCurrentMs();
+            ChatLog(string(why.c_str()), zCOLOR(255, 120, 80, 255));
+        }
+    }
+
     void ProcessCoopPacket(json e, ENetEvent packet) {
         auto id = e["id"].get<std::string>();
         auto type = e["type"].get<int>();
@@ -18,6 +31,9 @@ namespace GOTHIC_ENGINE {
             if (connectId == packet.peer->connectID) {
                 std::string name = e["name"].get<std::string>();
                 MyselfId = name.c_str();
+                std::string why;   // u198 (P209)
+                if (ClientThread && !ServerThread && CoopGameMismatch(e, why))
+                    CoopGameRefused(why);
             }
 
             return;
@@ -186,6 +202,8 @@ namespace GOTHIC_ENGINE {
             j["type"] = SYNC_PLAYER_NAME;
             j["name"] = string(playerName).ToChar();
             j["connectId"] = packet.peer->connectID;
+            j["spiel"] = CoopGameKey();        // u198 (P209): Engine und Mod - der Client trennt bei einem anderen Spiel
+            j["spielname"] = CoopGameShown();
             ReadyToSendJsons.enqueue(j);
 
             addSyncedNpc(playerName);

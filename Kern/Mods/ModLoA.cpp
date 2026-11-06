@@ -40,7 +40,14 @@ namespace GOTHIC_ENGINE {
                 "HERO_GOBACKWARD", "HERO_JUMPING", "HERO_STRAFING", "PLAYER_DREWWEAPON", "NMB", "NPCHALFHP", "NPCFOURTHHP", "NPCFULLHP",
                 "SAVINGDISABLED_LASTCHECK",
                 // Handles und Zeiger des eigenen Prozesses (LeGo-Leisten, Anim8, Lichtsystem FDL) - gehoeren zum geladenen Stand
-                "ICEBARHANDLE", "DESERTBARHANDLE", "MAGUS_FIRE_POS", "ID_NPCPTR", "ID_UNPCPTR", "ITM_PTR", "FDLINT_*", "FDL_*"
+                "ICEBARHANDLE", "DESERTBARHANDLE", "MAGUS_FIRE_POS", "ID_NPCPTR", "ID_UNPCPTR", "ITM_PTR", "FDLINT_*", "FDL_*",
+                // u199 (P211, Durchsicht der Mod-Analyse): Modus-Merker fuer Dauerschleifen, die auf jedem PC laufen (START_SCHLEIFEN_GLOBAL:
+                // EV_GIVE_ITEMS_FF, SHARP_FF, EV_DISMANTLE_RUNE_FF; SCHLEIFE_LOA/_ST/_FAST). Abgeglichen startete beim Partner der Modus mit:
+                // Inventar auf, Bewegungssperre, die Aktionstaste verschenkte/verkaufte/schliff seinen Gegenstand; sein Zuruecksetzen ging
+                // zurueck und brach den Modus des Spielers ab (beim Schleifen blieb dessen Sperre haengen)
+                "GIVEITEM_*", "START_SHARP", "DISMANTLE_RUNE_*",
+                // Zufallswurf je Abbau-Stunde (Hlp_Random, gleich danach abgefragt); eigener Held in der Heilzone des Magus (MAGUS_AREA)
+                "MULTINUGGET", "HERO_ENTERED_HEAL_AREA"
             ],
             "heroVars": [
                 // Lernen durch Uebung (B_FIGHTLERN, LOA_INCREASE_TALENT), Lernbuecher, Erfolgszaehler des Spielers
@@ -68,7 +75,35 @@ namespace GOTHIC_ENGINE {
                 "TIMEVAR_POISON_PROTECTION", "TIMEVAR_SPIEGEL", "TIMEVAR_WEIRDDRINK", "TIMEVAR_TELEAMULETT",
                 "AMBVAR_HERO_DROPPED_GOLD", "AMBVAR_OEDLAND_EFFECT_FIRST", "SYSVAR_OEDLAND_EFFECT", "SYSVAR_PICKUPWATER",
                 // Hinweise, die der Spieler schon gesehen hat
-                "AMBVAR_TIPPS_COLD", "AMBVAR_TIPPS_POISON", "AMBVAR_TIPPS_TELE"
+                "AMBVAR_TIPPS_COLD", "AMBVAR_TIPPS_POISON", "AMBVAR_TIPPS_TELE",
+                // u199 (P211, Durchsicht der Mod-Analyse): Werte des eigenen Helden, die der Abgleich bisher zum Partner schickte -
+                // Schrein-Segen (beim Ablauf zog SCHLEIFE_ALL die Punkte auf beiden PCs vom eigenen Helden ab: der Partner verlor Werte, die
+                // er nie bekam), Fluch-Punkte von Ines (der Tod des Fluch-NPCs gab sie beiden Helden zurueck; der Merker MISVAR_INES_FLUCH
+                // selbst bleibt gemeinsam, sonst erreichte das Aufheben durch den Partner den Verfluchten nicht), Charakterwerte aus
+                // Gespraechen, Erzabbau, gesammelte Teleportpunkte (TELEARRAY ist schon Heldenwert), Karotten-Zaehler (wie APPLE_BONUS),
+                // laufende Runen-Wirkung (36 Ticks Leben/Mana), Abklingzeit der Teleport-Zauber, Laehmungs-Tag, Spiegelwerte fuer Nathanael
+                "AMBVAR_SHRINEBUFF*", "TIMEVAR_SHRINEBUFF", "MISVAR_INES_FLUCH_*", "ATTVAR_*", "HERO_ERZHACKCHANCE", "TELE_COLLECTED",
+                "LOA_KAROTTEN_BONUS", "HPRUNE", "MANARUNE", "TIMEVAR_TELEKARL", "DAY_RITUAL_MINUS", "VAR_NATHANAEL_*",
+                // Rezepte aus Schriftstuecken (USE_* setzt, PC_ITFO_*_CONDITION fragt ab) und Erzabbau-Stunden (wie GOLDCOUNTER, P214)
+                "APFELKUERBIS", "APFELSCHNAPPS", "EINTOPFHONIG", "KUERBISSUPPE", "HUSTENSAFTBRAUEN", "ERZCOUNTER",
+                // aus der Wert-Einordnung der Analyse, am Code geprueft: einmalige Lesepult-Boni/Gelerntes (wie Gothics *_PERMANENT, StoryHeroVarsExtra),
+                // Gift-Schutz und Trank-Bonus des eigenen Helden, gesehener Hitze-Tipp, gezaehlte Kaefer-Eier, gelesene Orkschrift. Nicht:
+                // BEKANNT_* (Dialoge fragen sie ab), Briefe (SCKNOWS*), Lehr-Gespraeche (TALENT_SWEET_BOOZE: gilt fuer beide als erzaehlt)
+                "ARROWS_3_PERMANENT", "CHRONIC_PERMANENT", "CRIMERATE_PERMANENT", "DRESSMAKER_PERMANENT", "HISTORY_3_PERMANENT",
+                "LEGENDEN1_PERMANENT", "LEGENDEN2_PERMANENT", "LEGENDEN3_PERMANENT", "MINES_PERMANENT", "OEDLAND_PERMANENT", "POISON_PERMANENT",
+                "RELIGION_PERMANENT", "SHARP_PERMANENT", "AMBVAR_POISON_PROTECTED", "MISVAR_WEIRDDRINK_BONUS", "AMBVAR_TIPPS_HEAT", "AMBVAR_BUGEGGS",
+                "MISVAR_ORCRITE_READ"
+            ],
+            "deltaVars": [
+                // u199 (P213): nur von Mob-Skripten hochgezaehlt (+= 1) - loeschten/verbrannten beide gleichzeitig, rechneten beide vom selben
+                // Stand und der Abgleich setzte den Wert: ein Schritt ging verloren, "noch 1 Brand"/Knochen == 7 kam nie (Quest haengt)
+                "MISVAR_HF_BRAND_GELOESCHT", "MISVAR_ORCGHOST_BONES_BURNED"
+            ],
+            "heroStates": [
+                // u199 (P221): HERO meint hier den Spieler dort - Beschwoerung bei SUMPF_155 (Wld_SpawnNpcRange(HERO, ZOMBIE01_NORESPAWN)),
+                // Hinrichtung (AI_GotoNpc(self, hero)), Faustkampf-Arena, Kastor/Parcival und Magus-Illusionen (ZS_ATTACK_LOOP: hero als
+                // Gegner/Ziel). Sonst wirkten sie immer um den Host-Helden, auch wenn nur der Client dort stand bzw. kaempfte
+                "ZS_CIRCLE_LOA", "ZS_KILL_HERO", "ZS_ATTACK"
             ]
         })json";
     }

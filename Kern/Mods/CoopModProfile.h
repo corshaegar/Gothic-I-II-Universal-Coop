@@ -12,6 +12,12 @@
 //   "heroVars"        u197 (P207): Werte des eigenen Helden (Talente, Rezepte, Uebung, Erfolge, Boni) - nie im Story-Abgleich und
 //                     wie Gothics eigene Heldenwerte mit dem Helden gesichert (COOPHERO.TXT): beim Uebernehmen des Host-Stands
 //                     (bei jedem Verbinden) behaelt der Client seine eigenen. Schreibweise wie "perPcVars"
+//   "deltaVars"       u199 (P213): Zaehler, die nur Spieler-Skripte hochzaehlen (+= in Mob-, Gegenstands-, Dialogskripten) - der
+//                     Abgleich schickt die Aenderung statt des Werts, damit gleichzeitige Schritte beider Spieler nicht verloren gehen.
+//                     Nie fuer Zaehler aus Schleifen, die auf beiden PCs laufen (dort zaehlte jeder Schritt doppelt). Schreibweise wie oben
+//   "heroStates"      u199 (P221): KI-Zustaende von NPCs (ZS_...), deren Skripte HERO als "den Spieler hier" meinen (Beschwoerung um den
+//                     Helden, Hinrichtung, Arena-Regeln): waehrend des Zustands zeigt HERO auf den Spieler, gegen den der NPC kaempft,
+//                     sonst auf den naechsten Spieler. Schreibweise wie oben ("ZS_ARENA_*")
 //   "configDefaults"  Vorgaben fuer Schalter aus GothicCoopConfig.json ("coop..."), solange die Datei des Spielers sie nicht setzt
 //   "notes"           Hinweise, die beim Start ins Log gehen (bekannte Grenzen der Mod)
 // Kommentare (// und /* */) sind erlaubt, Eintraege mit "_" am Anfang werden uebergangen. Hier wird nur gelesen, kein Log
@@ -28,6 +34,10 @@ struct CoopModData {
     std::vector<std::string> perPcPrefix;  // "perPcVars" mit * am Ende (nur die Vorsilbe), gross, sortiert
     std::vector<std::string> heroExact;    // u197 (P207): "heroVars" ohne *, gross, sortiert
     std::vector<std::string> heroPrefix;   // u197 (P207): "heroVars" mit * am Ende (nur die Vorsilbe)
+    std::vector<std::string> deltaExact;   // u199 (P213): "deltaVars" ohne *
+    std::vector<std::string> deltaPrefix;  // u199 (P213): "deltaVars" mit * am Ende (nur die Vorsilbe)
+    std::vector<std::string> zsExact;      // u199 (P221): "heroStates" ohne *
+    std::vector<std::string> zsPrefix;     // u199 (P221): "heroStates" mit * am Ende (nur die Vorsilbe)
     json configDefaults = json::object();  // "configDefaults" (nur "coop..."-Schalter)
     std::vector<std::string> notes;        // "notes"
     std::vector<std::string> warnings;     // uebergangene Eintraege (Log)
@@ -95,13 +105,15 @@ static bool CoopModParse(const std::string& text, const std::string& what, CoopM
             else
                 d.warnings.push_back(what + ": \"name\" ist kein Text - uebergangen");
         }
-        else if (k == "perPcVars" || k == "heroVars") {   // u197 (P207): "heroVars" in derselben Schreibweise
+        else if (k == "perPcVars" || k == "heroVars" || k == "deltaVars" || k == "heroStates") {   // u197 (P207), u199 (P213, P221)
             if (!v.is_array()) {
                 d.warnings.push_back(what + ": \"" + k + "\" ist keine Liste [ ... ] - uebergangen");
                 continue;
             }
-            std::vector<std::string>& exact = k == "heroVars" ? d.heroExact : d.perPcExact;
-            std::vector<std::string>& prefix = k == "heroVars" ? d.heroPrefix : d.perPcPrefix;
+            std::vector<std::string>& exact = k == "heroVars" ? d.heroExact : k == "deltaVars" ? d.deltaExact : k == "heroStates" ? d.zsExact :
+                d.perPcExact;
+            std::vector<std::string>& prefix = k == "heroVars" ? d.heroPrefix : k == "deltaVars" ? d.deltaPrefix : k == "heroStates" ? d.zsPrefix :
+                d.perPcPrefix;
             for (const json& x : v) {
                 if (!x.is_string()) {
                     d.warnings.push_back(what + ": Eintrag in \"" + k + "\" ist kein Text - uebergangen");
@@ -163,12 +175,13 @@ static unsigned CoopModFnv(const std::string& s) {
 
 // Listen ordnen, doppelte weg, Pruefsumme ueber alle Daten (gleiche Daten in anderer Reihenfolge = gleiche Pruefsumme, ausser "notes")
 static void CoopModFinish(CoopModData& d) {
-    for (std::vector<std::string>* v : { &d.perPcExact, &d.perPcPrefix, &d.heroExact, &d.heroPrefix }) {
+    for (std::vector<std::string>* v : { &d.perPcExact, &d.perPcPrefix, &d.heroExact, &d.heroPrefix, &d.deltaExact, &d.deltaPrefix,
+        &d.zsExact, &d.zsPrefix }) {
         std::sort(v->begin(), v->end());
         v->erase(std::unique(v->begin(), v->end()), v->end());
     }
-    if (d.perPcExact.empty() && d.perPcPrefix.empty() && d.heroExact.empty() && d.heroPrefix.empty() && d.configDefaults.empty() &&
-        d.notes.empty()) {
+    if (d.perPcExact.empty() && d.perPcPrefix.empty() && d.heroExact.empty() && d.heroPrefix.empty() && d.deltaExact.empty() &&
+        d.deltaPrefix.empty() && d.zsExact.empty() && d.zsPrefix.empty() && d.configDefaults.empty() && d.notes.empty()) {
         d.stamp = 0;
         return;
     }
@@ -186,6 +199,20 @@ static void CoopModFinish(CoopModData& d) {
         for (const std::string& s : d.heroExact)
             all += s + ",";
         for (const std::string& s : d.heroPrefix)
+            all += s + "*,";
+    }
+    if (!d.deltaExact.empty() || !d.deltaPrefix.empty()) {   // u199 (P213): nur mit Zaehlern - aeltere Kennungen bleiben gleich
+        all += "|delta:";
+        for (const std::string& s : d.deltaExact)
+            all += s + ",";
+        for (const std::string& s : d.deltaPrefix)
+            all += s + "*,";
+    }
+    if (!d.zsExact.empty() || !d.zsPrefix.empty()) {   // u199 (P221): nur mit Zustaenden - aeltere Kennungen bleiben gleich
+        all += "|zs:";
+        for (const std::string& s : d.zsExact)
+            all += s + ",";
+        for (const std::string& s : d.zsPrefix)
             all += s + "*,";
     }
     d.stamp = CoopModFnv(all);

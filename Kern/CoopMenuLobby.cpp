@@ -63,6 +63,7 @@ namespace GOTHIC_ENGINE {
         std::set<std::string> have;   // Kennungen der Host-Staende, zu denen dieser Client einen eigenen Helden hat
         std::set<std::string> runs;   // v93: Durchlaeufe, die dieser Client kennt
         std::string nick;             // v93: Spielername (Durchlauf-Kennung)
+        std::string why;              // u198 (P209): warum er nicht passt, wenn nicht die Fassung (anderes Spiel)
     };
 
     struct CoopLobbyState {
@@ -194,6 +195,8 @@ namespace GOTHIC_ENGINE {
         j["pc"] = CoopSaveSyncPcId();   // v76: feste PC-Kennung (Spielstaende gehoeren dem PC, nicht der Rolle)
         j["nick"] = MyNickname.ToChar();   // v93: fuer die Durchlauf-Kennung (Datum_Host_Mitspieler)
         j["profil"] = CoopModProfileStamp();   // u194 (P196): Mod-Profil mit Pruefsumme seiner Daten (Mods\CoopMods.cpp)
+        j["spiel"] = CoopGameKey();            // u198 (P209): Engine und Mod - anderes Spiel passt nicht (CoopCore.cpp)
+        j["spielname"] = CoopGameShown();
         LobbySend(j);
     }
 
@@ -280,6 +283,7 @@ namespace GOTHIC_ENGINE {
                 return false;
             }
             if (!p.second.hello) { why = p.first + CoopTr(" ist verbunden, Abgleich l" COOP_AE "uft noch.", " is connected, handshake running."); return false; }
+            if (!p.second.verOk && !p.second.why.empty()) { why = p.first + ": " + p.second.why; return false; }   // u198 (P209)
             if (!p.second.verOk) { why = p.first + CoopTr(" hat Fassung ", " has version ") + p.second.ver + CoopTr(", hier ", ", here ") + COOP_FASSUNG + CoopTr(" - bitte gleiche Fassung einspielen.", " - please install the same version."); return false; }
             if (!p.second.haveKnown) { why = CoopTr("Pr" COOP_UE "fe die gemeinsamen Spielst" COOP_AE "nde bei ", "Checking shared saves with ") + p.first + " ..."; return false; }
         }
@@ -303,7 +307,9 @@ namespace GOTHIC_ENGINE {
             const std::string ver = e.contains("ver") && e["ver"].is_string() ? e["ver"].get<std::string>() : std::string("?");
             const int coop = e.contains("coop") && e["coop"].is_number() ? e["coop"].get<int>() : -1;
             const std::string oth = e.contains("othello") && e["othello"].is_string() ? e["othello"].get<std::string>() : std::string("?");
-            const bool ok = ver == COOP_FASSUNG && coop == COOP_VERSION;
+            std::string gameWhy;   // u198 (P209): anderes Spiel (Engine/Mod) passt nicht, auch bei gleicher Fassung
+            const bool gameOk = !CoopGameMismatch(e, gameWhy);
+            const bool ok = ver == COOP_FASSUNG && coop == COOP_VERSION && gameOk;
             if (e.contains("pc") && e["pc"].is_string())   // v76
                 CoopSaveSyncNotePc(e["pc"].get<std::string>(), from);
             const std::string nick = e.contains("nick") && e["nick"].is_string() ? e["nick"].get<std::string>() : std::string();   // v93
@@ -314,10 +320,11 @@ namespace GOTHIC_ENGINE {
                 p.ver = ver;
                 p.othello = oth;
                 p.verOk = ok;
+                p.why = gameWhy;
                 p.nick = nick;
-                LobbyLog("Host: %s meldet Fassung %s (GT %d), Othello %s - %s%s%s", from.c_str(), ver.c_str(), coop, oth.c_str(),
+                LobbyLog("Host: %s meldet Fassung %s (GT %d), Othello %s - %s%s%s%s%s", from.c_str(), ver.c_str(), coop, oth.c_str(),
                     ok ? "passt" : "PASST NICHT", oth != LobbyOthelloStamp() ? " (Othello-Skripte verschieden!)" : "",
-                    LobbyProfileDiff(e).c_str());
+                    LobbyProfileDiff(e).c_str(), gameOk ? "" : " - P209: ", gameWhy.c_str());
                 if (ok)
                     LobbySendSlots();
             }
@@ -429,6 +436,8 @@ namespace GOTHIC_ENGINE {
             j["type"] = SYNC_PLAYER_NAME;
             j["name"] = name.ToChar();
             j["connectId"] = ev.peer->connectID;
+            j["spiel"] = CoopGameKey();        // u198 (P209): Engine und Mod - der Client trennt bei einem anderen Spiel
+            j["spielname"] = CoopGameShown();
             ReadyToSendJsons.enqueue(j);
             CoopSaveSyncPeerJoined();
             auto d = new PeerData();
@@ -469,6 +478,9 @@ namespace GOTHIC_ENGINE {
         }
     }
 
+    static void LobbyResetClient();   // weiter unten
+    void CoopGameRefused(const std::string& why);   // u198 (P209): PacketProcessor.cpp
+
     static void LobbyClientEvent(ENetEvent& ev) {
         if (ev.type != ENET_EVENT_TYPE_RECEIVE) {
             if (ev.packet)
@@ -485,6 +497,14 @@ namespace GOTHIC_ENGINE {
             if (j.contains("connectId") && j["connectId"].get<enet_uint32>() == ev.peer->connectID && j.contains("name")) {
                 MyselfId = j["name"].get<std::string>().c_str();
                 LobbyLog("Client: vom Host als %s angemeldet", MyselfId.ToChar());
+                std::string why;   // u198 (P209): Host mit anderem Spiel - trennen wie "Verbindung trennen", Grund im Menue
+                if (CoopGameMismatch(j, why)) {
+                    CoopGameRefused(why);
+                    LobbyResetClient();
+                    Lobby.role = 0;
+                    LobbyNote(why, NULL);
+                    return;
+                }
                 if (!Lobby.helloSent) {
                     LobbySendHello();
                     Lobby.helloSent = true;
@@ -991,7 +1011,8 @@ namespace GOTHIC_ENGINE {
             return;
         const std::string ver = e.contains("ver") && e["ver"].is_string() ? e["ver"].get<std::string>() : std::string("?");
         const int coop = e.contains("coop") && e["coop"].is_number() ? e["coop"].get<int>() : -1;
-        const bool ok = ver == COOP_FASSUNG && coop == COOP_VERSION;
+        std::string gameWhy;   // u198 (P209): anderes Spiel bekommt keinen Stand
+        const bool ok = ver == COOP_FASSUNG && coop == COOP_VERSION && !CoopGameMismatch(e, gameWhy);
         const bool take = ok && LobbyJointSaves();   // v75: bei getrennten Spielstaenden kein gemeinsamer Stand
         if (e.contains("pc") && e["pc"].is_string())   // v76
             CoopSaveSyncNotePc(e["pc"].get<std::string>(), id);
@@ -1006,9 +1027,10 @@ namespace GOTHIC_ENGINE {
         if (take)
             j["take"] = 1;
         LobbySend(j);
-        LobbyLog("Host im Spiel: %s meldet sich aus dem Hauptmen" COOP_UE " (Fassung %s) - %s%s", id.c_str(), ver.c_str(),
+        LobbyLog("Host im Spiel: %s meldet sich aus dem Hauptmen" COOP_UE " (Fassung %s) - %s%s%s", id.c_str(), ver.c_str(),
             take ? "er bekommt den laufenden Stand" : (ok ? "Spielst" COOP_AE "nde getrennt, nur \"Host spielt schon\" gemeldet"
-                                                          : "andere Fassung, nur \"Host spielt schon\" gemeldet"), LobbyProfileDiff(e).c_str());
+                                                          : !gameWhy.empty() ? "anderes Spiel (P209), nur \"Host spielt schon\" gemeldet: "
+                                                          : "andere Fassung, nur \"Host spielt schon\" gemeldet"), gameWhy.c_str(), LobbyProfileDiff(e).c_str());
         if (take)
             CoopSaveSyncMenuPeerWantsState(id);
     }

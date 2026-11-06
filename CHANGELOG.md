@@ -4,6 +4,28 @@ Projektversion (Veröffentlichung) und je Spiel/Mod die Coop-Fassung `uNN`. Vorg
 (github.com/corshaegar/Othello-Coop, 0.1.0–0.1.2, nur Othello). Die Fassungen dazwischen (u1–u61) stehen im Entwicklungsverlauf;
 hier beginnt der Verlauf mit u62.
 
+## 0.7.0 – Legend of Ahssun vollständig analysiert, Begleiter und Beschwörungen des Clients, Skript-Ereignisse beim Client sofort (Gothic I u199, Gothic II u199, Othello u199, Legend of Ahssun u199)
+
+Die Änderungen aus der Analyse von Legend of Ahssun sind am Code der Mod geprüft und, wo es dabei steht, im automatischen Testlauf; im echten Spielablauf hat sie noch niemand gesehen.
+
+**Neu**
+
+- **Legend of Ahssun vollständig gelesen** (u198, u199): Alle 3.914 eigenen Funktionen der Mod wurden vor dem nächsten Test gelesen (Muster im Skript und ein lokales Sprachmodell) und jeder schwere Befund einzeln am Code geprüft. Daraus kommen die Änderungen unten; der Ablauf gilt jetzt für jede neue Mod.
+- **Begleiter und Beschwörungen des Clients** (u199): folgen jetzt dem Client. Bisher liefen sie immer zum Host, weil die KI der NPCs beim Host läuft (Gothic 2: Beschwörungen; Legend of Ahssun: angeworbene Begleiter). Log „Begleiter … gehoert zu FRIEND_n“.
+- **Spawns aus Skripten des Clients** (u199): `Wld_SpawnNpcRange` (Beschwörungen, Gräber, Fallen, Boss-Angriffe) gilt jetzt bei beiden; bisher entstanden diese NPCs nur beim Client.
+- **Zauber des Partners** (u199): Das Nachspielen eines Zaubers beim Partner hat keine Skript-Wirkung mehr. Bisher erzeugte eine Beschwörung des Partners bei einem selbst die feindliche Variante (Gothic 2), und Runen mit Dauerwirkung wirkten auch beim Partner.
+- **Mod-Profile: Zähler** (u199): neuer Eintrag `deltaVars` – Zähler, die nur Spieler-Skripte hochzählen, gleicht der Coop als Änderung ab; zwei gleichzeitige Schritte zählen beide.
+- **Mod-Profile: „der Spieler dort“** (u199): neuer Eintrag `heroStates` – in den gelisteten KI-Zuständen meint `HERO` den Spieler, gegen den der NPC kämpft, sonst den nächsten Spieler. Legend of Ahssun: Die Beschwörung im Sumpf, die Faustkampf-Arena, Kastor/Parcival und die Magus-Illusionen wirken jetzt um den Spieler, der dort ist; bisher immer um den Host (die Arena nahm sogar dem Host die Waffe ab, wenn der Client kämpfte). Der Mechanismus ist im automatischen Testlauf geprüft.
+- **Beitritt nur mit demselben Spiel** (u198): Engine und Mod gehen beim Verbinden mit; ein Client mit einem anderen Spiel trennt, bevor er einen Stand lädt (bisher stürzte etwa ein Gothic-2-Client an einem Gothic-1-Host beim Laden ab).
+
+**Korrekturen**
+
+- **Abstürze beim Client** (u199): Skripte, die einen eben eingefügten NPC oder Gegenstand sofort weiterbenutzen, griffen beim Client ins Leere (Legend of Ahssun: Kapitel 5 beim Gespräch mit Argos, Tor im Tempel des Erwachens, Arena Runde 9). Der Client legt das Objekt jetzt sofort selbst an, die Meldung des Hosts übernimmt es (im automatischen Testlauf in Gothic 2 und Legend of Ahssun geprüft).
+- **Legend of Ahssun** (u199): Geben und Verkaufen von Gegenständen, Schleifstein und Runen zerlegen starteten beim Partner mit (sein ausgewählter Gegenstand war weg, die Bewegungssperre blieb hängen); der Schrein-Segen nahm dem Partner beim Ablauf Werte, die er nie bekam; Fluch-Punkte, Rezepte, Lesepult-Boni, Charakterwerte und weitere Werte des eigenen Helden gehen nicht mehr zum Partner; gleichzeitig gelöschte Brände zählen beide (Quest „Löscharbeit“).
+- **Gothic 2** (u199): Die Übung beim Goldhacken bleibt beim eigenen Helden.
+- **Doppelte Ereignisse** (u199): Gleiche Einfügungen beider PCs binnen 3 s fasst der Host jetzt auch zusammen, wenn die Skripte den Wegpunkt je PC würfeln.
+- **Testlauf** (u198, u199): Zwei Läufe, die kurz nacheinander starten, nehmen nicht mehr denselben Port; der Engine-Vergleich hängt nicht mehr an der Schreibweise der Modulnamen; der Diagnose-Schritt mit dem Apfel klappt in Gothic 1 und Othello.
+
 ## 0.6.0 – Ein Coop für alle Spiele und Mods, Legend of Ahssun, Mod-Profile (Gothic I u197, Gothic II u197, Othello u197, Legend of Ahssun u197)
 
 **Neu**

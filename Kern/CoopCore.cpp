@@ -9,7 +9,7 @@ namespace GOTHIC_ENGINE {
     // OthelloCompatLog/DiagSeconds nicht (Plan Phase 1, Schritt 1). Hier steht nur engine-neutraler Code (Windows-Aufrufe,
     // keine Engine-Stelle); Othello-Eigenes bleibt in OthelloCompat.cpp.
 
-#define COOP_FASSUNG "u197"
+#define COOP_FASSUNG "u199"
 
     // Auswahl je Engine, z. B. Adressen: COOP_ENGINE_SWITCH(G1, G1A, G2, G2A). ENGINE wird erst an der Stelle des Gebrauchs
     // eingesetzt - in Mehr-Engine-Builds (MP x2/x4) bindet Interface.cpp Sources.h je Engine neu ein.
@@ -357,6 +357,39 @@ namespace GOTHIC_ENGINE {
     // u187: Legend of Ahssun (Mods\ModLoA.cpp)
     static inline bool CoopProfileIsLoA() {
         return CoopProfile().id == COOP_PROFILE_LOA;
+    }
+
+    // --- u198 (P209): Beitritt nur mit demselben Spiel ------------------------------------------------------------------------
+    // Release-Test 0.6.0 (05.11.): Zwei Testlaeufe lagen auf demselben Port, der Client der Gothic-2-Probe trat dem Gothic-1-Host bei,
+    // lud dessen Stand (WORLD.ZEN) und stuerzte in oCMobInter::Reset ab (P181 beendete Gothic). Beim Verbinden wurden nur Fassung
+    // und GT-Version verglichen - seit dem Universal-Installer melden Gothic 1 und Gothic 2 dieselbe Fassung. Jetzt gehen Engine und
+    // Mod mit: Kennung zum Vergleich (Engine, Spiel-Ini der Mod klein bzw. "othello" - unabhaengig von der Sprache des Mod-Titels),
+    // Name zur Anzeige. Ein Partner ohne Angabe (Fassung vor u198) gilt als gleich - dort greift schon der Fassungsvergleich.
+    static std::string CoopGameKey() {
+        const CoopProfileInfo& p = CoopProfile();
+        std::string mod = p.id == COOP_PROFILE_OTHELLO ? std::string("othello") : p.modIni;
+        for (auto& c : mod)
+            c = (char)tolower((unsigned char)c);
+        return mod.empty() ? p.game : p.game + "|" + mod;
+    }
+
+    static std::string CoopGameShown() {
+        const CoopProfileInfo& p = CoopProfile();
+        return p.name == p.game ? p.game : p.game + CoopTr(" mit ", " with ") + p.name;
+    }
+
+    // Spielt der Absender von e ein anderes Spiel? why: Text fuer Log und Anzeige
+    static bool CoopGameMismatch(const json& e, std::string& why) {
+        why.clear();
+        if (!e.contains("spiel") || !e["spiel"].is_string())
+            return false;
+        const std::string theirs = e["spiel"].get<std::string>();
+        if (theirs == CoopGameKey())
+            return false;
+        const std::string shown = e.contains("spielname") && e["spielname"].is_string() ? e["spielname"].get<std::string>() : theirs;
+        why = CoopTr("Der Partner spielt ", "The partner plays ") + shown + CoopTr(", hier ", ", here ") + CoopGameShown() +
+            CoopTr(" - gemeinsam geht nur dasselbe Spiel mit derselben Mod.", " - co-op needs the same game and mod on both PCs.");
+        return true;
     }
 
     // --- u195 (P204): Skript-Weiche - ein Paket fuer alle Mods einer Engine -------------------------------------------------

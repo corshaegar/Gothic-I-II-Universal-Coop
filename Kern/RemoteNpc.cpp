@@ -20,6 +20,9 @@ namespace GOTHIC_ENGINE {
     void CoopFightSound(oCNpc* attacker, oCNpc* victim);
     void CoopApplyHitResult(oCNpc* puppet, json& u, const std::string& who);
     bool CoopLeadIsRemote(oCNpc* npc);   // v72/v73: CoopCombatLead.cpp - NPC fuehrt gerade ein Client im Kampf
+    // u199 (P216): Nachspielen eines Zaubers ohne Skript-Wirkung (CoopDialogSync.cpp)
+    void CoopSpellReplayBegin();
+    void CoopSpellReplayEnd(const char* spell);
 
     // v74 (Nutzer: "wenn ein NPC etwas macht und der Client ihn niederschlaegt, dann macht beim Host der NPC weiter, z. B. schleifen,
     // kochen"; Test v73: NON_1501 in ZS_COOK und NON_1502 in ZS_SMITH_SHARP nach dem K.o. beim Host mit HP 1 weiter am Mob).
@@ -825,8 +828,13 @@ namespace GOTHIC_ENGINE {
                             book->Spell_Setup(0, npc, nullVob);
                         }
 
+                        // u199 (P216): die Skripte des Zaubers (SPELL_LOGIC_*, SPELL_CAST_*) laufen hier mit SELF = Figur noch einmal -
+                        // ihre Welt-Externals sind waehrenddessen wirkungslos, geaenderte Skript-Werte setzt GT danach zurueck
+                        const zSTRING spellName = selectedSpell->GetName();
+                        CoopSpellReplayBegin();
                         book->Spell_Invest();
                         book->Spell_Cast();
+                        CoopSpellReplayEnd(spellName.ToChar());
                     }
                 }
             }

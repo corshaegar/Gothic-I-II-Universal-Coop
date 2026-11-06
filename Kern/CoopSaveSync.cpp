@@ -2006,6 +2006,10 @@ namespace GOTHIC_ENGINE {
         if (ServerThread && !j.contains("by"))
             j["by"] = MyselfId.ToChar();
         j["pc"] = CoopMyPc();   // v76: feste PC-Kennung des Absenders (weitergeleitete Pakete behalten die des Urhebers)
+        if (!j.contains("spiel")) {   // u198 (P209): Engine und Mod des Absenders (Host prueft die Anfrage des Clients)
+            j["spiel"] = CoopGameKey();
+            j["spielname"] = CoopGameShown();
+        }
         CoopTraceCount(TRACE_SENT, type);
         ReadyToSendJsons.enqueue(j);
     }
@@ -3983,6 +3987,16 @@ namespace GOTHIC_ENGINE {
                         return;
                     }
                     const bool join = why == "connect" || why == "resume";
+                    std::string gameWhy;   // u198 (P209): Client mit anderem Spiel (Engine/Mod) bekommt keinen Stand - er trennt selbst
+                    if (CoopGameMismatch(e, gameWhy)) {
+                        SaveSyncLog("%s fordert den Host-Stand an - abgelehnt (P209): %s", id.c_str(), gameWhy.c_str());
+                        json j;
+                        j["to"] = id;
+                        j["nojoin"] = 1;
+                        j["sid"] = "";
+                        SaveSyncSend(j, SYNC_LOAD_REQ);
+                        return;
+                    }
                     // v75: "Beim Verbinden: eigenen Stand behalten" - die Anfrage nach dem Verbinden gilt dann nicht (F6 schon)
                     if (join && !CoopRuleTakeOnConnect()) {
                         SaveSyncLog("%s %s - Host-Stand wird nicht uebernommen (Einstellung: eigenen Stand behalten)", id.c_str(),

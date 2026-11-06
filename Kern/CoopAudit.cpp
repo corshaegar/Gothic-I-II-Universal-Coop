@@ -283,6 +283,12 @@ namespace GOTHIC_ENGINE {
         owner = name;
         const void* base = ModuleOf((const void*)target);
         off = (base && strcmp(name, "kein Modul") != 0) ? target - (DWORD)base : 0;
+        // u199 (P220, LoA-Volltest u199): Windows laedt dieselbe Datei je Ordner in der Schreibweise des Eintrags - beim Host
+        // "Shw32.dll", im Testordner "SHW32.DLL"; der Fingerabdruck wich nur deshalb ab ("Engine-Aenderungen wie beim Partner" FEHLER).
+        // Modulnamen gross vergleichen. Allgemein.
+        if (off || base)
+            for (char& c : owner)
+                c = (char)toupper((unsigned char)c);
     }
 
     // Speicher gegen Datei: .text (Bereiche) und .rdata (DWORDs, ohne Importtabelle). false = Datei/Sektion nicht lesbar.

@@ -21,6 +21,15 @@
     // Helden gesichert: beim Uebernehmen des Host-Stands (bei jedem Verbinden) behaelt jeder seine eigenen.
     "heroVars": [ "MEINEMOD_TALENT_*", "MEINEMOD_REZEPT_KUCHEN" ],
 
+    // ab u199: Zaehler, die nur Spieler-Skripte hochzaehlen (+= in Mob-, Gegenstands-, Dialogskripten) - der Coop
+    // schickt die Aenderung statt des Werts, zwei gleichzeitige Schritte zaehlen beide. Nie fuer Zaehler aus
+    // Schleifen, die auf beiden PCs laufen (dort zaehlte jeder Schritt doppelt).
+    "deltaVars": [ "MEINEMOD_FEUER_GELOESCHT" ],
+
+    // ab u199: KI-Zustaende von NPCs, deren Skripte mit HERO "den Spieler dort" meinen (Beschwoerung um den Helden,
+    // Arena-Regeln). Waehrenddessen ist HERO der Spieler, gegen den der NPC kaempft, sonst der naechste Spieler.
+    "heroStates": [ "ZS_MEINEMOD_RITUAL", "ZS_MEINEMOD_ARENA_*" ],
+
     // Vorgaben fuer Coop-Schalter aus GothicCoopConfig.json (nur "coop..."). Sie gelten nur, wenn die
     // GothicCoopConfig.json des Spielers sie nicht selbst setzt.
     "configDefaults": { "coopWorldProcessAuto": true },

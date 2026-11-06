@@ -1762,6 +1762,32 @@ namespace GOTHIC_ENGINE {
         return v == mine;
     }
 
+    // u198 (P209): Beitritt nur mit demselben Spiel - die Pruefung beim Verbinden (CoopGameMismatch) an festen Beispielen, ohne etwas
+    // zu trennen: gleiches Spiel und ein Partner ohne Angabe (vor u198) passen, eine andere Engine und eine andere Mod nicht
+    static std::string CTGameText;
+    static bool CTGameOk = false;
+
+    static bool AGame(std::string&) {
+        json same, none, engine, mod;
+        same["spiel"] = CoopGameKey();
+        engine["spiel"] = ENGINE == Engine_G1 ? "Gothic 2 NotR" : "Gothic 1";
+        engine["spielname"] = ENGINE == Engine_G1 ? "Gothic 2 NotR" : "Gothic 1";
+        mod["spiel"] = CoopGameKey() + "|coop_testmod.ini";
+        mod["spielname"] = CoopGameShown() + " + Testmod";
+        std::string w1, w2, w3, w4;
+        const bool a = !CoopGameMismatch(same, w1), b = !CoopGameMismatch(none, w2), c = CoopGameMismatch(engine, w3),
+            m = CoopGameMismatch(mod, w4);
+        CTGameOk = a && b && c && m && !w3.empty() && !w4.empty();
+        CTGameText = "hier \"" + CoopGameKey() + "\"; gleich " + (a ? "passt" : "ABGELEHNT") + ", ohne Angabe " + (b ? "passt" : "ABGELEHNT") +
+            ", andere Engine " + (c ? "abgelehnt" : "PASST") + ", andere Mod " + (m ? "abgelehnt" : "PASST") + " - \"" + w3 + "\"";
+        return true;
+    }
+
+    static bool JGame(const json&, const json&, std::string& d) {
+        d = CTGameText;
+        return CTGameOk;
+    }
+
     // u194 (P196): Leser der Profil-Datei an festen Beispielen (eigener Speicher, das laufende Profil bleibt, wie es ist), die
     // eingebauten Profile dieser Engine, dazu das laufende Profil: jeder Wert je PC ist vom Abgleich ausgenommen
     static std::string CTModFileText;
@@ -3921,12 +3947,20 @@ namespace GOTHIC_ENGINE {
         return CTFmt("Fleischwanzen in der Welt %d (tot %d), bis 30 m: %s", all, allDead, around.empty() ? "keine" : around.c_str());
     }
 
+    // u199 (P212): steht der eingefuegte NPC sofort hier (Zeiger im Instanz-Symbol neu)? Skripte benutzen ihn gleich weiter (LoA:
+    // SKELETON_LORD_LE.aivar[61], B_Attack(GNARBASH, hero)) - beim Client fehlte er bis zur Meldung des Hosts
+    static int CTSpawnHere = -1;
+
     static void CTSpawn(const char* inst) {
         CTSelfHero self;   // u27
         zSTRING wpName(CT.wpName.c_str());
-        DialogPushInt(parser->GetIndex(zSTRING(inst)));
+        const int idx = parser->GetIndex(zSTRING(inst));
+        zCPar_Symbol* s = parser->GetSymbol(idx);
+        const int before = s ? s->offset : 0;
+        DialogPushInt(idx);
         DialogPushString(&wpName);
         DialogExternal("WLD_INSERTNPC")();
+        CTSpawnHere = s && s->offset && s->offset != before ? 1 : 0;
     }
 
     // u7 (Testlauf u6, Client-Lauf am Aussenring des Alten Lagers): ein frisch eingefuegter Test-NPC, der hier schon tot liegt, ist
@@ -3957,8 +3991,12 @@ namespace GOTHIC_ENGINE {
                 return false;
             }
         }
-        d = CTFmt("%s beim Partner %d -> %d (soll +1), Name hier %s", what, a, b, name.empty() ? "-" : name.c_str());
-        return a >= 0 && b == a + 1 && !name.empty();
+        // u199 (P212): beim Client muss er sofort hier gestanden haben und danach den Namen des Hosts tragen (eigener uebernommen, kein zweiter)
+        const bool here = ServerThread || CTSpawnHere == 1;
+        d = CTFmt("%s beim Partner %d -> %d (soll +1), Name hier %s%s, hier %d um den Wegpunkt", what, a, b, name.empty() ? "-" : name.c_str(),
+            ServerThread ? "" : (CTSpawnHere == 1 ? ", sofort hier angelegt (P212)" : ", NICHT sofort hier angelegt (P212)"),
+            CTCountNpcs(inst, CT.haveWp ? CT.wpPos : player->GetPositionWorld(), 1500.f));
+        return a >= 0 && b == a + 1 && !name.empty() && here;
     }
 
     // v108 (Test v108: der Test-Molerat - 191 HP, "Schaden Gegner 150 %" - toetete im Host-Lauf den Host-Helden): freundlich,
@@ -7163,7 +7201,7 @@ namespace GOTHIC_ENGINE {
     static std::string CTDiagLine;
 
     static int CTDiagFreeRun(bool inUse) {
-        const int idx = parser->GetIndex(zSTRING("ITFO_APPLE"));
+        const int idx = parser->GetIndex(zSTRING(CTApple()));   // u198 (P210): Gothic 1 und Othello heissen ihn ITFOAPPLE
         oCItem* it = idx >= 0 ? CreateCoopItem(idx) : NULL;
         zCEventManager* em = player->GetEM();
         if (!it || !em)
@@ -7533,6 +7571,120 @@ namespace GOTHIC_ENGINE {
             CTLog("Haltung von %s von Hand zurueckgestellt (%d)", CTObsName.c_str(), CTObsAtt0);
         }
         CTObsNpc = NULL;
+    }
+
+    // u199 (P221): HERO in Zustaenden aus "heroStates" des Mod-Profils. Ein NPC in der Naehe gilt fuer den Schritt in jedem Zustand als
+    // gelistet, Ziel ist die Figur des Partners: In seinem naechsten DoAIState muss HERO auf die Figur zeigen und danach wieder auf den
+    // eigenen Helden. Die Wahl des Spielers (Gegner, sonst der naechste) prueft der Schritt an den Abstaenden. In jeder Mod, die Liste
+    // selbst gibt es nur mit Profil (LoA).
+    extern oCNpc* CoopHeroStateTestNpc;
+    extern oCNpc* CoopHeroStateTestForce;
+    extern oCNpc* CoopHeroStateTestSeen;
+    extern int CoopHeroStateTestHero;
+    oCNpc* CoopHeroStatePick(oCNpc* npc);
+    bool CoopLeadIsRemote(oCNpc* npc);
+    static oCNpc* CTHsNpc = NULL;
+    static oCNpc* CTHsFig = NULL;
+    static std::string CTHsName, CTHsPick, CTHsSpawnWp;
+    static int CTHsHeroBefore = 0, CTHsPickOk = -1;
+    static const char* CTHsInst() { return CTInstOf({ "SHEEP", "MOLERAT" }); }   // keine Fleischwanze: die zaehlt die Betreten-Markierung
+
+    static bool PHeroSt(std::string& why) {
+        CTHsNpc = NULL;
+        CTHsSpawnWp.clear();
+        CTHsFig = CTPartnerFig();
+        if (!player || !CTHsFig || CTHsFig->IsDead()) {
+            why = "keine Figur des Partners in dieser Welt";
+            return false;
+        }
+        const int aivParty = CoopAivIndex("AIV_PARTYMEMBER", COOP_AIV_PARTY_FALLBACK);
+        // bis 40 m: so weit setzt Gothic NPCs ein und laesst ihre KI laufen (LoA-Volltest u199: bis 15 m stand an der Teststelle keiner)
+        float best = 4000.f;
+        for (auto* l = CoopWorldNpcListFirst(ogame->GetGameWorld()); l; l = l->next) {
+            oCNpc* n = l->data;
+            if (!n || n == player || PlayerNpcs.count(n) || n->IsDead() || n->IsUnconscious() || !CTNpcPlaced(n) || n->sleepingMode != zVOB_AWAKE ||
+                IsPlayerTalkingWithNpc(n) || CoopNpcInDialogWithPlayer(n) || CoopDialogNpcBusy(n) || (ServerThread && CoopLeadIsRemote(n)) ||
+                (aivParty >= 0 && n->aiscriptvars[aivParty]))
+                continue;
+            const float d = CoopDist(n->GetPositionWorld(), player->GetPositionWorld());
+            if (d < best) {
+                best = d;
+                CTHsNpc = n;
+            }
+        }
+        if (!CTHsNpc) {   // LoA-Volltest u199 (Slot 8): an der Teststelle stand keiner - dann einen Test-NPC am naechsten Wegpunkt einsetzen
+            oCWorld* w = ogame->GetGameWorld();
+            zCWaypoint* wp = w && w->wayNet ? w->wayNet->GetNearestWaypoint(player->GetPositionWorld()) : NULL;
+            if (!wp || parser->GetIndex(zSTRING(CTHsInst())) < 0 || !DialogExternal("WLD_INSERTNPC")) {
+                why = "kein freier NPC bis 40 m um den eigenen Helden, kein Wegpunkt / WLD_INSERTNPC fuer einen Test-NPC";
+                return false;
+            }
+            CTHsSpawnWp = wp->GetName().ToChar();
+            CTHsName = std::string(CTHsInst()) + " (eingesetzt an " + CTHsSpawnWp + ")";
+            return true;
+        }
+        char name[160];
+        CDiagName(CTHsNpc, name, sizeof(name));
+        CTHsName = name;
+        return true;
+    }
+
+    static bool AHeroSt(std::string& why) {
+        if (!CTHsNpc && !CTHsSpawnWp.empty()) {   // Wld_InsertNpc wie ein Skript (beim Client sofort hier, P212) - der neue NPC steht im Instanz-Symbol
+            CTSelfHero self;
+            const int idx = parser->GetIndex(zSTRING(CTHsInst()));
+            zCPar_Symbol* s = parser->GetSymbol(idx);
+            const int before = s ? s->offset : 0;
+            zSTRING wpName(CTHsSpawnWp.c_str());
+            DialogPushInt(idx);
+            DialogPushString(&wpName);
+            DialogExternal("WLD_INSERTNPC")();
+            CTHsNpc = s && s->offset && s->offset != before ? (oCNpc*)s->offset : NULL;
+            if (!CTHsNpc) {
+                why = "Test-NPC nicht eingesetzt";
+                return false;
+            }
+            CTCalm(CTHsNpc);
+        }
+        if (!CTHsNpc) {
+            why = "kein NPC";
+            return false;
+        }
+        // Wahl ohne Testvorgabe: Gegner, sonst der naechste Spieler (3 m Vorsprung fuer den bisherigen) - hier ohne bisherigen
+        const float dH = CoopDist(CTHsNpc->GetPositionWorld(), player->GetPositionWorld());
+        const float dF = CoopDist(CTHsNpc->GetPositionWorld(), CTHsFig->GetPositionWorld());
+        oCNpc* pick = CoopHeroStatePick(CTHsNpc);
+        oCNpc* expect = CTHsNpc->enemy == player || CTHsNpc->enemy == CTHsFig ? CTHsNpc->enemy : dF < dH ? CTHsFig : player;
+        CTHsPickOk = pick == expect || (fabsf(dF - dH) < 300.f && (pick == player || pick == CTHsFig)) ? 1 : 0;
+        CTHsPick = CTFmt("Wahl %s (eigener Held %.1f m, Figur %.1f m%s)", pick == player ? "eigener Held" : pick == CTHsFig ? "Figur" : "?",
+            dH / 100.f, dF / 100.f, CTHsNpc->enemy ? ", mit Gegner" : "");
+        zCPar_Symbol* h = parser->GetSymbol(zSTRING("HERO"));
+        CTHsHeroBefore = h ? h->offset : 0;
+        CoopHeroStateTestSeen = NULL;
+        CoopHeroStateTestHero = 0;
+        CoopHeroStateTestForce = CTHsFig;
+        CoopHeroStateTestNpc = CTHsNpc;
+        return true;
+    }
+
+    static bool JHeroSt(const json&, const json&, std::string& d) {
+        zCPar_Symbol* h = parser->GetSymbol(zSTRING("HERO"));
+        const int now = h ? h->offset : 0;
+        const bool seen = CoopHeroStateTestSeen == CTHsFig && CoopHeroStateTestHero == (int)CTHsFig;
+        const bool back = now == CTHsHeroBefore && now == (int)player;
+        d = CTFmt("%s: HERO im Zustand %s %s, danach %s; %s; Profil: %s (P221)", CTHsName.c_str(), CTHsNpc ? CTHsNpc->state.curState.name.ToChar() : "?",
+            seen ? "auf der Figur" : CoopHeroStateTestSeen ? "auf einem anderen Spieler" : "nicht umgestellt (kein DoAIState?)",
+            back ? "wieder der eigene Held" : "NICHT zurueck", CTHsPick.c_str(),
+            CoopModHeroStatesAny() ? CTFmt("%u Zustaende", (unsigned)(CoopModDataGet().zsExact.size() + CoopModDataGet().zsPrefix.size())).c_str() :
+            "keine Zustaende (nur der Mechanismus)");
+        return seen && back && CTHsPickOk == 1;
+    }
+
+    static void CHeroSt() {
+        CoopHeroStateTestNpc = NULL;
+        CoopHeroStateTestForce = NULL;
+        CoopHeroStateTestSeen = NULL;
+        CTHsNpc = NULL;
     }
 
     // u167 (P174, Liste 6n): Mover, die selbst auf Beruehrung reagieren. Ein einfaches Tor, das ein Hebel ausloest (wie P134: 2STATE_TOGGLE, zu,
@@ -8112,6 +8264,7 @@ namespace GOTHIC_ENGINE {
         { "Fassung gleich",                      "H10",     100, 0,           NULL,        QBase,      ANone,       JVer,        NULL },
         { "Mod-Profil gleich",                   "P196",    100, 0,           NULL,        QBase,      ANone,       JModProfile, NULL },   // u194
         { "Mod-Profil-Datei lesen",              "P196",    100, CTF_ONCE,    NULL,        QBase,      AModFile,    JModFile,    NULL },   // u194
+        { "Anderes Spiel beim Verbinden abgelehnt", "P209", 100, CTF_ONCE,    NULL,        QBase,      AGame,       JGame,       NULL },   // u198
         { "Story-Video: Ueberspringen gilt fuer beide", "P103", 2500, CTF_LONG, PVid,      QVid,       AVid,        JVid,        NULL },   // u55
         { "Partner in meine Welt holen",         "P82",    3000, CTF_PARTNERWAIT, NULL,    QBase,      AFetch,      JFetch,      NULL },   // u39
         { "Welt gleich",                         "E4",      100, 0,           NULL,        QBase,      ANone,       JWorld,      NULL },
@@ -8240,6 +8393,7 @@ namespace GOTHIC_ENGINE {
         { "Wahrnehmungen nach gesperrter Reaktion", "P189", 100, CTF_ONCE,    PPerc,       QBase,      APerc,       JPerc,       CPerc },  // u188
         { "Ikarus/LeGo-Werte bleiben je PC",     "P190",    100, CTF_ONCE,    PLibVars,    QBase,      ALibVars,    JLibVars,    NULL },   // u189
         { "Gesperrte Beobachtung macht nicht feindlich", "P195", 100, CTF_ONCE, PObs,      QBase,      AObs,        JObs,        CObs },   // u193
+        { "HERO in Profil-Zustaenden: Spieler dort", "P221", 1500, CTF_ONCE, PHeroSt,    QBase,      AHeroSt,     JHeroSt,     CHeroSt },   // u199
         { "Figur ohne Boden bleibt",            "P145",   2500, 0,           PFigLift,    QBase,      AFigLift,    JFigLift,    CFigLift },   // u144
         { "Zauberwechsel der Figur",             "P148",   300,  0,           PSpellSwap,  QBase,      ASpellSwap,  JSpellSwap,  CSpellSwap }, // u146
         { "Spielende auch beim Partner",         "P149",   800,  0,           PExitSession, QExitSeen, AExitSession, JExitSession, NULL },    // u147

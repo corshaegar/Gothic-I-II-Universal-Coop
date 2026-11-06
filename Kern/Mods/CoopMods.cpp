@@ -39,6 +39,43 @@ namespace GOTHIC_ENGINE {
         return false;
     }
 
+    // u199 (P213): "deltaVars" des Profils - Zaehler, die der Story-Abgleich als Aenderung schickt (alter Wert mit im Paket); der
+    // Empfaenger zaehlt die Aenderung zu seinem Wert, statt ihn zu setzen (CoopDialogSync.cpp)
+    bool CoopModDeltaVar(const char* nm) {
+        if (!nm || !*nm)
+            return false;
+        const CoopModData& d = CoopModDataGet();
+        if (!d.deltaExact.empty() && std::binary_search(d.deltaExact.begin(), d.deltaExact.end(), std::string(nm)))
+            return true;
+        for (const std::string& s : d.deltaPrefix)
+            if (!strncmp(nm, s.c_str(), s.size()))
+                return true;
+        return false;
+    }
+
+    // u199 (P221): "heroStates" des Profils - KI-Zustaende, in denen HERO den Spieler dort meint (CoopDialogSync.cpp, DoAIState).
+    // CoopModHeroStatesAny ist der schnelle Vorab-Test (je Bild fuer jeden NPC gefragt).
+    bool CoopModHeroStatesAny() {
+        const CoopModData& d = CoopModDataGet();
+        return !d.zsExact.empty() || !d.zsPrefix.empty();
+    }
+
+    bool CoopModHeroState(const char* zs) {
+        if (!zs || !*zs)
+            return false;
+        const CoopModData& d = CoopModDataGet();
+        if (!d.zsExact.empty()) {   // ohne Kopie des Namens (je Bild fuer jeden NPC)
+            auto it = std::lower_bound(d.zsExact.begin(), d.zsExact.end(), zs,
+                [](const std::string& a, const char* b) { return strcmp(a.c_str(), b) < 0; });
+            if (it != d.zsExact.end() && !strcmp(it->c_str(), zs))
+                return true;
+        }
+        for (const std::string& s : d.zsPrefix)
+            if (!strncmp(zs, s.c_str(), s.size()))
+                return true;
+        return false;
+    }
+
     // u194 (P196): "configDefaults" des Profils in die gelesene GothicCoopConfig.json - nur Schalter, die die Datei des Spielers nicht
     // setzt (Plugin.cpp, Game_Entry gleich nach dem Lesen, vor allen anderen Lesern). Gemeldet wird in CoopModsInit.
     void CoopModApplyConfigDefaults() {
@@ -98,8 +135,19 @@ namespace GOTHIC_ENGINE {
             if (!hpre.empty())
                 hero += (hero.empty() ? "" : ", ") + hpre;
             const unsigned nh = (unsigned)(d.heroExact.size() + d.heroPrefix.size());
-            OthelloCompatLog("Mod-Profil %s (%s): %u Werte je PC%s%s, %u Heldenwerte%s%s, %u Vorgaben, %u Hinweise - Kennung \"%s\"",
-                p.name.c_str(), d.source.c_str(), n, n ? ": " : "", vars.c_str(), nh, nh ? ": " : "", hero.c_str(),
+            std::string delta = CoopModJoin(d.deltaExact, "", 8);   // u199 (P213)
+            const std::string dpre = CoopModJoin(d.deltaPrefix, "*", 4);
+            if (!dpre.empty())
+                delta += (delta.empty() ? "" : ", ") + dpre;
+            const unsigned nd = (unsigned)(d.deltaExact.size() + d.deltaPrefix.size());
+            std::string zs = CoopModJoin(d.zsExact, "", 8);   // u199 (P221)
+            const std::string zpre = CoopModJoin(d.zsPrefix, "*", 4);
+            if (!zpre.empty())
+                zs += (zs.empty() ? "" : ", ") + zpre;
+            const unsigned nz = (unsigned)(d.zsExact.size() + d.zsPrefix.size());
+            OthelloCompatLog("Mod-Profil %s (%s): %u Werte je PC%s%s, %u Heldenwerte%s%s, %u Zaehler als Aenderung%s%s, %u Zustaende mit HERO "
+                "des Spielers dort%s%s, %u Vorgaben, %u Hinweise - Kennung \"%s\"", p.name.c_str(), d.source.c_str(), n, n ? ": " : "", vars.c_str(),
+                nh, nh ? ": " : "", hero.c_str(), nd, nd ? ": " : "", delta.c_str(), nz, nz ? ": " : "", zs.c_str(),
                 (unsigned)d.configDefaults.size(), (unsigned)d.notes.size(), CoopModProfileStamp().c_str());
         }
         else if (p.id == COOP_PROFILE_MOD)
