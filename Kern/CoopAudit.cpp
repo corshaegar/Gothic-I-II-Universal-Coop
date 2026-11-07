@@ -286,7 +286,9 @@ namespace GOTHIC_ENGINE {
         // u199 (P220, LoA-Volltest u199): Windows laedt dieselbe Datei je Ordner in der Schreibweise des Eintrags - beim Host
         // "Shw32.dll", im Testordner "SHW32.DLL"; der Fingerabdruck wich nur deshalb ab ("Engine-Aenderungen wie beim Partner" FEHLER).
         // Modulnamen gross vergleichen. Allgemein.
-        if (off || base)
+        // u202 (P228, LoA-Volltest u202: "(Wert) hier 1 / KEIN MODUL beim Partner"): "kein Modul" selbst nicht gross schreiben - sonst
+        // greift die Zuordnung zu "(Wert)" unten nicht (eine Adresse ausserhalb jedes Moduls, je Prozess anders lesbar)
+        if ((off || base) && strcmp(name, "kein Modul") != 0)
             for (char& c : owner)
                 c = (char)toupper((unsigned char)c);
     }

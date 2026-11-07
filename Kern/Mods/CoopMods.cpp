@@ -5,6 +5,7 @@
 namespace GOTHIC_ENGINE {
 
     void CoopModLoAInit();   // Mods\ModLoA.cpp
+    void CoopModArcholosInit();   // u204: Mods\ModArcholos.cpp
 
     static const CoopModData& CoopModDataGet() {
         (void)CoopProfile();   // liest eingebautes Profil und Datei beim ersten Zugriff
@@ -39,6 +40,14 @@ namespace GOTHIC_ENGINE {
         return false;
     }
 
+    // u204 (P234): nur genau genannte Heldenwerte - fuer lokale Variablen (FUNKTION.NAME), die kein Muster treffen soll
+    bool CoopModHeroVarExact(const char* nm) {
+        if (!nm || !*nm)
+            return false;
+        const CoopModData& d = CoopModDataGet();
+        return !d.heroExact.empty() && std::binary_search(d.heroExact.begin(), d.heroExact.end(), std::string(nm));
+    }
+
     // u199 (P213): "deltaVars" des Profils - Zaehler, die der Story-Abgleich als Aenderung schickt (alter Wert mit im Paket); der
     // Empfaenger zaehlt die Aenderung zu seinem Wert, statt ihn zu setzen (CoopDialogSync.cpp)
     bool CoopModDeltaVar(const char* nm) {
@@ -48,6 +57,20 @@ namespace GOTHIC_ENGINE {
         if (!d.deltaExact.empty() && std::binary_search(d.deltaExact.begin(), d.deltaExact.end(), std::string(nm)))
             return true;
         for (const std::string& s : d.deltaPrefix)
+            if (!strncmp(nm, s.c_str(), s.size()))
+                return true;
+        return false;
+    }
+
+    // u207 (P241): "startVars" des Profils - Ablauf-Zaehler: der Story-Abgleich schickt nur den Start (0 -> Wert), danach zaehlt jeder PC
+    // selbst (CoopDialogSync.cpp, DlgStartVarHold); die Pruefrunde "Alle Skript-Variablen gleich" laesst sie aus (CoopSelfTest.cpp)
+    bool CoopModStartVar(const char* nm) {
+        if (!nm || !*nm)
+            return false;
+        const CoopModData& d = CoopModDataGet();
+        if (!d.startExact.empty() && std::binary_search(d.startExact.begin(), d.startExact.end(), std::string(nm)))
+            return true;
+        for (const std::string& s : d.startPrefix)
             if (!strncmp(nm, s.c_str(), s.size()))
                 return true;
         return false;
@@ -63,6 +86,11 @@ namespace GOTHIC_ENGINE {
             return NULL;
         auto it = d.worldVars.find(std::string(nm));
         return it != d.worldVars.end() ? it->second.c_str() : NULL;
+    }
+
+    // u201 (P226): "vobSync" des Profils - Objektnamen fuer den Abgleich von Sichtbarkeit/Kollision/Durchsichtigkeit/Aussehen (CoopDialogSync.cpp)
+    const std::vector<std::string>& CoopModVobSync() {
+        return CoopModDataGet().vobSync;
     }
 
     // u199 (P221): "heroStates" des Profils - KI-Zustaende, in denen HERO den Spieler dort meint (CoopDialogSync.cpp, DoAIState).
@@ -133,6 +161,9 @@ namespace GOTHIC_ENGINE {
         case COOP_PROFILE_LOA:
             CoopModLoAInit();
             break;
+        case COOP_PROFILE_ARCHOLOS:   // u204
+            CoopModArcholosInit();
+            break;
         default:
             break;
         }
@@ -162,9 +193,9 @@ namespace GOTHIC_ENGINE {
                 if (wv.size() < 200)
                     wv += (wv.empty() ? "" : ", ") + w.first + " (" + w.second + ")";
             OthelloCompatLog("Mod-Profil %s (%s): %u Werte je PC%s%s, %u Heldenwerte%s%s, %u Zaehler als Aenderung%s%s, %u Zustaende mit HERO "
-                "des Spielers dort%s%s, %u Welt-Waechter%s%s, %u Vorgaben, %u Hinweise - Kennung \"%s\"", p.name.c_str(), d.source.c_str(), n,
-                n ? ": " : "", vars.c_str(), nh, nh ? ": " : "", hero.c_str(), nd, nd ? ": " : "", delta.c_str(), nz, nz ? ": " : "", zs.c_str(),
-                (unsigned)d.worldVars.size(), d.worldVars.empty() ? "" : ": ", wv.c_str(),
+                "des Spielers dort%s%s, %u Welt-Waechter%s%s, %u Objekte im Abgleich, %u Vorgaben, %u Hinweise - Kennung \"%s\"", p.name.c_str(),
+                d.source.c_str(), n, n ? ": " : "", vars.c_str(), nh, nh ? ": " : "", hero.c_str(), nd, nd ? ": " : "", delta.c_str(), nz,
+                nz ? ": " : "", zs.c_str(), (unsigned)d.worldVars.size(), d.worldVars.empty() ? "" : ": ", wv.c_str(), (unsigned)d.vobSync.size(),
                 (unsigned)d.configDefaults.size(), (unsigned)d.notes.size(), CoopModProfileStamp().c_str());
         }
         else if (p.id == COOP_PROFILE_MOD)

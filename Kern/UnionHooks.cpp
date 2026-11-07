@@ -19,7 +19,27 @@ namespace GOTHIC_ENGINE {
         }
     }
 
+    // u205 (P239, Absturzprotokoll P238 aus Archolos, beim ersten Speichern 4 von 4): Endlos-Rekursion bis zum Stapelueberlauf - GTs
+    // Spieltakt speicherte (Autotest/Testinstanz: CoopDoSave -> CGameManager::Write_Savegame), Gothic zeichnete dabei ein Bild (oCGame::Render,
+    // Archolos zeigt beim Speichern einen eigenen Ladebildschirm), Union rief daraus wieder die Spieltakt-Rueckrufe aller Plugins, GTs
+    // Spieltakt speicherte erneut ... "IsSavingGame" setzt Union erst bei oCGame::WriteSavegame - das Zeichnen liegt davor. Jetzt laeuft
+    // GTs Spieltakt nie verschachtelt: ein Aufruf, waehrend er schon laeuft, kehrt sofort zurueck (auch ohne Speichern darf GT nicht mitten
+    // in einer Engine-Funktion Welt und Netz bearbeiten). Entwurf der Mod-Analyse, gegengelesen. Allgemein.
     void _Game_Loop() {
+        static int gtLoopDepth = 0;
+        static int gtLoopNested = 0;
+        struct DepthGuard {
+            DepthGuard() { ++gtLoopDepth; }
+            ~DepthGuard() { --gtLoopDepth; }
+        };
+        if (gtLoopDepth > 0) {
+            ++gtLoopNested;
+            if (gtLoopNested <= 3 || gtLoopNested % 1000 == 0)
+                OthelloCompatLog("[%lld s, %s] Spieltakt: GT-Spieltakt lief schon (verschachtelt aus einer Engine-Funktion, z. B. Bild beim "
+                    "Speichern) - uebersprungen, bisher %d, Zustand %s (P239)", DiagSeconds(), DiagRole(), gtLoopNested, PluginState.c_str());
+            return;
+        }
+        DepthGuard guard;
         if (CoopWpIsWorld()) {   // u33: Weltprozess - nur Figur, Held, Kamera (CoopWorldProcess.cpp), keine Coop-Module
             try {
                 CoopCrashFilterPulse();

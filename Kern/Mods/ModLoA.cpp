@@ -61,7 +61,10 @@ namespace GOTHIC_ENGINE {
                 "MAGUS_AREA_CHOSEN", "MAGUS_AREA_HEAL_TIME", "MAGUS_FEAR_COUNTER", "MAGUS_FEAR_TIME", "MAGUS_FIRE_COUNTER", "RANDOM_MAGUS_TELEPORT",
                 "AMBVAR_SHOOT_START", "AMBVAR_SHOOT_TOGETHER", "AMBVAR_SHOOT_WAIT", "MAX_TELE", "LOGLEVEL", "LOGTOFILEDISABLED",
                 "MULTIPAGEBOOK_*", "INSTRINT_*", "VAR_SMALLTALK_DISALLOWED_*", "TRD_LOA_*", "AMBIENTNPC_ID", "RANDOM_AMBIENT",
-                "VARIABELBEERDIALOGE", "FISH_RANDOM", "NEXTLINE", "NEXTPRINTLINE", "TIMEVAR_LOGENTRY"
+                "VARIABELBEERDIALOGE", "FISH_RANDOM", "NEXTLINE", "NEXTPRINTLINE", "TIMEVAR_LOGENTRY",
+                // u202 (P227, Fix-Vorschlaege der Mod-Analyse, gegengelesen): Kartenanzeige, Kommentar-Sperre, Zufall der Gilden-Gruesse, Handle-Zeiger,
+                // Abklingzeit des Magus-Teleports (Schadens-Haken je PC), Zaehler der Kaefer-Eier-Schleife (BUG_EGGS_FF je PC)
+                "OLDINSTANCE", "PLAYER_DRAWWEAPONCOMMENT", "ZUFALL", "HANDLESPOINTER", "TIMEVAR_MAGUS_TELE", "AMBVAR_EGGBROKEN"
             ],
             "heroVars": [
                 // Lernen durch Uebung (B_FIGHTLERN, LOA_INCREASE_TALENT), Lernbuecher, Erfolgszaehler des Spielers
@@ -113,7 +116,9 @@ namespace GOTHIC_ENGINE {
                 // Farbenmischen und Wasserpfeifen-Tabak (wie BOOZESTART), gezaehlte Teleportpunkte, Verwandlungs-Abklingzeit
                 "AMBVAR_ICE_COUNTER", "AMBVAR_DESERT_COUNTER", "AMBVAR_KNOWS_WATERSKILLS", "PLAYER_TALENT_KOCHEN",
                 "VAR_HERO_IS_INFECTED_BY_CANINE_MADNESS", "FINALDRAGONEQUIPMENT_ONCE", "FARBE_MISCHEN", "AMBVAR_PAY", "APFELSTART",
-                "DOPPELAPFELSTART", "HONIGSTART", "CNT_TELE", "TIMEVAR_DRAGONTRF"
+                "DOPPELAPFELSTART", "HONIGSTART", "CNT_TELE", "TIMEVAR_DRAGONTRF",
+                // u202 (P227): einmalige Lese-EP (Insanus, Legenden), Lesepult-Boni Pfeile 1/2 (wie ARROWS_3_PERMANENT), Menue Verbesserungen
+                "AMBVAR_INSANUS_XP", "AMBVAR_LEGENDEN_XP", "ARROWS_1_PERMANENT", "ARROWS_2_PERMANENT", "IMPROVEMENTSSTART"
             ],
             "deltaVars": [
                 // u199 (P213): nur von Mob-Skripten hochgezaehlt (+= 1) - loeschten/verbrannten beide gleichzeitig, rechneten beide vom selben
@@ -128,7 +133,9 @@ namespace GOTHIC_ENGINE {
                 "LEWAMISKKAPONECOUNTREKRUT", "MISVAR_ARENA_KAEMPFER", "MISVAR_HAMO_DRUNKEN", "MISVAR_HELPED_TRIV", "MISVAR_KARLWORKER",
                 "MISVAR_K_CRAZYMONK", "MISVAR_MERLOT_REZEPT_FIRST_TIME", "MISVAR_NEST_RECRUITS_COUNTER", "MISVAR_RACHEL_RUESTUNGEN",
                 "MISVAR_REKRUTIERUNG", "MISVAR_RODRIGO_BEUTE", "MISVAR_SCHNAEPSE", "MISVAR_SURRATOR_COUNTER", "MISVAR_TRIUMVIRAT_BAD_DEEDS",
-                "MISVAR_VERBANNTER_INFO", "MISVAR_WON_FIGHTS", "REKRUTENRESPECT", "VAR_CARL_BELEIDIGT", "VERTEILTESCHREIBEN"
+                "MISVAR_VERBANNTER_INFO", "MISVAR_WON_FIGHTS", "REKRUTENRESPECT", "VAR_CARL_BELEIDIGT", "VERTEILTESCHREIBEN",
+                // u202 (P227): Steuer beim Goldhacken (+= nur in den Abbau-Gespraechen des Helden, Minenwache/Rodg fragen den Rest ab)
+                "MISVAR_STEUERABGABE"
             ],
             "heroStates": [
                 // u199 (P221): HERO meint hier den Spieler dort - Beschwoerung bei SUMPF_155 (Wld_SpawnNpcRange(HERO, ZOMBIE01_NORESPAWN)),
@@ -153,7 +160,22 @@ namespace GOTHIC_ENGINE {
                 // Inventar des Untoten Drachen. Nicht MISVAR_WUESTE_FIRST (liest auch INIT_SUB_WORLD) und MISVAR_GM_INSERT_PARTY,
                 // MISVAR_TRIV_TOT (setzen auch Gespraeche)
                 "MISVAR_K4_GM_KILL_ONCE": "GOLDMINE", "MISVAR_UNDEADDRAGON_INV_GIVEN": "TOA"
-            }
+            },
+            "vobSync": [
+                // u201 (P226, Liste Nr. 10): per Ikarus im eigenen Prozess geaendert - Kollision der Barrikade und Bruecke beim Nest-Ausheben
+                // (Kapitel 5; beim Partner blieb die Barrikade fest), Blutspur (REVEALBLOOD), Folterbaenke (EVT_GROM*: visualAlpha), Bild
+                // bei Pico, gefaellte Baeume (SCHLEIFE_BL), Ork-Graeber (SetVobVisual aus Gespraechen und Schleifen)
+                "BL_RAID_BARRICADE_VISUAL", "BL_SAID_BRIDGE", "SIKAR_BLOOD_1", "LOA_PICO_BILD_KOLIBRI",
+                "GROM_FOLTER_01", "GROM_FOLTER_02", "GROM_FOLTER_03", "GROM_FOLTER_04", "GROM_FOLTER_05", "GROM_FOLTER_06", "GROM_FOLTER_07",
+                "GROM_FOLTER_08", "GROM_FOLTER_09",
+                "LOA_MAKASSE1", "LOA_MAKASSE2", "LOA_MAKASSE3", "LOA_MAKASSE4", "LOA_MAKASSE5", "LOA_MAKASSE6", "LOA_MAKASSE7",
+                "LOA_OBERSTGRAVE_01", "LOA_OBERSTGRAVE_02", "LOA_OBERSTGRAVE_03", "LOA_OBERSTGRAVE_04", "LOA_OBERSTGRAVE_05",
+                "LOA_OBERSTGRAVE_06", "LOA_OBERSTGRAVE_07", "LOA_OBERSTGRAVE_08", "LOA_OBERSTGRAVE_09", "LOA_OBERSTGRAVE_10",
+                "LOA_OBERSTGRAVE_11", "LOA_OBERSTGRAVE_12", "LOA_OBERSTGRAVE_13", "LOA_OBERSTGRAVE_19", "LOA_OBERSTGRAVE_20",
+                "LOA_OBERSTORCGRAVE_22", "TAR_OTAY_GRAVE",
+                // u202 (P227): Blut bei Farin (HIDEVOB aus dem Kapitelwechsel des Sprechenden), Teleport-Effekt (TELE_03_ON)
+                "FARIN_BLOOD_01", "FARIN_BLOOD_02", "FARIN_BLOOD_03", "TELE_03_PFX"
+            ]
         })json";
     }
 }

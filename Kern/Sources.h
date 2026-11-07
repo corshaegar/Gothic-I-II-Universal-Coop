@@ -50,6 +50,7 @@
 #include "CoopAudit.cpp"
 #include "CoopWorldProcess.cpp" // u33: Weltprozess - zweites Gothic beim Host, laedt die Welt eines Mitspielers (Shift+F12)
 #include "Mods\ModLoA.cpp"     // u187: Mod-Profil Legend of Ahssun (Fundament + Mod-Varianten, docs\MODULE.md)
+#include "Mods\ModArcholos.cpp" // u204: Mod-Profil The Chronicles of Myrtana: Archolos (ohne -game, erkannt an Data\KM_Scripts.mod)
 #include "Mods\CoopMods.cpp"   // u187: Verteiler der Mod-Profile (CoopModsInit)
 #include "Plugin.cpp"
 #include "CoopMenuLobby.cpp"   // v40: Mehrspieler im Hauptmenue (COOP_MENU.D, Haken auf zCMenu::HandleSelAction)

@@ -100,6 +100,22 @@ namespace GOTHIC_ENGINE {
     static const int INJECT_MAIN_Y = 2500, INJECT_MAIN_DY = 550;
     static const int INJECT_OPT_Y = 1600, INJECT_OPT_DY = 600;
 
+    // u204 (P233, The Chronicles of Myrtana: Archolos): Raster des Hauptmenues aus den Skript-Konstanten der Mod (MENU_MAIN_Y,
+    // MENU_MAIN_DY im Menue-Parser) statt fest Gothics 2500/550. Archolos setzt 3200/400 - "Neues Spiel" stand nicht, wo GT es
+    // erwartete ("Hauptmenue anders als erwartet (MENUITEM_MAIN_NEWGAME y 3200 statt 2500) - COOP nicht eingehaengt"), ohne COOP-Eintrag
+    // kein Hosten und Beitreten. Gothic 1/2 ohne Mod und Legend of Ahssun haben 2500/550 (unveraendert); Othello behaelt die festen
+    // Werte (seine Lagen sind daran geprueft). Allgemein.
+    static int MenuConstInt(const char* name, int def, int lo, int hi) {
+        zCParser* par = zCMenu::GetParser();
+        zCPar_Symbol* s = par ? par->GetSymbol(zSTRING(name)) : NULL;
+        int v = def;
+        if (s && s->type == zPAR_TYPE_INT)
+            s->GetValue(v, 0);
+        return (v >= lo && v <= hi) ? v : def;
+    }
+    static int MainY() { return CoopProfileIsOthello() ? INJECT_MAIN_Y : MenuConstInt("MENU_MAIN_Y", INJECT_MAIN_Y, 300, 7000); }
+    static int MainDY() { return CoopProfileIsOthello() ? INJECT_MAIN_DY : MenuConstInt("MENU_MAIN_DY", INJECT_MAIN_DY, 150, 1500); }
+
     // u21: Zeilen von MENU_MAIN beim ersten Aufbau nach dem Einhaengen (je Eintrag, siehe MainShowForState)
     static std::map<std::string, int> MainRowY;
 
@@ -167,7 +183,7 @@ namespace GOTHIC_ENGINE {
         // FEHLT). Die Zeile ist nur vorlaeufig: im Spiel legt MainShowForState alle sichtbaren Eintraege nach der Listenfolge neu
         if (title && exit2 >= 0) {
             title->m_parItemFlags = (title->m_parItemFlags & ~IT_ONLY_OUT_GAME) | IT_ONLY_IN_GAME;
-            title->m_parPosY = (std::min)(exitY + INJECT_MAIN_DY, 8192 - 300);
+            title->m_parPosY = (std::min)(exitY + MainDY(), 8192 - 300);   // u204 (P233): Raster der Mod
             if (InjectInsert(menu, exit2, title)) {   // u25: vor "Beenden"
                 if (menu->defaultInGame >= exit2)
                     menu->defaultInGame++;
@@ -223,18 +239,24 @@ namespace GOTHIC_ENGINE {
             // Beenden auf Zeile 8; bis u169 verlangte GT genau Gothics Namen ("Hauptmenue anders als erwartet ... COOP nicht
             // eingehaengt"). Steht "Neues Spiel" schon eine Zeile tiefer, war das Menue schon verschoben (neu aufgebaut) - dann bleibt
             // alles, wie es ist. Allgemein (G1/G2 ohne Mod und Mods mit Gothics Raster)
+            // u204 (P233): Raster der Mod (MainY/MainDY); verschoben werden nur die Zeilen bis "Beenden" - darunter darf eine Mod
+            // eigene Bilder auf dem Raster haben (Archolos: Abzeichen MENUITEM_MAIN_MOTY auf 6400 = 3200 + 400 * 8)
+            const int my = MainY(), mdy = MainDY();
             const int y0 = a.items[first]->m_parPosY;
-            if (y0 != INJECT_MAIN_Y && y0 != INJECT_MAIN_Y + INJECT_MAIN_DY) {
-                InjectLog("Hauptmen\xFC anders als erwartet (%s y %d statt %d) - COOP nicht eingeh\xE4ngt", names[0], y0, INJECT_MAIN_Y);
+            if (y0 != my && y0 != my + mdy) {
+                InjectLog("Hauptmen\xFC anders als erwartet (%s y %d statt %d, Raster der Mod %d + %d * n) - COOP nicht eingeh\xE4ngt", names[0],
+                    y0, my, my, mdy);
                 return;
             }
-            gridMoved = y0 != INJECT_MAIN_Y;
+            gridMoved = y0 != my;
+            const int ex = InjectFind(menu, "MENUITEM_MAIN_EXIT");
+            const int exitY = ex >= 0 ? a.items[ex]->m_parPosY : -1;
             rows = 0;
             bool exitSeen = false;
             for (int i = 0; i < a.num && rows < 16; i++) {
                 zCMenuItem* it = a.items[i];
                 const int y = it ? it->m_parPosY : -1;
-                if (!it || y < y0 || y > 8192 - 300 || (y - INJECT_MAIN_Y) % INJECT_MAIN_DY != 0)
+                if (!it || y < y0 || y > 8192 - 300 || (y - my) % mdy != 0 || (exitY >= 0 && y > exitY))
                     continue;
                 items[rows++] = it;
                 exitSeen = exitSeen || LobbyUpper(it->id) == "MENUITEM_MAIN_EXIT";
@@ -266,7 +288,7 @@ namespace GOTHIC_ENGINE {
         }
         else if (!gridMoved)
             for (int k = 0; k < rows; k++) {   // u170 (P178): alle Zeilen ab "Neues Spiel" eine tiefer
-                items[k]->m_parPosY += INJECT_MAIN_DY;
+                items[k]->m_parPosY += MainDY();   // u204 (P233)
                 moved++;
             }
         // Gothic 1: Vorauswahl ist ein Listenplatz - im Spiel weiter "Spiel speichern" (defaultInGame), beim Start COOP auf dem
@@ -283,7 +305,7 @@ namespace GOTHIC_ENGINE {
         static int logged = 0;
         if (logged++ < 5)
             InjectLog("Hauptmen\xFC: COOP vor \"Neues Spiel\" eingeh\xE4ngt (Platz %d), %d Eintr\xE4ge %s um %d nach unten, "
-                "Versionszeile %s - jetzt %d Eintr\xE4ge", first, moved, othello ? "Othellos" : "von Gothic", INJECT_MAIN_DY,
+                "Versionszeile %s - jetzt %d Eintr\xE4ge", first, moved, othello ? "Othellos" : "von Gothic", MainDY(),
                 version ? "da" : "FEHLT", a.num);
     }
 
@@ -435,6 +457,15 @@ namespace GOTHIC_ENGINE {
         InjectArray& a = InjectList(menu);
         const bool inGame = zCMenu::inGameMenu != 0;
         int hidden = 0, rows = 0, moved = 0, orphaned = 0;
+        // u204 (P233): Raster der Mod; Zeilen nur bis eine unter "Beenden" (dort steht "Hauptmenue" im Spiel) - ein Bild der Mod darunter
+        // auf dem Raster (Archolos MENUITEM_MAIN_MOTY) bleibt liegen
+        const int my = MainY(), mdy = MainDY();
+        int lastRow = 8192;
+        const int ex = InjectFind(menu, "MENUITEM_MAIN_EXIT");
+        if (ex >= 0 && a.items[ex]) {
+            auto f = MainRowY.find(LobbyUpper(a.items[ex]->id));
+            lastRow = (f != MainRowY.end() ? f->second : a.items[ex]->m_parPosY) + mdy;
+        }
         for (int i = 0; i < a.num; i++) {
             zCMenuItem* it = a.items[i];
             if (!it)
@@ -464,10 +495,10 @@ namespace GOTHIC_ENGINE {
                     }
                 }
             }
-            const int y = MainRowY[id] - INJECT_MAIN_Y;
-            if (y < 0 || y % INJECT_MAIN_DY != 0 || !it->m_bVisible)
-                continue;   // nicht im Raster (Ueberschrift, Fassungszeile) oder ausgeblendet
-            const int want = INJECT_MAIN_Y + INJECT_MAIN_DY * rows++;
+            const int y = MainRowY[id] - my;
+            if (y < 0 || y % mdy != 0 || MainRowY[id] > lastRow || !it->m_bVisible)
+                continue;   // nicht im Raster (Ueberschrift, Fassungszeile, Bild unter "Beenden") oder ausgeblendet
+            const int want = my + mdy * rows++;
             if (it->m_parPosY != want) {
                 it->m_parPosY = want;
                 moved++;

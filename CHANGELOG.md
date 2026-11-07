@@ -4,6 +4,24 @@ Projektversion (Veröffentlichung) und je Spiel/Mod die Coop-Fassung `uNN`. Vorg
 (github.com/corshaegar/Othello-Coop, 0.1.0–0.1.2, nur Othello). Die Fassungen dazwischen (u1–u61) stehen im Entwicklungsverlauf;
 hier beginnt der Verlauf mit u62.
 
+## 0.8.0 – The Chronicles of Myrtana: Archolos, Schlafen beim Client, Tote beim Weltwechsel, Handel (Gothic I u210, Gothic II u210, Othello u210, Legend of Ahssun u210, Archolos u210)
+
+**Neu**
+
+- **The Chronicles of Myrtana: Archolos** (u204–u210): Der Coop erkennt Archolos (an `Data\KM_Scripts.mod`) und bringt ein eigenes Mod-Profil mit – Werte je PC und je Held, Zähler der Zwischensequenzen, Abblenden und Abstands-Warnungen der Mod je PC, COOP-Eintrag im Hauptmenü der Mod. Behoben: Absturz beim ersten Speichern (u205), der Prolog auf dem Schiff kam im Coop nicht zu Ende (u207). Geprüft in langen automatischen Testläufen (zusammen etwa 7 Stunden ohne Absturz); gespielt sind bisher der Prolog und Kapitel 1 bis zu Fabios Höhle.
+- **Schlafen beim Client** (u204): Schläft der Client oder stellt ein Skript bei ihm die Uhr, gilt die neue Zeit für alle.
+- **Handel** (u201): Käufe und Verkäufe bei einem Händler gelten jetzt für beide – Ware und Gold des Händlers stimmen auf beiden PCs überein. Bisher konnte der Partner dieselbe Ware noch einmal kaufen. Allgemein (Gothic 1 und 2, alle Mods); im echten Spielablauf noch nicht gesehen.
+- **Mod-Profile: Objekt-Zustände** (u201): neuer Eintrag `vobSync` – Sichtbarkeit, Kollision, Durchsichtigkeit und Aussehen benannter Welt-Objekte, die Mod-Skripte direkt ändern, gelten für beide Spieler in derselben Welt. Legend of Ahssun: Die Barrikade beim Nest-Ausheben (Kapitel 5) ist jetzt auch für den Partner offen; Ork-Gräber, gefällte Bäume, Blutspur und Folterbänke sehen bei beiden gleich aus.
+
+**Korrekturen**
+
+- **Tote beim Weltwechsel** (u203): Nach dem Betreten einer Welt fehlten beim Partner manche Leichen (Legend of Ahssun: die tote Fleischwanze), und Tote, die der Host nach seinem Laden angelegt hatte, trugen beim Partner einen anderen Namen.
+- **Gespräche mit NPCs, die erst aufstehen müssen** (u206, u210): Der Client konnte NPCs, die lehnen, sitzen oder Wache stehen, nicht ansprechen. Jetzt stehen sie auf; beim Client spielen sie dabei nur das Aufstehen selbst, sonst bleiben sie beim Stand des Hosts.
+- **Skript-Teleports über Ikarus** (u204): Versetzt ein Skript beim Client einen NPC des Hosts mit Ikarus, geschieht das jetzt auch beim Host.
+- **Gleichzeitige Skript-Werte** (u204): Ändern beide PCs denselben Wert fast gleichzeitig (Archolos würfelt am Tageswechsel über 100 Ereignisse), behält der Host seinen Wert.
+- **Legend of Ahssun** (u202): 15 weitere Einträge im Mod-Profil aus der Durchsicht der Analyse.
+- **Absturzprotokoll** (u205, u210): Stapelüberläufe stehen jetzt in `system\GothicCoopStapel.log`; bei freigegebenen Gegenständen in NPC-Händen und bei verschwundenen Leichen nennt das Protokoll mehr Aufrufer.
+
 ## 0.7.1 – Legend of Ahssun: weitere Werte je PC und je Held, mehr NPC-Zustände mit „dem Spieler dort“ (Gothic I u200, Gothic II u200, Othello u200, Legend of Ahssun u200)
 
 Aus der weiteren Durchsicht der Analyse von Legend of Ahssun (Werte-Vorschläge und alle NPC-Zustände, die den Helden ansprechen), am Code geprüft, im automatischen Testlauf; im echten Spielablauf noch nicht gesehen.

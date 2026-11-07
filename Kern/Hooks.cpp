@@ -1094,6 +1094,19 @@ namespace GOTHIC_ENGINE {
             if (npc && !IsCoopPlayer(npc->GetObjectName())) {
                 if (NpcToUniqueNameList.count(npc) > 0) {
                     auto uniqueName = NpcToUniqueNameList[npc];
+                    // u210 (P244, Archolos-Dauerlauf u208: beim Client verschwanden die toten Hoehlen-Molerats 3 bis 7 s nach dem Tod, der Host
+                    // behielt die Leichen und schickte 12 min lang Pakete ins Leere; kein Skript der Mod raeumt Tote weg): wer eine Leiche aus
+                    // der Welt nimmt - Name, Abstand, Aufrufer (nicht beim Laden)
+                    if (npc->IsDead() && !IsLoadingLevel) {
+                        static CoopDiagBudget leicheBudget = { 0, 0 };
+                        if (CoopDiagAllow(leicheBudget, 20)) {
+                            static char trail[1800];   // nicht auf dem Stapel (CoopStackTrail liest ihn)
+                            CoopStackTrail(trail, sizeof(trail), 32);
+                            const float d = player ? (npc->GetPositionWorld() - player->GetPositionWorld()).LengthApprox() : -100.f;
+                            OthelloCompatLog("[%lld s, %s] Leiche entfernt: %s (%.0f m vom eigenen Helden) - Aufrufer: %s (P244)", DiagSeconds(),
+                                DiagRole(), uniqueName.ToChar(), d / 100.f, trail);
+                        }
+                    }
                     if (BroadcastNpcs.count(uniqueName) > 0) {
                         auto player = BroadcastNpcs[uniqueName];
                         if (player) {
@@ -1236,9 +1249,20 @@ namespace GOTHIC_ENGINE {
             return;
         }
 
-        if (puppets && (IsPlayerTalkingWithNpc(_this->homeVob) || CoopNpcInDialogWithPlayer(_this->homeVob))) {
-            Ivk_zCModel_StartAni(_this, a, b);
-            return;
+        // u206 (P240): auch beim Gespraechsbeginn - Aufstehen zum Gespraech (Helpers.cpp CoopTalkStarting)
+        if (puppets) {
+            const bool talking = IsPlayerTalkingWithNpc(_this->homeVob) || CoopNpcInDialogWithPlayer(_this->homeVob);
+            // u210 (P245): im Gespraechsbeginn nur Aufstehen, Drehen, Stehen (CoopTalkStartAniOk)
+            if (talking || (CoopTalkStarting(_this->homeVob) && a && CoopTalkStartAniOk(a->aniName.ToChar()))) {
+                if (!talking) {
+                    static CoopDiagBudget talkStartBudget = { 0, 0 };
+                    if (CoopDiagAllow(talkStartBudget, 30))
+                        OthelloCompatLog("[%lld s, %s] Gespraechsbeginn: %s spielt %s selbst (Aufstehen zum Gespraech, P240)",
+                            DiagSeconds(), DiagRole(), _this->homeVob->GetObjectName().ToChar(), a ? a->aniName.ToChar() : "?");
+                }
+                Ivk_zCModel_StartAni(_this, a, b);
+                return;
+            }
         }
 
         auto npc = (oCNpc*)_this->homeVob;
@@ -1558,13 +1582,190 @@ namespace GOTHIC_ENGINE {
     static DWORD CoopVehSeen[3] = { 0, 0, 0 };
     static long long CoopVehRenewMs = 0;
 
+    // u205 (P238): Stapelueberlauf im Absturzprotokoll. Archolos stuerzte beim ersten Speichern ab (07.11., 3 von 3; Windows: zweimal
+    // ntdll.dll+0x4DF48, einmal GOTHIC2COOP.DLL+0x1F7E5 = "push esi" nach "sub esp, 0x868" im Prolog von CoopLogArchiveOnce - der Stapel war
+    // erschoepft, eine Endlos-Rekursion). GTs Erfassung schrieb nichts: den Code 0xC00000FD beachtete der Handler nicht, und auf dem
+    // erschoepften Stapel kann er nicht ins Log schreiben (OthelloCompatLog braucht viel Stapel und einen kritischen Abschnitt). Jetzt kopiert
+    // der Handler beim ersten Stapelueberlauf nur Register und bis zu 64 KB des Stapels in einen festen Puffer und weckt einen eigenen
+    // Schreib-Faden (eigener Stapel), der system\GothicCoopStapel.log schreibt: Code-Zeiger auf dem Stapel, die haeufigsten (die Schleife der
+    // Rekursion) und die Skript-Spur (wie P199). Ohne Heap und ohne CRT-Dateien (Heap kann beschaedigt sein). Entwurf des Schreib-Fadens von
+    // der Mod-Analyse, gegengelesen und korrigiert. Allgemein (Windows).
+    static volatile LONG CoopStackOverflowSeen = 0;
+    static HANDLE CoopStackWriterThread = NULL, CoopStackWriterSignal = NULL, CoopStackWriterDone = NULL;
+    static DWORD CoopSO_Eip = 0, CoopSO_Esp = 0, CoopSO_Ebp = 0, CoopSO_From = 0, CoopSO_ThreadID = 0, CoopSO_StackLen = 0;
+    static BYTE CoopSO_StackBuf[65536];
+    static char CoopSO_Path[MAX_PATH] = "";
+
+    static void CoopSoWrite(HANDLE f, const char* fmt, ...) {
+        char line[600];
+        va_list ap;
+        va_start(ap, fmt);
+        int n = _vsnprintf(line, sizeof(line) - 1, fmt, ap);
+        va_end(ap);
+        if (n < 0 || n > (int)sizeof(line) - 1)
+            n = (int)sizeof(line) - 1;
+        line[n] = 0;
+        DWORD w = 0;
+        WriteFile(f, line, (DWORD)n, &w, NULL);
+    }
+
+    static bool CoopSoIsCode(DWORD v) {
+        MEMORY_BASIC_INFORMATION mbi;
+        if (v < 0x10000 || VirtualQuery((LPCVOID)v, &mbi, sizeof(mbi)) != sizeof(mbi))
+            return false;
+        return mbi.State == MEM_COMMIT && mbi.Type == MEM_IMAGE &&
+            (mbi.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)) != 0;
+    }
+
+    static void CoopSoWriteReport(HANDLE f) {
+        SYSTEMTIME st;
+        GetLocalTime(&st);
+        char w[160];
+        CoopCrashWhere(CoopSO_Eip, w, sizeof(w));
+        CoopSoWrite(f, "[%04d-%02d-%02d %02d:%02d:%02d] Stapelueberlauf (0xC00000FD) - GothicCoop %s | Faden %lu | Eip %s | Esp %08X | Ebp %08X | "
+            "kopiert ab %08X: %lu Bytes\r\n", st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, COOP_FASSUNG, CoopSO_ThreadID, w,
+            CoopSO_Esp, CoopSO_Ebp, CoopSO_From, CoopSO_StackLen);
+        struct SoCount { DWORD addr, count; };
+        static SoCount sum[512];
+        int nsum = 0, shown = 0;
+        CoopSoWrite(f, "Code-Zeiger auf dem Stapel (neueste zuerst, Abstand ab Esp):\r\n");
+        for (DWORD i = 0; i + 4 <= CoopSO_StackLen; i += 4) {
+            const DWORD v = *(const DWORD*)(CoopSO_StackBuf + i);
+            if (!CoopSoIsCode(v))
+                continue;
+            if (shown++ < 160) {
+                CoopCrashWhere(v, w, sizeof(w));
+                CoopSoWrite(f, "  +0x%05X  %s\r\n", CoopSO_From - CoopSO_Esp + i, w);
+            }
+            int j = 0;
+            while (j < nsum && sum[j].addr != v)
+                j++;
+            if (j < nsum)
+                sum[j].count++;
+            else if (nsum < 512) {
+                sum[nsum].addr = v;
+                sum[nsum].count = 1;
+                nsum++;
+            }
+        }
+        CoopSoWrite(f, "Haeufigste (Schleife der Rekursion):\r\n");
+        for (int i = 0; i < nsum && i < 25; i++) {
+            int m = i;
+            for (int j = i + 1; j < nsum; j++)
+                if (sum[j].count > sum[m].count)
+                    m = j;
+            const SoCount t = sum[i];
+            sum[i] = sum[m];
+            sum[m] = t;
+            CoopCrashWhere(sum[i].addr, w, sizeof(w));
+            CoopSoWrite(f, "  %4lu x %s\r\n", sum[i].count, w);
+        }
+        // Skript-Spur wie P199 (CoopScriptTrace), aber aus der Kopie des Stapels
+        zCParser* p = CoopScriptMapParser;
+        if (p && !CoopScriptMap.empty()) {
+            const DWORD base = (DWORD)p->stack.stack, size = (DWORD)p->stack.stacksize;
+            const unsigned char* code = (const unsigned char*)base;
+            const char* last = NULL;
+            int count = 0;
+            char trace[1200];
+            int n = _snprintf(trace, sizeof(trace), "Skript (neueste zuerst):");
+            for (DWORD i = 0; base && size && i + 4 <= CoopSO_StackLen && count < 40 && n > 0 && n + 2 < (int)sizeof(trace); i += 4) {
+                const DWORD v = *(const DWORD*)(CoopSO_StackBuf + i);
+                int off = -1;
+                if (v >= base && v < base + size)
+                    off = (int)(v - base);
+                else if (v >= 5 && v < size && code[v - 5] == zPAR_TOK_CALL && CoopScriptIsFuncStart(*(const int*)(code + v - 4)))
+                    off = (int)v;
+                if (off < 0)
+                    continue;
+                const char* nm = CoopScriptFuncAt(off);
+                if (!nm || nm == last)
+                    continue;
+                const int k = _snprintf(trace + n, sizeof(trace) - n, "%s%s", count ? " <- " : " ", nm);
+                if (k < 0)
+                    break;
+                n += k;
+                last = nm;
+                count++;
+            }
+            trace[sizeof(trace) - 1] = 0;
+            CoopSoWrite(f, "%s\r\n", count ? trace : "Skript: keine Skriptfunktion auf dem kopierten Stapel");
+        }
+        CoopSoWrite(f, "\r\n");
+    }
+
+    static DWORD WINAPI CoopStackWriterProc(LPVOID) {
+        for (;;) {
+            if (WaitForSingleObject(CoopStackWriterSignal, INFINITE) != WAIT_OBJECT_0)
+                continue;
+            HANDLE f = CreateFileA(CoopSO_Path, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+            if (f != INVALID_HANDLE_VALUE) {
+                __try {
+                    CoopSoWriteReport(f);
+                }
+                __except (EXCEPTION_EXECUTE_HANDLER) {
+                    CoopSoWrite(f, "(Lesefehler beim Schreiben des Berichts)\r\n");
+                }
+                CloseHandle(f);
+            }
+            SetEvent(CoopStackWriterDone);
+        }
+#pragma warning(suppress: 4702)   // nie erreicht - der Faden laeuft bis zum Ende des Prozesses
+        return 0;
+    }
+
+    static void CoopStackWriterStart() {
+        if (CoopStackWriterThread)
+            return;
+        strncpy(CoopSO_Path, CoopSystemFile("GothicCoopStapel.log").c_str(), sizeof(CoopSO_Path) - 1);   // jetzt - nach dem Absturz ohne Heap
+        CoopSO_Path[sizeof(CoopSO_Path) - 1] = 0;
+        CoopStackWriterSignal = CreateEventA(NULL, FALSE, FALSE, NULL);
+        CoopStackWriterDone = CreateEventA(NULL, FALSE, FALSE, NULL);
+        if (CoopStackWriterSignal && CoopStackWriterDone)
+            CoopStackWriterThread = CreateThread(NULL, 256 * 1024, &CoopStackWriterProc, NULL, 0, NULL);
+        if (!CoopStackWriterThread) {
+            if (CoopStackWriterSignal)
+                CloseHandle(CoopStackWriterSignal);
+            if (CoopStackWriterDone)
+                CloseHandle(CoopStackWriterDone);
+            CoopStackWriterSignal = CoopStackWriterDone = NULL;
+        }
+    }
+
     static LONG CALLBACK CoopFirstChanceHandler(struct _EXCEPTION_POINTERS* ep) {
         if (!ep || !ep->ExceptionRecord || !ep->ContextRecord)
             return EXCEPTION_CONTINUE_SEARCH;
         const DWORD code = ep->ExceptionRecord->ExceptionCode;
+        // u205 (P238): Stapelueberlauf - im Handler nur Register und Stapel kopieren, schreiben tut der eigene Faden (oben)
+        if (code == EXCEPTION_STACK_OVERFLOW) {
+            if (InterlockedExchange(&CoopStackOverflowSeen, 1) == 0) {
+                const CONTEXT* c = ep->ContextRecord;
+                CoopSO_Eip = c->Eip;
+                CoopSO_Esp = c->Esp;
+                CoopSO_Ebp = c->Ebp;
+                CoopSO_ThreadID = GetCurrentThreadId();
+                const NT_TIB* tib = (const NT_TIB*)NtCurrentTeb();
+                const DWORD lim = (DWORD)tib->StackLimit, top = (DWORD)tib->StackBase;
+                const DWORD from = c->Esp < lim ? lim : c->Esp;   // unter StackLimit ist nichts belegt
+                DWORD n = from < top ? top - from : 0;
+                if (n > sizeof(CoopSO_StackBuf))
+                    n = sizeof(CoopSO_StackBuf);
+                if (n)
+                    memcpy(CoopSO_StackBuf, (const void*)from, n);
+                CoopSO_From = from;
+                CoopSO_StackLen = n;
+                if (CoopStackWriterSignal && CoopStackWriterDone) {
+                    SetEvent(CoopStackWriterSignal);
+                    WaitForSingleObject(CoopStackWriterDone, 8000);
+                }
+            }
+            return EXCEPTION_CONTINUE_SEARCH;
+        }
         if (code != EXCEPTION_ACCESS_VIOLATION && code != EXCEPTION_ILLEGAL_INSTRUCTION && code != EXCEPTION_INT_DIVIDE_BY_ZERO &&
             code != EXCEPTION_PRIV_INSTRUCTION)
             return EXCEPTION_CONTINUE_SEARCH;
+        if (CoopStackOverflowSeen && GetCurrentThreadId() == CoopSO_ThreadID)
+            return EXCEPTION_CONTINUE_SEARCH;   // u205 (P238): in diesem Faden ist kein Stapel mehr fuer das Log
         if (CoopVehCount >= 3)
             return EXCEPTION_CONTINUE_SEARCH;
         if (InterlockedIncrement(&CoopVehInside) > 1) {   // Ausnahme beim Schreiben (Stapel lesen) - nicht noch einmal
@@ -1592,6 +1793,7 @@ namespace GOTHIC_ENGINE {
         if (CoopVehHandle && now - CoopVehRenewMs < 10000)
             return;
         CoopVehRenewMs = now;
+        CoopStackWriterStart();   // u205 (P238): Schreib-Faden fuer einen Stapelueberlauf (einmal)
         PVOID h = AddVectoredExceptionHandler(1, &CoopFirstChanceHandler);
         if (CoopVehHandle)
             RemoveVectoredExceptionHandler(CoopVehHandle);

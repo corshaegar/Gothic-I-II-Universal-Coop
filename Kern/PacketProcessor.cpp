@@ -153,6 +153,8 @@ namespace GOTHIC_ENGINE {
                 if (!IsPlayerTalkingWithAnybody() || CoopHostTimeSmall(d, h, m))
                     CoopApplyHostTime(d, h, m, "Paket des Hosts", e.contains("t") && e["t"].is_number() ? e["t"].get<float>() : -1.f);
             }
+            else if (ServerThread && id != "HOST" && e.contains("req"))   // u204 (P232): Uhr-Anfrage eines Clients (Schlafen, Skript)
+                CoopTimeRequestReceive(e, id);
             return;
         }
         if (cameIn) {

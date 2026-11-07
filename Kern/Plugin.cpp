@@ -548,13 +548,43 @@ namespace GOTHIC_ENGINE {
     void CoopDiffHpSaveEnd();
     void CoopDiffHpWorldGone();
 
+    // u201 (Liste 6g, Diagnose): In Legend of Ahssun fehlt nach dem Betreten die tote Fleischwanze der Markierung beim Partner (die Aepfel
+    // daneben sind da). LoA haengt CLEANUP_SAVING an oCGame::WriteSavegame: CHECKNPCS wirft NPCs mit Hlp_GetInstanceID < 0 aus der
+    // NPC-Liste der Welt. Hier: die markierte Wanze vor und nach dem Speichern - in der Liste? Instanz, Referenzen, tot, Blaetter.
+    oCNpc* CoopDiag6gNpc = NULL;
+    std::string CoopDiag6gName;
+    zCListSort<oCNpc>* CoopWorldNpcListFirst(oCWorld* world);   // OthelloCompat.cpp
+
+    static void CoopDiag6g(const char* when) {
+        if (!CoopDiag6gNpc || !ogame || !ogame->GetGameWorld())
+            return;
+        bool inList = false;
+        for (auto* l = CoopWorldNpcListFirst(ogame->GetGameWorld()); l; l = l->next)
+            if (l->data == CoopDiag6gNpc) {
+                inList = true;
+                break;
+            }
+        if (!inList) {
+            OthelloCompatLog("6g-Diagnose (%s): Fleischwanze %s NICHT mehr in der NPC-Liste der Welt", when, CoopDiag6gName.c_str());
+            if (!strcmp(when, "nach dem Speichern"))
+                CoopDiag6gNpc = NULL;   // Zeiger nicht mehr anfassen
+            return;
+        }
+        oCNpc* n = CoopDiag6gNpc;
+        OthelloCompatLog("6g-Diagnose (%s): Fleischwanze %s in der NPC-Liste, Instanz %d, Referenzen %d, tot %d, Blaetter %d, Heimatwelt %s",
+            when, CoopDiag6gName.c_str(), n->GetInstance(), n->refCtr, n->IsDead() ? 1 : 0, n->vobLeafList.GetNum(),
+            n->GetHomeWorld() == (zCWorld*)ogame->GetGameWorld() ? "diese" : "andere/keine");
+    }
+
     void Game_SaveBegin() {
         CoopCamSuspendForSave();   // v44 (Vollbild-Kamera, Sperr-Bit +0x79C); v48: tut nichts mehr
         IsSavingGame = true;
         CoopDiffHpSaveBegin();     // v70: NPCs mit skalierten HP vor dem Speichern auf den Grundwert
+        CoopDiag6g("vor dem Speichern");   // u201 (Liste 6g)
     }
 
     void Game_SaveEnd() {
+        CoopDiag6g("nach dem Speichern");   // u201 (Liste 6g)
         CoopDiffHpSaveEnd();       // v70: und wieder zurueck
 
         // u50 (P94): beim Levelwechsel speichert Gothic erst die alte Welt (Game_SaveBegin/End zwischen LoadBegin und LoadEnd) - die
@@ -596,6 +626,7 @@ namespace GOTHIC_ENGINE {
         ReviveState = "READY";       // Wiederbeleben (ReviveFriendLoop.cpp) zeigte sonst auf die Figur der alten Welt
         ReviveNpc = NULL;
         ReviveStartTime = 0;
+        CoopDiag6gNpc = NULL;        // u203: Zeiger in die alte Welt (u202 meldete danach einen anderen NPC an derselben Adresse)
         IsLoadingLevel = true;
         CoopWorldsLoadBegin();   // u29: eigener Weltschluessel nach dem Laden neu
         CoopWorldChangeLoadBegin();   // u32: offene Weltwechsel-Abfrage verwerfen

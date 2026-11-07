@@ -1,7 +1,7 @@
 # Gothic-I-II-Universal-Coop
 
-**Co-op multiplayer for Gothic 1 and Gothic 2 Night of the Raven and their mods – Othello (Gothic 1) and Legend of Ahssun
-(Gothic 2) are supported.** Two or more players experience
+**Co-op multiplayer for Gothic 1 and Gothic 2 Night of the Raven and their mods – Othello (Gothic 1), Legend of Ahssun and
+The Chronicles of Myrtana: Archolos (Gothic 2) are supported.** Two or more players experience
 the same story together: world, NPCs, fights, dialogues, diary, chests and saves are kept in sync between the PCs. A Union
 plugin based on [GothicCoop / Gothic Together](https://gitlab.com/gothiccoop/gothiccoop) (AGPL-3.0), successor of the
 [Othello Coop](https://github.com/corshaegar/Othello-Coop).
@@ -15,14 +15,15 @@ plugin based on [GothicCoop / Gothic Together](https://gitlab.com/gothiccoop/got
 
 ## Versions
 
-Project version **0.7.1** – for each game/mod the coop version (it only goes up when something changes for that game):
+Project version **0.8.0** – for each game/mod the coop version (it only goes up when something changes for that game):
 
 | Game / mod | Coop version |
 |---|---|
-| Gothic I | u200 |
-| Gothic II | u200 |
-| Othello | u200 |
-| Legend of Ahssun | u200 |
+| Gothic I | u210 |
+| Gothic II | u210 |
+| Othello | u210 |
+| Legend of Ahssun | u210 |
+| The Chronicles of Myrtana: Archolos | u210 |
 
 **Both PCs need the same coop version** – it is compared when connecting. It is shown at the bottom of the main menu
 ("GothicCoop uNN"). Changes per version: [`CHANGELOG.md`](CHANGELOG.md) (in German).
@@ -31,7 +32,7 @@ Project version **0.7.1** – for each game/mod the coop version (it only goes u
 **Games and mods**
 - **One coop for all:** one DLL per engine with the scripts of all variants. If the mod changes (GothicStarter, Othello added
   or removed), the coop switches by itself at start (log "Skript-Weiche") – no new installation needed.
-- **Supported mods:** Othello (Gothic 1) and Legend of Ahssun (Gothic 2) with their own profile. Other mods started with
+- **Supported mods:** Othello (Gothic 1), Legend of Ahssun and The Chronicles of Myrtana: Archolos (Gothic 2) with their own profile. Other mods started with
   `-game:<ini>` are detected; what they need comes from a profile file (see [Settings](#settings)).
 
 **Basic sync**
@@ -66,6 +67,8 @@ Project version **0.7.1** – for each game/mod the coop version (it only goes u
 
 **World and items**
 - Chests, items on the ground and looting – the host keeps the record, nothing is duplicated.
+- **Trade** (new in u201): buying and selling at a merchant applies for both – the merchant's goods and gold stay the same on both PCs
+  (not yet seen in a real playthrough).
 - **Items of NPCs:** what NPCs drop or throw (weapons when they die or are knocked out, tools) lies at the same spot for
   both. Arrows and bolts stay per PC (they stick in the target or disappear after a few seconds).
 - **Coop inventory:** a shared chest. The key (default I, Settings › COOP) opens it directly and without moving. Both players
@@ -103,10 +106,11 @@ Project version **0.7.1** – for each game/mod the coop version (it only goes u
 
 | | Status |
 |---|---|
-| **Gothic 2 Night of the Raven** (2.6) | Main game of development. Automated test run on one PC (host and client) with the development DLL of the same version u200 (the release packages are built from the same source and were not tested separately): guilds, coop inventory, chests, doors, mechanisms, triggers, items of NPCs, saving and loading host 110 OK, client 109 OK, 0 errors (7 and 8 steps only on the other side); separate worlds and world process (u199) host 60 OK, client 55 OK, 0 errors. Long automated runs with check rounds (comparing both sides), by now up to the end of the game (with boosted health, so not a real test of the fights) – mostly without deviation, occasionally single deviations. The coop inventory has mainly been tested automatically; a play test with two people over a real network is still outstanding. |
-| **Gothic 1** (1.08k, Steam/GOG) | Last tested with exactly the release DLL of 0.6.0 (u197): guilds, coop inventory, doors, items of NPCs, saving and loading host 84 OK, client 82 OK, 1 error each in the test tool itself (a diagnosis step looked for the apple under its Gothic 2 name, fixed in u198) – 31 and 33 steps skipped, the test save has no chest and no suitable lever or trigger; separate worlds and world process host 55 OK, client 50 OK, 0 errors (4 and 9 skipped). The general changes of u198 to u200 (joining only with the same game, scripts of the client, companions, spells of the partner) have not been tested in Gothic 1 yet. Levers and triggers have not been tested in play in Gothic 1 yet. Last played by hand with u44; the additions since then (coop inventory, mission items, mechanisms, triggers) have not been tested by hand or over a real network. |
-| **Othello** 4.x (Gothic 1) | Last tested with exactly the release DLL of 0.6.0 (u197), started with the Gothic 1 scripts (the script switch changed to Othello at start): guilds, coop inventory, chests, doors, mechanisms, triggers, items of NPCs, saving and loading host 99 OK, client 97 OK, 4 errors each – 3 at one gate (see below), 1 in the test tool itself (fixed in u198); separate worlds and world process host 55 OK, client 50 OK, 0 errors. The general changes of u198 to u200 have not been tested in Othello yet. Last played by hand with Othello Coop v106 (= Othello Coop 0.1.2); the general changes have been added since. |
-| **Legend of Ahssun** 1.2.0 (Gothic 2) | Own profile in the Gothic 2 DLL – the same coop as for Gothic 2, no separate package. Before u199 all 3,914 of the mod's own script functions were read and every serious finding was checked against the code; since u200 also all value proposals, all NPC states that address the hero and all world-init guards. Full automated test run with a save of the mod (development DLL of the same version u200): host 239 OK, client 233 OK, 1 error each (dead meatbug, see below); loading together, world change, world process and watch window passed. Plus automated runs in the mod since u170. |
+| **Gothic 2 Night of the Raven** (2.6) | Main game of development. Automated test run on one PC (host and client) with the development DLL u200 (the release packages are built from the same source and were not tested separately): guilds, coop inventory, chests, doors, mechanisms, triggers, items of NPCs, saving and loading host 110 OK, client 109 OK, 0 errors (7 and 8 steps only on the other side); separate worlds and world process (u199) host 60 OK, client 55 OK, 0 errors. Long automated runs with check rounds (comparing both sides), by now up to the end of the game (with boosted health, so not a real test of the fights) – mostly without deviation, occasionally single deviations. The general changes of u201 to u210 were tested in the runs of Legend of Ahssun and Archolos, not again in Gothic 2 itself. The coop inventory has mainly been tested automatically; a play test with two people over a real network is still outstanding. |
+| **Gothic 1** (1.08k, Steam/GOG) | Last tested with exactly the release DLL of 0.6.0 (u197): guilds, coop inventory, doors, items of NPCs, saving and loading host 84 OK, client 82 OK, 1 error each in the test tool itself (a diagnosis step looked for the apple under its Gothic 2 name, fixed in u198) – 31 and 33 steps skipped, the test save has no chest and no suitable lever or trigger; separate worlds and world process host 55 OK, client 50 OK, 0 errors (4 and 9 skipped). The general changes of u198 to u210 (joining only with the same game, scripts of the client, companions, spells of the partner, trade, sleeping on the client, the dead after a world change) have not been tested in Gothic 1 yet. Levers and triggers have not been tested in play in Gothic 1 yet. Last played by hand with u44; the additions since then (coop inventory, mission items, mechanisms, triggers) have not been tested by hand or over a real network. |
+| **Othello** 4.x (Gothic 1) | Last tested with exactly the release DLL of 0.6.0 (u197), started with the Gothic 1 scripts (the script switch changed to Othello at start): guilds, coop inventory, chests, doors, mechanisms, triggers, items of NPCs, saving and loading host 99 OK, client 97 OK, 4 errors each – 3 at one gate (see below), 1 in the test tool itself (fixed in u198); separate worlds and world process host 55 OK, client 50 OK, 0 errors. The general changes of u198 to u210 have not been tested in Othello yet. Last played by hand with Othello Coop v106 (= Othello Coop 0.1.2); the general changes have been added since. |
+| **Legend of Ahssun** 1.2.0 (Gothic 2) | Own profile in the Gothic 2 DLL – the same coop as for Gothic 2, no separate package. Before u199 all 3,914 of the mod's own script functions were read and every serious finding was checked against the code; since u200 also all value proposals, all NPC states that address the hero and all world-init guards. Full automated test run with a save of the mod (development DLL u204): host 240 OK, client 236 OK, 0 errors – the dead meatbug after entering a world is fixed (u203); loading together, world change, world process and watch window passed. Plus automated runs in the mod since u170, most recently an automated run with u209 (1 h, no crash). |
+| **The Chronicles of Myrtana: Archolos** (Gothic 2) | New in 0.8.0: own profile in the Gothic 2 DLL (detected by `Data\KM_Scripts.mod`), the same coop as for Gothic 2, no separate package. Fixed for it: a crash on the first save, the prologue on the ship not finishing in co-op, and per-PC values of the mod (screen fades, distance warnings, cutscene counters). Tested in long automated test runs on one PC (host and client, both heroes played automatically): about 7 hours in total without a crash; check rounds without errors except in one session (weapon mode and animation of nearby NPCs). Played so far in these runs: the prologue and chapter 1 up to Fabio's cave. Not yet played by hand. |
 | **Other mods** | Gothic 1/2 with other mods can be installed; the installer shows the mods in the folder. The coop's foundation runs; whatever adjustments a mod needs come from a profile file (see [Settings](#settings)). Not specifically tested. |
 
 Known limits:
@@ -115,8 +119,6 @@ Known limits:
 - "Join via IP" needs an open **UDP port 9955** on the host (router forwarding/firewall) – or Steam.
 - **Othello, gates with levers:** if a gate is moved again while it is still moving (lever flipped a second time, both players at the lever at once, an arrow at its trigger), it ends up in different positions on the two PCs in the test run (`PSI_DOOR_TEMPLE_NYRAS_SECRECT_2`, 3 steps per side).
 - **Gothic 2, old saves:** saves from versions before u140 can contain duplicate NPCs. Those stay; no new ones appear.
-- **Legend of Ahssun:** in the test run, after entering a world, a dead meatbug that the host has just killed is missing at
-  the partner (one step per side, open).
 - **Script events on the client** (teleport, script death, removing an NPC) only apply at the host if it is in the same world.
 - Please report every crash and every deviation, with the log `system\GothicCoop.log` from both PCs (with Othello
   `system\GothicCoopOthello.log`).
@@ -128,7 +130,7 @@ patch 2.6) or Gothic 1 with Othello 4.x. Installer and ZIPs bring Union 1.0m for
 
 ### With the installer (recommended)
 
-1. Download `Gothic-I-II-Universal-Coop-0.7.1-Setup.exe` from [Releases](../../releases) and start it.
+1. Download `Gothic-I-II-Universal-Coop-0.8.0-Setup.exe` from [Releases](../../releases) and start it.
 2. Choose the **game folder** (the folder containing `system`; Steam and GOG folders are searched). There is no game to choose:
    the installer detects Gothic 1, Othello, Gothic 2 and the mods in the folder (e.g. Legend of Ahssun) by content and shows which
    are supported. It installs the coop for the engine with the scripts of all variants – if the mod changes later (GothicStarter,
@@ -142,7 +144,7 @@ Without a window: `Setup.exe /still /ordner:"<game folder>" [/spiel:g1|g2|othell
 
 ### With the ZIP
 
-1. Download `Gothic-I-II-Universal-Coop-0.7.1.zip` – one ZIP for all games.
+1. Download `Gothic-I-II-Universal-Coop-0.8.0.zip` – one ZIP for all games.
 2. Copy the contents of **one** of its folders into the game folder (where `system` is) and replace existing files:
    `Gothic 1 + Othello` for Gothic 1 (also with Othello), `Gothic 2 + Mods` for Gothic 2 (also with Legend of Ahssun and other mods).
 3. `Union 1.0m (nur wenn Union fehlt)` ("only if Union is missing"): only if the game folder has no Union yet (`system\Shw32.dll`
@@ -179,7 +181,9 @@ day and the diary and creates a backup) · **Shift+F12** world process off/on.
   `deltaVars` (from u199: counters that only player scripts raise – synced as a change, so two steps at the same time both count; never
   for counters of loops running on both PCs), `heroStates` (from u199: NPC AI states, `ZS_…`, whose scripts mean "the player here" by
   `HERO` – during them `HERO` is the player the NPC fights, otherwise the nearest player), `worldVars` (from u200: guards that only a
-  world's init sets, `{"NAME": "WORLD"}` – they belong to the world file, so whoever enters with their own file runs the block), `configDefaults`
+  world's init sets, `{"NAME": "WORLD"}` – they belong to the world file, so whoever enters with their own file runs the block), `vobSync`
+  (from u201: names of world objects whose visibility, collision, transparency and visual mod scripts change directly – synced between
+  players in the same world), `configDefaults`
   (defaults for the `coop…` switches as long as `GothicCoopConfig.json` does not set them), `notes` (hints in the log), `name`,
   `engine`. Comments are allowed. A commented template comes with every package (`system\GothicCoopMod.vorlage.json`). Both PCs
   need the same file; the log shows at start what was read.
@@ -199,7 +203,7 @@ day and the diary and creates a backup) · **Shift+F12** world process off/on.
 - **Union plugin:** `system\Autorun\Gothic1Coop.dll` or `Gothic2Coop.dll` hooks into the engine (Union SDK, hooks on engine
   functions). Plus scripts (`COOP_MENU.D` for the menus, `COOP_ITEMS.D`, `PC_MULTIPLAYER_HERO.D`) loaded by zParserExtender.
   The same source is built per engine; the Gothic 1 DLL detects Othello itself and switches on its Othello adjustments, and the
-  Gothic 2 DLL does the same for Legend of Ahssun. Other mods get their adjustments from a profile file – there is no separate
+  Gothic 2 DLL does the same for Legend of Ahssun and Archolos. Other mods get their adjustments from a profile file – there is no separate
   DLL per mod. The scripts of each variant are in `system\GothicCoop\Skripte\<g1|othello|g2>`; at start the DLL puts the right set
   into `system\Autorun` before zParserExtender loads it ("Skript-Weiche", script switch).
 - **Network:** ENet (UDP), contents as JSON/BSON; Steam as a tunnel underneath. **The host leads:** clients send requests, the
@@ -219,8 +223,8 @@ day and the diary and creates a backup) · **Shift+F12** world process off/on.
 
 - Test the coop inventory, shared mission items and mechanisms in a play test with two people over a real network.
 - Test Gothic 1 and Othello by hand and over a real network (the automated test run works there now).
-- Add and test more mods with profile files (built in so far: Othello, Legend of Ahssun).
-- Legend of Ahssun: the last deviation in the test run (dead meatbug after entering a world).
+- Add and test more mods with profile files (built in so far: Othello, Legend of Ahssun, Archolos).
+- Archolos: play beyond chapter 1 (longer automated runs with a walkthrough).
 - Ship Union for Gothic 1 completely (Union's setup additionally writes `binkw32.dll`/`Mss32.dll` there).
 - More sync details from the long test runs.
 

@@ -9,7 +9,7 @@ namespace GOTHIC_ENGINE {
     // OthelloCompatLog/DiagSeconds nicht (Plan Phase 1, Schritt 1). Hier steht nur engine-neutraler Code (Windows-Aufrufe,
     // keine Engine-Stelle); Othello-Eigenes bleibt in OthelloCompat.cpp.
 
-#define COOP_FASSUNG "u200"
+#define COOP_FASSUNG "u210"
 
     // Auswahl je Engine, z. B. Adressen: COOP_ENGINE_SWITCH(G1, G1A, G2, G2A). ENGINE wird erst an der Stelle des Gebrauchs
     // eingesetzt - in Mehr-Engine-Builds (MP x2/x4) bindet Interface.cpp Sources.h je Engine neu ein.
@@ -269,7 +269,8 @@ namespace GOTHIC_ENGINE {
     // Gothic mit -game:<ini> startet - es laeuft das Fundament, das Log nennt die Mod). Bekannte Mods stehen in Mods\CoopModList.h.
     // u194 (P196): Daten eines Profils auch als Datei (system\GothicCoopMod-<Ini>.json bzw. system\GothicCoopMod.json,
     // Mods\CoopModProfile.h) - jede Mod bekommt so Werte je PC, Vorgaben und Hinweise ohne neuen Bau.
-    enum CoopProfileId { COOP_PROFILE_VANILLA, COOP_PROFILE_OTHELLO, COOP_PROFILE_LOA, COOP_PROFILE_MOD };
+    // u204: COOP_PROFILE_ARCHOLOS (The Chronicles of Myrtana: Archolos, ohne -game - erkannt an einer Datei der Mod, Mods\CoopModList.h)
+    enum CoopProfileId { COOP_PROFILE_VANILLA, COOP_PROFILE_OTHELLO, COOP_PROFILE_LOA, COOP_PROFILE_MOD, COOP_PROFILE_ARCHOLOS };
 
     struct CoopProfileInfo {
         CoopProfileId id = COOP_PROFILE_VANILLA;
@@ -344,6 +345,18 @@ namespace GOTHIC_ENGINE {
                 p.modIni = ini;
                 p.why = "-game:" + ini + (known ? " (bekannte Mod)" : " (Mod ohne eigenes Profil - Fundament)");
             }
+            // u204: bekannte Mod ohne -game (Archolos legt seine KM_*.mod direkt in Data\) - erkannt an ihrer Datei
+            if (p.id == COOP_PROFILE_VANILLA && ini.empty())
+                for (const CoopModKnown& m : CoopModsKnown)
+                    if (m.engine == ENGINE && m.marker && CoopProfileFileExists(CoopGameRoot() + m.marker)) {
+                        known = &m;
+                        base = m.iniBase;
+                        p.id = m.id;
+                        p.name = m.name;
+                        p.modIni = m.iniBase;   // Kennung beim Verbinden (P209) und Name der Profil-Datei (GothicCoopMod-<iniBase>.json)
+                        p.why = std::string(m.marker + 1) + " vorhanden (bekannte Mod ohne -game)";
+                        break;
+                    }
             CoopModDataLoad(p, known, base);   // u194 (P196): eingebautes Profil und system\GothicCoopMod[-<Ini>].json (ohne Log)
             return p;
         }();

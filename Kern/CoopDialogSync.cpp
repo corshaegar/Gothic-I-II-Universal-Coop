@@ -273,6 +273,86 @@ namespace GOTHIC_ENGINE {
 
     // --- Sprecher-Seite: Beginn, Ende, Zeilen --------------------------------------------------------
 
+    // u201 (P225, Durchsicht LoA, Liste Nr. 14 - offen seit Liste 1): Handel. Im Handelsfenster verschiebt die Engine Gegenstaende zwischen dem
+    // eigenen Helden und dem Haendler (oCViewDialogTrade) - kein Skript, also auch kein P170: Kaeufe und Verkaeufe aenderten den Bestand nur in
+    // der eigenen Kopie des Haendlers. Der Partner konnte dieselbe Ware noch einmal kaufen, das Gold des Haendlers lief auseinander, und
+    // Bedingungen wie Npc_HasItems (LoA: B_GIVETRADEINV_* fuellt nach) fielen je PC anders aus. Jetzt: Bestand des Gespraechspartners bei
+    // Gespraechsbeginn merken, am Ende vergleichen; was nicht aus dem Dialogskript kam (das schickt P170 selbst), geht als "ni" an den Partner
+    // (DlgInvApply wie bei P170). Gleichzeitiger Handel beider mit demselben Haendler: Aenderungen werden addiert. Allgemein (G1/G2).
+    static oCNpc* DlgTradeNpc = NULL;                    // Gespraechspartner mit gemerktem Bestand
+    static std::map<std::string, int> DlgTradeBase;      // Instanz -> Stueck bei Gespraechsbeginn
+    static std::map<std::string, int> DlgTradeScript;    // Aenderungen daran aus dem Dialogskript (CreateInvItems/Npc_RemoveInvItems)
+
+    static void DlgTradeInv(oCNpc* npc, std::map<std::string, int>& out) {
+        out.clear();
+        if (!npc)
+            return;
+        npc->inventory2.UnpackAllItems();
+#if ENGINE >= Engine_G2
+        for (zCListSort<oCItem>* n = npc->inventory2.inventory.next; n; n = n->next)
+            if (n->data)
+                out[n->data->GetInstanceName().ToChar()] += n->data->amount;
+#else
+        for (int c = 0; c < INV_MAX; c++)
+            for (zCListSort<oCItem>* n = npc->inventory2.inventory[c].next; n; n = n->next)
+                if (n->data)
+                    out[n->data->GetInstanceName().ToChar()] += n->data->amount;
+#endif
+    }
+
+    static bool DlgTradeNpcInWorld(oCNpc* npc) {   // noch in dieser Welt (ein Skript kann ihn am Gespraechsende entfernt haben)
+        if (!npc || !ogame || !ogame->GetGameWorld())
+            return false;
+        for (auto* l = CoopWorldNpcListFirst(ogame->GetGameWorld()); l; l = l->next)
+            if (l->data == npc)
+                return true;
+        return false;
+    }
+
+    static void DlgTradeBegin(oCNpc* npc) {
+        DlgTradeNpc = npc;
+        DlgTradeScript.clear();
+        DlgTradeInv(npc, DlgTradeBase);
+    }
+
+    static void DlgTradeEnd(const std::string& name) {
+        oCNpc* npc = DlgTradeNpc;
+        DlgTradeNpc = NULL;
+        if (!npc || name.empty() || !DlgTradeNpcInWorld(npc) || npc->IsDead()) {
+            DlgTradeBase.clear();
+            DlgTradeScript.clear();
+            return;
+        }
+        std::map<std::string, int> now;
+        DlgTradeInv(npc, now);
+        std::set<std::string> keys;
+        for (auto& x : DlgTradeBase)
+            keys.insert(x.first);
+        for (auto& x : now)
+            keys.insert(x.first);
+        json ni = json::array();
+        std::string text;
+        for (const std::string& k : keys) {
+            auto a = now.find(k), b = DlgTradeBase.find(k), s = DlgTradeScript.find(k);
+            const int d = (a != now.end() ? a->second : 0) - (b != DlgTradeBase.end() ? b->second : 0) - (s != DlgTradeScript.end() ? s->second : 0);
+            if (!d || d > 100000 || d < -100000)
+                continue;
+            ni.push_back({ name, k, d });
+            if (text.size() < 200)
+                text += (text.empty() ? "" : ", ") + std::string(d > 0 ? "+" : "") + std::to_string(d) + " " + k;
+        }
+        DlgTradeBase.clear();
+        DlgTradeScript.clear();
+        if (ni.empty() || !DialogSyncAktiv())
+            return;
+        json j;
+        j["n"] = name;
+        j["ni"] = ni;
+        j["hg"] = player ? player->guild : 0;
+        DialogSend(j, SYNC_DIALOG_STATE);
+        DialogLog("Handel mit %s: Bestand des Haendlers geaendert (%s) -> Partner (P225)", name.c_str(), text.c_str());
+    }
+
     static void TrackOwnDialog() {
         oCInformationManager& im = oCInformationManager::GetInformationManager();
         // u11: Npc == Held ist in G2 die Herstellung (Amboss, Alchemie, Gebet ...: AI_ProcessInfos(hero)) - kein Gespraech
@@ -281,11 +361,14 @@ namespace GOTHIC_ENGINE {
             return;
         if (MyDialogNpcPtr && !MyDialogNpc.empty()) {
             DialogCheckSkips();   // letzte Zeile uebersprungen und gleich beendet?
+            DlgTradeEnd(MyDialogNpc);   // u201 (P225): vor dem Ende-Paket - der Partner gibt den Haendler danach frei
             json j;
             j["n"] = MyDialogNpc;
             DialogSend(j, SYNC_DIALOG_END);
             DialogLog("eigener Dialog mit %s beendet", MyDialogNpc.c_str());
         }
+        else
+            DlgTradeEnd(std::string());   // u201 (P225): nur aufraeumen
         MyDialogNpcPtr = now;
         MyDialogNpc = now ? DialogNpcName(now) : std::string();
         LastLineMsg.clear();
@@ -297,6 +380,8 @@ namespace GOTHIC_ENGINE {
             DialogLog("eigener Dialog mit %s - NPC hat keinen GT-Namen, nicht beobachtbar", now->GetInstanceName().ToChar());
             return;
         }
+        if (!IsCoopPlayer(MyDialogNpc) && !now->IsDead())   // u201 (P225)
+            DlgTradeBegin(now);
         auto f = DialogLocks.find(MyDialogNpc);
         if (f != DialogLocks.end() && f->second.owner != DialogMe())
             DialogLog("eigener Dialog mit %s, obwohl %s mit ihm spricht (gleichzeitig angesprochen oder vom NPC gestartet)",
@@ -508,6 +593,7 @@ namespace GOTHIC_ENGINE {
 
     static bool DlgScriptLibraryVar(const char* nm);   // u196 (P206): weiter unten
     bool CoopModHeroVar(const char* nm);                // u197 (P207): Mods\CoopMods.cpp - "heroVars" des Mod-Profils
+    bool CoopModHeroVarExact(const char* nm);           // u204 (P234): nur genau genannte (auch lokale FUNKTION.NAME)
 
     static void StoryBuildHeroVars() {
         StoryHeroVarsBuilt = true;
@@ -641,7 +727,11 @@ namespace GOTHIC_ENGINE {
             if (!v || v->type != zPAR_TYPE_INT || (v->flags & (zPAR_FLAG_CONST | zPAR_FLAG_CLASSVAR | zPAR_FLAG_EXTERNAL)))
                 continue;
             const char* nm = v->name.ToChar();
-            if (!nm || strchr(nm, '.') || !CoopModHeroVar(nm) || DlgScriptLibraryVar(nm))
+            // u204 (P234, Archolos): Lese-Merker der Buchstaende sind lokale Variablen (BOOKSTAND_COOKING_S1.BOOKSTAND_COOKING_CHECKREAD).
+            // Abgeglichen werden lokale nie, beim Uebernehmen des Host-Stands (jedes Verbinden) kamen aber die des Hosts - wer selbst
+            // schon gelesen hatte, bekam den Bonus noch einmal bzw. nie. Genau genannte lokale Variablen zaehlen jetzt auch als
+            // Heldenwerte (COOPHERO.TXT, zurueckgeschrieben ueber den Symbolnamen); Muster mit * treffen weiter keine lokalen. Allgemein.
+            if (!nm || (strchr(nm, '.') ? !CoopModHeroVarExact(nm) : !CoopModHeroVar(nm)) || DlgScriptLibraryVar(nm))
                 continue;
             if (StoryHeroVars.insert(v).second)
                 profile++;
@@ -1040,13 +1130,32 @@ namespace GOTHIC_ENGINE {
 
     bool CoopModNeverSync(const char* nm);   // Mods\CoopMods.cpp (u188, P190): Werte je PC, die nur eine Mod kennt
     bool CoopModDeltaVar(const char* nm);    // Mods\CoopMods.cpp (u199, P213): Zaehler, die als Aenderung abgeglichen werden
+    bool CoopModStartVar(const char* nm);    // Mods\CoopMods.cpp (u207, P241): Ablauf-Zaehler - nur der Start geht an den Partner
+
+    // u207 (P241, Archolos-Testlauf u205: Prolog auf dem Schiff): Ein Ablauf-Zaehler ("startVars" des Profils) wird von einem Skript-Takt auf
+    // jedem PC weitergeschaltet (Q101_CAPTAIN_CUTSCENEENABLE: Gespraech setzt 1, EVENTSMANAGER_Q101 und Frame-Funktionen zaehlen weiter,
+    // Zwischensequenzen mit dem eigenen Helden). Der Abgleich schickte jede Aenderung: Host 1, dann 6, der Client zaehlte selbst weiter und
+    // schickte 8 zurueck - beide Ablaeufe sprangen. Jetzt geht nur der Start (0 -> Wert) hinaus, danach zaehlt jeder PC selbst.
+    // true = diese Aenderung bleibt auf diesem PC. Allgemein (jede Mod mit solchen Werten im Profil).
+    static int DlgStartVarHoldLogged = 0;
+    static bool DlgStartVarHold(zCPar_Symbol* sym, int cur, int old) {
+        if (!sym || !CoopModStartVar(sym->name.ToChar()))
+            return false;
+        if (old == 0 && cur != 0)
+            return false;
+        if (DlgStartVarHoldLogged < 20) {
+            DlgStartVarHoldLogged++;
+            DialogLog("Story-Abgleich: %s %d -> %d bleibt hier (Ablauf-Zaehler, P241)", sym->name.ToChar(), old, cur);
+        }
+        return true;
+    }
 
     // u199 (P213): Eintrag fuer den Abgleich - bei Zaehlern aus "deltaVars" mit dem alten Wert (der Empfaenger rechnet die Aenderung)
+    // u204 (P236): den alten Wert immer - daran erkennt der Host eine Aenderung, die gleichzeitig mit seiner eigenen geschah (DialogApplyState)
     static json DlgVarEntry(zCPar_Symbol* sym, int idx, int cur, int old) {
-        if (CoopModDeltaVar(sym->name.ToChar()))
-            return json::array({ sym->name.ToChar(), idx, cur, old });
-        return json::array({ sym->name.ToChar(), idx, cur });
+        return json::array({ sym->name.ToChar(), idx, cur, old });
     }
+    static int StoryConflicts = 0, StoryConflictLogged = 0;   // u204 (P236)
 
     // u97: COOP_TRUHE_OEFFNEN - Merker "Coop-Truhe benutzt" (COOP_ITEMS.D) gilt nur auf diesem PC
     static bool DlgNeverSync(const char* nm) {
@@ -1190,8 +1299,10 @@ namespace GOTHIC_ENGINE {
             if (a.ints[i] != b.ints[i] && StoryValueOk(a.ints[i]) && StoryValueOk(b.ints[i])) {
                 // u199 (P213): bei Zaehlern ab dem Story-Vergleichsstand - StoryAbsorb setzt ihn danach auf b, eine noch nicht gesendete
                 // Aenderung vor dem Gespraech ginge sonst verloren
-                v.push_back(DlgVarEntry(DlgIntSlots[i].sym, DlgIntSlots[i].idx, b.ints[i],
-                    StoryReady && i < StoryBaseInts.size() && StoryBaseInts.size() == b.ints.size() ? StoryBaseInts[i] : a.ints[i]));
+                const int was = StoryReady && i < StoryBaseInts.size() && StoryBaseInts.size() == b.ints.size() ? StoryBaseInts[i] : a.ints[i];
+                if (DlgStartVarHold(DlgIntSlots[i].sym, b.ints[i], was))   // u207 (P241)
+                    continue;
+                v.push_back(DlgVarEntry(DlgIntSlots[i].sym, DlgIntSlots[i].idx, b.ints[i], was));
                 nv++;
             }
         json l = json::array();
@@ -2880,11 +2991,125 @@ namespace GOTHIC_ENGINE {
         return d;
     }
 
+    // u201 (P226, Durchsicht LoA, Liste Nr. 10): Welt-Objekte, die Skripte per Ikarus im eigenen Prozess aendern - LoA: Kollision der Barrikade
+    // beim Nest-Ausheben (Kapitel 5: NESTAUSHEBEN_SETMOVERCOLLISION nur beim Sprechenden - beim Partner blieb sie fest, er kam nicht durch),
+    // Aussehen der Ork-Graeber und gefaellten Baeume (SetVobVisual), Blutspur und Folterbaenke (visualAlpha), Bild (showVisual). Profil-Liste
+    // "vobSync": jeder PC liest diese Felder im Sekundentakt; aendern sie sich nach dem Laden (nicht durch den Abgleich), gehen sie an die
+    // Partner in derselben Welt. Wer eine Welt spaeter allein mit eigener Datei betritt, bekommt den Stand nicht (dazu braeuchte es eine
+    // Ablage je Welt). Allgemein (G1/G2), Liste je Mod.
+    const std::vector<std::string>& CoopModVobSync();   // Mods\CoopMods.cpp
+
+    struct CoopVobState {
+        int show = 0, cs = 0, cd = 0, ae = 0, alpha = 0;
+        std::string vis;
+        bool operator==(const CoopVobState& o) const {
+            return show == o.show && cs == o.cs && cd == o.cd && ae == o.ae && alpha == o.alpha && vis == o.vis;
+        }
+    };
+    static std::map<std::string, CoopVobState> VobSyncLast;   // Name -> zuletzt gesehen bzw. gesetzt (dieser Welt)
+    static std::string VobSyncWorld;
+    static long long VobSyncNextMs = 0;
+
+    static zCVob* VobSyncFind(const std::string& n) {
+        return ogame && ogame->GetGameWorld() ? ogame->GetGameWorld()->SearchVobByName(zSTRING(n.c_str())) : NULL;
+    }
+
+    static void VobSyncRead(zCVob* v, CoopVobState& s) {
+        s.show = v->showVisual;
+        s.cs = v->collDetectionStatic;
+        s.cd = v->collDetectionDynamic;
+        s.ae = v->visualAlphaEnabled;
+        s.alpha = (int)(v->visualAlpha * 100.f + 0.5f);
+        zCVisual* vis = v->GetVisual();
+        s.vis = vis ? vis->GetVisualName().ToChar() : "";
+    }
+
+    static void VobSyncTick() {
+        const std::vector<std::string>& names = CoopModVobSync();
+        if (names.empty() || !ogame || !ogame->GetGameWorld() || IsLoadingLevel || CurrentMs < VobSyncNextMs)
+            return;
+        VobSyncNextMs = CurrentMs + 1000;
+        const std::string w = CoopWorldName();
+        if (w != VobSyncWorld) {   // neue Welt: Grundstand neu, nichts senden
+            VobSyncWorld = w;
+            VobSyncLast.clear();
+        }
+        json out = json::array();
+        std::string text;
+        for (const std::string& n : names) {
+            zCVob* v = VobSyncFind(n);
+            if (!v)
+                continue;
+            CoopVobState s;
+            VobSyncRead(v, s);
+            auto it = VobSyncLast.find(n);
+            if (it == VobSyncLast.end()) {
+                VobSyncLast[n] = s;
+                continue;
+            }
+            if (it->second == s)
+                continue;
+            it->second = s;
+            out.push_back(json::array({ n, s.show, s.cs, s.cd, s.ae, s.alpha, s.vis }));
+            if (text.size() < 200)
+                text += (text.empty() ? "" : ", ") + n;
+        }
+        if (out.empty() || !DialogSyncAktiv())
+            return;
+        json j;
+        j["vsonly"] = 1;
+        j["vs"] = out;
+        DialogSend(j, SYNC_DIALOG_STATE);
+        DialogLog("Objekt-Zustand geaendert -> Partner: %s (P226)", text.c_str());
+    }
+
+    static void VobSyncApply(const json& vs, const std::string& by) {
+        if (!vs.is_array())
+            return;
+        std::string text;
+        for (const json& x : vs) {
+            if (!x.is_array() || x.size() != 7 || !x.at(0).is_string() || !x.at(6).is_string())
+                continue;
+            const std::string n = x.at(0).get<std::string>();
+            zCVob* v = VobSyncFind(n);
+            if (!v)
+                continue;
+            CoopVobState s;
+            s.show = x.at(1).get<int>() ? 1 : 0;
+            s.cs = x.at(2).get<int>() ? 1 : 0;
+            s.cd = x.at(3).get<int>() ? 1 : 0;
+            s.ae = x.at(4).get<int>() ? 1 : 0;
+            s.alpha = x.at(5).get<int>();
+            s.vis = x.at(6).get<std::string>();
+            CoopVobState now;
+            VobSyncRead(v, now);
+            if (!s.vis.empty() && _stricmp(s.vis.c_str(), now.vis.c_str()))
+                v->SetVisual(zSTRING(s.vis.c_str()));
+            v->showVisual = s.show;
+            if (now.cs != s.cs)
+                v->SetCollDetStat(s.cs);
+            if (now.cd != s.cd)
+                v->SetCollDetDyn(s.cd);
+            v->visualAlphaEnabled = s.ae;
+            v->visualAlpha = s.alpha / 100.f;
+            VobSyncRead(v, VobSyncLast[n]);   // gesetzt - der eigene Takt schickt es nicht zurueck
+            if (text.size() < 200)
+                text += (text.empty() ? "" : ", ") + n;
+        }
+        if (!text.empty())
+            DialogLog("Objekt-Zustand von %s uebernommen: %s (P226)", by.c_str(), text.c_str());
+    }
+
     static void DialogApplyState(json& ein, const std::string& by, bool sameWorld) {
         if (!parser)
             return;
         if (ein.contains("truhe") && ein["truhe"].is_object()) {   // u97: gemeinsame Coop-Truhe - eigenes Paket, sonst nichts darin
             CoopTruheReceive(ein["truhe"], by);
+            return;
+        }
+        if (ein.contains("vsonly")) {   // u201 (P226): Objekt-Zustand - eigenes Paket, nur in derselben Welt
+            if (sameWorld && ein.contains("vs"))
+                VobSyncApply(ein["vs"], by);
             return;
         }
         json e = ein;   // v75: Kopie - wird je nach Abgleich-Regel gefiltert, das Paket selbst bleibt (Weiterleiten)
@@ -2990,6 +3215,9 @@ namespace GOTHIC_ENGINE {
                     continue;
                 int old = 0;
                 sym->GetValue(old, k);
+                // u207 (P241): Ablauf-Zaehler - vom Partner nur der Start, und nur, wenn hier noch nichts laeuft
+                if (CoopModStartVar(sym->name.ToChar()) && !(old == 0 && val != 0))
+                    continue;
                 // u199 (P213): Zaehler aus "deltaVars" - die Aenderung des Absenders (alter Wert im Paket) zum eigenen Wert zaehlen, damit ein
                 // eigener, noch nicht gesendeter Schritt erhalten bleibt; der Vergleichsstand rueckt nur um diese Aenderung (der eigene geht noch hinaus)
                 const bool delta = v.size() >= 4 && v.at(3).is_number_integer() && CoopModDeltaVar(sym->name.ToChar());
@@ -2997,6 +3225,27 @@ namespace GOTHIC_ENGINE {
                 const int now = delta ? old + step : val;
                 if (delta && !StoryValueOk(now))
                     continue;
+                // u204 (P236, Durchsicht Archolos: B_RANDOMEVENT_RANDOMIZER wuerfelt am Tageswechsel ueber 100 RND_*-Werte auf beiden PCs):
+                // Aenderten beide PCs denselben Wert im selben Moment verschieden, uebernahm jeder den des anderen - die Werte waren
+                // vertauscht und blieben verschieden. Jetzt behaelt der Host seinen Wert, wenn die Aenderung des Clients nicht auf seinem
+                // Stand beruht (alter Wert des Clients != Wert hier) und er selbst den Wert in den letzten 10 s geaendert hat oder die
+                // Aenderung noch nicht gesendet ist; sein Wert geht im naechsten Takt noch einmal an alle. Eine Aenderung auf dem Stand des
+                // Hosts gilt wie bisher. Nicht fuer "deltaVars" (dort zaehlen beide Schritte). Allgemein.
+                if (!delta && ServerThread && by != DialogMe() && v.size() >= 4 && v.at(3).is_number_integer() && val != old && v.at(3).get<int>() != old) {
+                    auto cs = DlgSlotIndex.find(std::make_pair(sym, k));
+                    const int si = cs != DlgSlotIndex.end() ? cs->second : -1;
+                    const bool unsent = (StoryReady || StoryLevelChange) && si >= 0 && si < (int)StoryBaseInts.size() && StoryBaseInts[si] != old;
+                    const bool recent = si >= 0 && si < (int)StoryChangeTimes.size() && !StoryChangeTimes[si].empty() && StoryChangeTimes[si].back() >= CurrentMs - 10000;
+                    if (unsent || recent) {
+                        if ((StoryReady || StoryLevelChange) && si >= 0 && si < (int)StoryBaseInts.size())
+                            StoryBaseInts[si] = val;   // Vergleichsstand auf den Wert des Clients - der eigene gilt als Aenderung und geht hinaus
+                        StoryConflicts++;
+                        if (StoryConflictLogged++ < 40)
+                            DialogLog("Story-Abgleich: %s%s von %s gleichzeitig anders geaendert (%d -> %d, hier %d) - der Host behaelt seinen Wert (P236)",
+                                sym->name.ToChar(), ele > 1 ? ("[" + std::to_string(k) + "]").c_str() : "", by.c_str(), v.at(3).get<int>(), val, old);
+                        continue;
+                    }
+                }
                 const int camp = CoopProfileIsOthello() ? DialogRepCamp(sym) : 0;   // v92 (nur Othello): Ruf mit Othellos Meldung
                 if (camp && k == 0 && now > old && DialogScriptIncreaseRep(camp, now - old))
                     DialogLog("Ruf: %s %d -> %d ueber B_IncreaseRep (Meldung wie beim Partner)", sym->name.ToChar(), old, now);
@@ -3274,7 +3523,7 @@ namespace GOTHIC_ENGINE {
             const int old = StoryBaseInts[i];
             const char* nm = DlgIntSlots[i].sym->name.ToChar();
             if (cur == old || (i < StoryNoisy.size() && StoryNoisy[i]) || StoryIgnored(nm) || DlgGuildVars.count(DlgIntSlots[i].sym) ||
-                !StoryValueOk(cur) || !StoryValueOk(old))
+                !StoryValueOk(cur) || !StoryValueOk(old) || DlgStartVarHold(DlgIntSlots[i].sym, cur, old))   // u207 (P241)
                 continue;
             v.push_back(DlgVarEntry(DlgIntSlots[i].sym, DlgIntSlots[i].idx, cur, old));   // u199 (P213)
             if (names.size() < 300)
@@ -3370,6 +3619,8 @@ namespace GOTHIC_ENGINE {
                 DialogLog("Story-Abgleich: %s haelt grosse Werte (%d) - vermutlich Zeiger, ausgeschlossen", nm, cur);
                 continue;
             }
+            if (DlgStartVarHold(DlgIntSlots[i].sym, cur, old))   // u207 (P241): Vergleichsstand steht schon auf cur - kein spaeteres Senden
+                continue;
             v.push_back(DlgVarEntry(DlgIntSlots[i].sym, DlgIntSlots[i].idx, cur, old));   // u199 (P213)
             nv++;
         }
@@ -3623,6 +3874,40 @@ namespace GOTHIC_ENGINE {
         return self && self != player && self->IsDead();
     }
 
+    // u203 (Durchsicht der Analyse-Vorschlaege, LoA ZS_CIRCLE_GROTTE_LOOP): Tagesablauf-Zustaende der Welt-NPCs laufen auf beiden PCs (beim
+    // Client sperrt GT nur Kampf-Zustaende). Wuerfelt so ein Zustand selbst (Hlp_Random), entschied der Client anders und fragte den Host
+    // nach seinem Wld_InsertNpc - der Host fuehrte es aus, dazu sein eigenes aus demselben Zustand: In der Grotte entstanden etwa doppelt
+    // so viele Untote (P202 paart nur gleiche Ereignisse binnen 3 s). Der Host spielt jeden Tagesablauf-Zustand selbst (auch um den
+    // Client, Verfolgungspunkt), seine Einfuegungen, Ausloeser und Entfernungen gehen an alle. Beim Client sind Welt-Externals aus dem
+    // Tagesablauf-Zustand eines vom Host gefuehrten NPCs darum wirkungslos. Nicht: Zustaende aus Gespraechen/Skripten (kein Tagesablauf),
+    // eigener Held, Figuren, Begleiter, im Kampf vom Client gefuehrte NPCs. Allgemein (G1/G2).
+    static oCNpc* HostEvStateNpc = NULL;   // NPC, dessen DoAIState gerade laeuft (oCNpc_States_DoAIState_Coop)
+    static int CoopTestRoutineSkipped = 0;
+    bool CoopLeadIsMine(oCNpc* npc);       // CoopCombatLead.cpp
+    bool CoopFollowActive();               // CoopFarSync.cpp
+
+    static bool HostEvInHostRoutine() {
+        oCNpc* npc = HostEvStateNpc;
+        if (!npc || npc == player || PlayerNpcs.count(npc) || !NpcToUniqueNameList.count(npc) || !npc->state.curState.isRtnState)
+            return false;
+        zCPar_Symbol* s = parser ? parser->GetSymbol(zSTRING("SELF")) : NULL;
+        if (!s || (oCNpc*)s->offset != npc || !CoopFollowActive() || CoopLeadIsMine(npc))
+            return false;
+        const int aiv = PartyAiv();
+        return !(aiv >= 0 && npc->aiscriptvars[aiv]);
+    }
+
+    static bool HostEvRoutineSkip(const char* ext, const std::string& arg) {
+        if (!HostEvInHostRoutine())
+            return false;
+        CoopTestRoutineSkipped++;
+        static CoopDiagBudget budget = { 0, 0 };
+        if (CoopDiagAllow(budget, 30))
+            DialogLog("Host-Ereignis: %s(%s) aus dem Tagesablauf von %s (%s) - der Host spielt ihn selbst, hier nichts (u203)", ext, arg.c_str(),
+                DialogNpcName(HostEvStateNpc).c_str(), HostEvStateNpc->state.curState.name.ToChar());
+        return true;
+    }
+
     // u199 (P216, Durchsicht der Mod-Analyse von Legend of Ahssun): GT spielt den Zauber einer Figur beim Partner nach
     // (RemoteNpc::UpdateSpellCasts: Spell_Invest + Spell_Cast) - dabei liefen SPELL_LOGIC_*/SPELL_CAST_* dort noch einmal, mit SELF = Figur
     // (Npc_IsPlayer falsch) und HERO = Held des Partners. Gothic II: Beschwoerungen erzeugten beim Partner die feindliche Variante
@@ -3755,6 +4040,8 @@ namespace GOTHIC_ENGINE {
                 s ? s->name.ToChar() : "?", wp.ToChar());
             return 0;
         }
+        if (HostEvRoutineSkip("Wld_InsertNpc", std::string(s ? s->name.ToChar() : "?") + ", " + wp.ToChar()))   // u203
+            return 0;
         json j;
         j["f"] = "spawnreq";
         j["inst"] = s ? s->name.ToChar() : "";
@@ -3776,6 +4063,8 @@ namespace GOTHIC_ENGINE {
                 DialogLog("Host-Ereignis: Wld_Send%s(%s) aus einem Todesskript - nicht angefragt (der Host loest selbst aus)", f[0] == 't' ? "Trigger" : "Untrigger", v.ToChar());
                 return 0;
             }
+            if (HostEvRoutineSkip(f[0] == 't' ? "Wld_SendTrigger" : "Wld_SendUntrigger", v.ToChar()))   // u203
+                return 0;
             json j;
             j["f"] = std::string(f) + "req";
             j["s"] = v.ToChar();
@@ -3837,6 +4126,8 @@ namespace GOTHIC_ENGINE {
                     s ? s->name.ToChar() : "?", wp.ToChar());
                 return 0;
             }
+            if (HostEvRoutineSkip("Wld_InsertItem", std::string(s ? s->name.ToChar() : "?") + ", " + wp.ToChar()))   // u203
+                return 0;
             json j;
             j["f"] = "itemreq";
             j["inst"] = s ? s->name.ToChar() : "";
@@ -3979,6 +4270,8 @@ namespace GOTHIC_ENGINE {
         const std::string nm = s ? s->name.ToChar() : "";
         json j;
         j["inst"] = nm;
+        if (forward && HostEvRoutineSkip("Wld_RemoveNpc", nm))   // u203
+            return 0;
         if (forward) {
             j["f"] = "removereq";
             HostEvSend(j);
@@ -4075,6 +4368,8 @@ namespace GOTHIC_ENGINE {
             DialogLog("Host-Ereignis: Wld_SpawnNpcRange(%s) aus einem Todesskript - nicht angefragt (der Host spawnt selbst, P215)", instName.c_str());
             return 0;
         }
+        if (HostEvRoutineSkip("Wld_SpawnNpcRange", instName))   // u203
+            return 0;
         // Bezug: eigener Held -> meine Figur beim Host; sonst der NPC unter seinem GT-Namen
         std::string refName;
         if (ref == player || !ref)
@@ -4143,6 +4438,192 @@ namespace GOTHIC_ENGINE {
         DialogLog("Host-Ereignis: AI_Teleport(%s, %s) des Clients %s (P200)", n.c_str(), wpName.c_str(), ok ? "ausgefuehrt" : "nicht moeglich (NPC unbekannt)");
     }
 
+    // u204 (P235, Durchsicht der Analyse-Vorschlaege zu Archolos: TELEPORTNPCTOWP 2728-mal in 824 Funktionen, AI_TELEPORTALWAYS 96-mal in 54):
+    // Mods mit Ikarus versetzen NPCs ohne das External AI_Teleport (P200). TELEPORTNPCTOWP schreibt die Lage in die Matrix und ruft
+    // zCVob::SetPositionWorld ueber CALL__thiscall, AI_TELEPORTALWAYS schreibt nur die Matrix zwischen zCVob::SetCollDet(FALSE) und (TRUE).
+    // Beim Client stellte RemoteNpc den NPC des Hosts im naechsten Bild zurueck, beim Host geschah nichts - Zwischensequenzen und
+    // Kapitel-Ereignisse, die der Client abspielt, liefen mit NPCs an der alten Stelle. Jetzt erkennt GT solche Aufrufe am Aufrufer: Code,
+    // den ein Skript zur Laufzeit gebaut hat (Ikarus: Puffer im Heap, nicht in der Exe oder einer DLL). Der Client meldet die neue Lage
+    // ("telepos", je NPC hoechstens 4-mal je Sekunde, die letzte Lage kommt immer an), der Host stellt den NPC dorthin, die Lage geht wie
+    // jede an alle. Wie P200 nicht aus Todesskripten, nicht aus dem Tagesablauf eines vom Host gefuehrten NPCs (P231), nicht beim Laden und
+    // in den ersten 5 s danach (Init-Skripte stellen auf), nur mit dem Host in derselben Welt. Laeuft dieselbe Schleife auf beiden PCs
+    // (Bosskampf mit Zufalls-Teleport), versetzt der Host den NPC selbst: Eine Anfrage fuer einen NPC, den ein Skript des Hosts in den
+    // letzten 15 s versetzt hat, verwirft er. Allgemein (jede Mod mit Ikarus, G1/G2).
+    struct HostEvTelePosOut {
+        std::string name, how;
+        zVEC3 pos;
+        long long sentMs = 0;
+        bool pending = false;
+    };
+    static std::map<oCNpc*, HostEvTelePosOut> HostEvTelePosQueue;   // Client: je NPC die letzte gemeldete bzw. noch offene Lage
+    static std::map<oCNpc*, zVEC3> HostEvCollOffPos;                // Lage bei SetCollDet(FALSE) aus Skript-Code
+    static std::map<oCNpc*, long long> HostEvScriptTeleMs;          // Host: zuletzt von einem eigenen Skript versetzt
+    static unsigned HostEvExeBegin = 0, HostEvExeEnd = 0, HostEvDllBegin = 0, HostEvDllEnd = 0;
+    static int HostEvTelePosLogged = 0, CoopTestTelePosSent = 0, CoopTestTelePosApplied = 0;
+
+    static void HostEvModuleRange(HMODULE h, unsigned& begin, unsigned& end) {
+        const BYTE* base = (const BYTE*)h;
+        if (!base)
+            return;
+        const IMAGE_NT_HEADERS* nt = (const IMAGE_NT_HEADERS*)(base + ((const IMAGE_DOS_HEADER*)base)->e_lfanew);
+        begin = (unsigned)(size_t)base;
+        end = begin + nt->OptionalHeader.SizeOfImage;
+    }
+
+    // Aufruf aus Code, den ein Skript zur Laufzeit gebaut hat? Exe und GT selbst schnell ausgeschlossen (RemoteNpc setzt jedes Bild)
+    static bool HostEvScriptCode(const void* ret) {
+        if (!HostEvExeEnd) {
+            HostEvModuleRange(GetModuleHandleA(NULL), HostEvExeBegin, HostEvExeEnd);
+            HMODULE self = NULL;
+            if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                    (LPCSTR)&HostEvModuleRange, &self))
+                HostEvModuleRange(self, HostEvDllBegin, HostEvDllEnd);
+        }
+        const unsigned a = (unsigned)(size_t)ret;
+        if (!ret || (a >= HostEvExeBegin && a < HostEvExeEnd) || (a >= HostEvDllBegin && a < HostEvDllEnd))
+            return false;
+        MEMORY_BASIC_INFORMATION mbi;
+        return VirtualQuery(ret, &mbi, sizeof(mbi)) == sizeof(mbi) && mbi.Type == MEM_PRIVATE;
+    }
+
+    // Welt-NPC mit GT-Namen (kein Held, keine Figur), den Skript-Code eben versetzt; sonst NULL
+    static oCNpc* HostEvScriptNpc(zCVob* vob, const void* ret) {
+        if (!vob || HostEvApplying || !(ClientThread || ServerThread) || !HostEvScriptCode(ret))
+            return NULL;
+        oCNpc* npc = zDYNAMIC_CAST<oCNpc>(vob);
+        if (!npc || npc == player || PlayerNpcs.count(npc) || !NpcToUniqueNameList.count(npc) || IsCoopPlayer(npc->GetObjectName()))
+            return NULL;
+        return npc;
+    }
+
+    static void HostEvTelePosSend(HostEvTelePosOut& o) {
+        json j;
+        j["f"] = "telepos";
+        j["n"] = o.name;
+        j["x"] = o.pos.n[0];
+        j["y"] = o.pos.n[1];
+        j["z"] = o.pos.n[2];
+        j["how"] = o.how;
+        HostEvSend(j);
+        o.sentMs = CurrentMs;
+        o.pending = false;
+        CoopTestTelePosSent++;
+        if (HostEvTelePosLogged++ < 40)
+            DialogLog("Host-Ereignis: ein Skript versetzt %s beim Client (%s) nach %.0f/%.0f/%.0f -> auch beim Host (P235)", o.name.c_str(),
+                o.how.c_str(), o.pos.n[0], o.pos.n[1], o.pos.n[2]);
+    }
+
+    static void HostEvScriptMoved(oCNpc* npc, const char* how) {
+        if (ServerThread) {
+            HostEvScriptTeleMs[npc] = CurrentMs;
+            return;
+        }
+        if (!HostEvForward() || HostEvInDeathScript() || HostEvInHostRoutine() || CurrentMs < WorldLoadedMs + 5000)
+            return;
+        if (HostEvTelePosQueue.size() > 512)
+            HostEvTelePosQueue.clear();
+        HostEvTelePosOut& o = HostEvTelePosQueue[npc];
+        o.name = NpcToUniqueNameList[npc].ToChar();
+        o.how = how;
+        o.pos = npc->GetPositionWorld();
+        if (CurrentMs >= o.sentMs + 250)
+            HostEvTelePosSend(o);
+        else
+            o.pending = true;
+    }
+
+    // Haken zCVob::SetPositionWorld (unten): TELEPORTNPCTOWP und jede andere Lage aus Skript-Code
+    static void HostEvScriptSetPos(zCVob* vob, const void* ret) {
+        if (oCNpc* npc = HostEvScriptNpc(vob, ret))
+            HostEvScriptMoved(npc, "SetPositionWorld");
+    }
+
+    // Haken zCVob::SetCollDet (unten): Matrix direkt zwischen Kollision aus und an (AI_TELEPORTALWAYS) - zaehlt ab 1 m Abstand
+    static void HostEvScriptCollDet(zCVob* vob, const void* ret, bool on) {
+        oCNpc* npc = HostEvScriptNpc(vob, ret);
+        if (!npc)
+            return;
+        if (!on) {
+            if (HostEvCollOffPos.size() > 256)
+                HostEvCollOffPos.clear();
+            HostEvCollOffPos[npc] = npc->GetPositionWorld();
+            return;
+        }
+        auto it = HostEvCollOffPos.find(npc);
+        if (it == HostEvCollOffPos.end())
+            return;
+        const float d = (npc->GetPositionWorld() - it->second).LengthApprox();
+        HostEvCollOffPos.erase(it);
+        if (d >= 100.f)
+            HostEvScriptMoved(npc, "Matrix bei Kollision aus");
+    }
+
+    // Client, je Takt: offene letzte Lagen nachschicken
+    static void HostEvTelePosPulse() {
+        if (HostEvTelePosQueue.empty() || ServerThread)
+            return;
+        for (auto& kv : HostEvTelePosQueue)
+            if (kv.second.pending && CurrentMs >= kv.second.sentMs + 250 && HostEvForward())
+                HostEvTelePosSend(kv.second);
+    }
+
+    static void HostEvRunTelePos(json& e, const std::string& by) {
+        const std::string n = e.value("n", std::string());
+        auto it = UniqueNameToNpcList.find(string(n.c_str()));
+        oCNpc* npc = it != UniqueNameToNpcList.end() ? it->second : NULL;
+        if (!npc || npc == player || PlayerNpcs.count(npc) || IsCoopPlayer(npc->GetObjectName())) {
+            DialogLog("Host-Ereignis: Skript-Lage von %s beim Client %s - NPC hier unbekannt (P235)", n.c_str(), by.c_str());
+            return;
+        }
+        auto own = HostEvScriptTeleMs.find(npc);
+        if (own != HostEvScriptTeleMs.end() && CurrentMs < own->second + 15000) {
+            static int logged = 0;
+            if (logged++ < 20)
+                DialogLog("Host-Ereignis: Skript-Lage von %s beim Client %s verworfen - ein Skript des Hosts versetzt ihn selbst (P235)", n.c_str(), by.c_str());
+            return;
+        }
+        const zVEC3 p(e.value("x", 0.f), e.value("y", 0.f), e.value("z", 0.f));
+        if ((npc->GetPositionWorld() - p).LengthApprox() < 100.f)
+            return;
+        HostEvApplying++;
+        const bool inMove = npc->isInMovementMode != 0;
+        if (inMove) {
+#if ENGINE >= Engine_G2
+            npc->EndMovement(false);
+#else
+            npc->EndMovement();
+#endif
+        }
+        npc->SetCollDet(FALSE);
+        npc->SetPositionWorld(p);
+        npc->SetCollDet(TRUE);
+        if (inMove)
+            npc->BeginMovement();
+        HostEvApplying--;
+        CoopTestTelePosApplied++;
+        static int logged = 0;
+        if (logged++ < 40)
+            DialogLog("Host-Ereignis: Skript-Lage von %s des Clients %s (%s) uebernommen: %.0f/%.0f/%.0f (P235)", n.c_str(), by.c_str(),
+                e.value("how", std::string("?")).c_str(), p.n[0], p.n[1], p.n[2]);
+    }
+
+    // u204 (P235): Selbsttest - Aufruf wie Ikarus' CALL__thiscall aus einem Code-Puffer im Heap (mov ecx, this; push arg; call func; ret)
+    bool CoopTestScriptThiscall(unsigned func, void* thisPtr, const void* arg) {
+        BYTE* buf = (BYTE*)VirtualAlloc(NULL, 64, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+        if (!buf || !func)
+            return false;
+        BYTE* c = buf;
+        *c++ = 0xB9; *(void**)c = thisPtr; c += 4;
+        *c++ = 0x68; *(const void**)c = arg; c += 4;
+        *c++ = 0xB8; *(unsigned*)c = func; c += 4;
+        *c++ = 0xFF; *c++ = 0xD0;
+        *c++ = 0xC3;
+        FlushInstructionCache(GetCurrentProcess(), buf, 64);
+        ((void(__cdecl*)())buf)();
+        VirtualFree(buf, 0, MEM_RELEASE);
+        return true;
+    }
+
     static void HostEvRunKill(const std::string& n) {
         auto it = UniqueNameToNpcList.find(string(n.c_str()));
         oCNpc* npc = it != UniqueNameToNpcList.end() ? it->second : NULL;
@@ -4180,8 +4661,11 @@ namespace GOTHIC_ENGINE {
         const int before = npc->inventory2.GetAmount(inst);
         const int r = orig();
         const int d = npc->inventory2.GetAmount(inst) - before;
-        if (d)
+        if (d) {
             DlgInvChanges[std::make_pair(DialogNpcName(npc), std::string(is->name.ToChar()))] += d;
+            if (npc == DlgTradeNpc)   // u201 (P225): schickt P170 - nicht noch einmal als Handel
+                DlgTradeScript[std::string(is->name.ToChar())] += d;
+        }
         return r;
     }
 
@@ -4386,6 +4870,112 @@ namespace GOTHIC_ENGINE {
         return 0;
     }
 
+    // u204 (P232, Liste Nr. 15; Nutzer 06.11.: "schlafen soll auch beim client moeglich sein"): Die Uhr fuehrt der Host (SYNC_TIME je
+    // Sekunde, CoopApplyHostTime). Schlief der Client (PC_Sleep: Wld_SetTime auf die gewaehlte Stunde, Leben/Mana voll) oder stellte ein
+    // Skript bei ihm die Uhr (LoA: 15 Story-Stellen mit WLD_SETTIME_FORWARD, "Einige Stunden spaeter ..."), galt danach wieder die Uhr
+    // des Hosts - nur die Heilung blieb. Jetzt geht Wld_SetTime aus einem Skript des Clients als Uhr-Anfrage an den Host (SYNC_TIME mit
+    // "req": Tag, Stunde, Minute nach dem Aufruf). Der Host stellt seine Uhr wie Wld_SetTime (oCGame::SetTime: Uhr, Tagesablaeufe,
+    // Objekt-Tagesablaeufe, Spawn) - im eigenen Gespraech erst danach (Tagesablaeufe setzen NPCs um) -, und seine Uhr geht wie immer an
+    // alle. Bis dahin (hoechstens 30 s) uebernimmt der Client keine abweichende Host-Uhr (CoopTimeHoldUntilMs, Helpers.cpp). Keine
+    // Anfrage: Zustand eines vom Host gefuehrten NPCs (das macht der Host selbst), nachgespielte Zauber (P216), Laden. Der Host aendert
+    // nichts bei hoechstens 2 Spielminuten Abstand (dasselbe Skript auf beiden PCs). Aeltere Hosts ignorieren die Anfrage, der Client
+    // folgt nach 30 s wieder deren Uhr. Allgemein (G1/G2).
+    static CoopParserExternal2 OrigWldSetTime = NULL;
+    static int CoopTestTimeReqSent = 0, CoopTestTimeReqApplied = 0;   // Coop-Testlauf
+    struct CoopTimeReq {
+        bool on;
+        std::string by;
+        int reqAbs;       // gewuenschte Spielzeit in Minuten (Tag * 1440 + Stunde * 60 + Minute)
+        int hostAbsAt;    // eigene Spielzeit beim Eintreffen (wartet die Anfrage, zaehlt die Zeit bis dahin mit)
+    };
+    static CoopTimeReq TimeReqPending = { false, std::string(), 0, 0 };   // Host: wartet auf das Ende des eigenen Gespraechs
+
+    static int TimeAbsNow() {
+        int d = 0, h = 0, m = 0;
+        if (ogame)
+            ogame->GetTime(d, h, m);
+        return d * 1440 + h * 60 + m;
+    }
+
+    static int __cdecl CoopExtWldSetTime() {
+        zCParser* p = zCParser::GetParser();
+        const int before = TimeAbsNow();
+        const int r = OrigWldSetTime ? OrigWldSetTime() : 0;
+        if (!ClientThread || ServerThread || IsCoopPaused || IsLoadingLevel || WorldEditMode || !ogame || p != parser ||
+            CoopSpellReplayDepth > 0 || MyselfId == "_player_" || !DialogSyncAktiv())
+            return r;
+        // Zustand eines vom Host gefuehrten NPCs (SELF = dieser NPC, z. B. ZS_MAGICLONGSLEEP): spielt der Host selbst
+        if (oCNpc* st = HostEvStateNpc) {
+            zCPar_Symbol* s = parser->GetSymbol(zSTRING("SELF"));
+            if (st != player && !PlayerNpcs.count(st) && NpcToUniqueNameList.count(st) && s && (oCNpc*)s->offset == st && !CoopLeadIsMine(st))
+                return r;
+        }
+        const int after = TimeAbsNow();
+        if (after == before)
+            return r;
+        json j;
+        j["type"] = SYNC_TIME;
+        j["id"] = MyselfId.ToChar();
+        j["req"] = 1;
+        j["d"] = after / 1440;
+        j["h"] = (after % 1440) / 60;
+        j["m"] = after % 60;
+        CoopTraceCount(TRACE_SENT, SYNC_TIME);
+        ReadyToSendJsons.enqueue(j);
+        CoopTimeHoldUntilMs = CurrentMs + 30000;
+        CoopTestTimeReqSent++;
+        DialogLog("Uhrzeit: hier per Skript gestellt (%+d Spielminuten, jetzt Tag %d %02d:%02d) - Anfrage an den Host (P232)", after - before,
+            after / 1440, (after % 1440) / 60, after % 60);
+        return r;
+    }
+
+    static void TimeReqApply(const std::string& by, int reqAbs) {
+        const int now = TimeAbsNow();
+        if (reqAbs < 0)
+            return;
+        if (abs(reqAbs - now) <= 2) {
+            DialogLog("Uhrzeit: Anfrage von %s (Tag %d %02d:%02d) - hier schon so (P232)", by.c_str(), reqAbs / 1440, (reqAbs % 1440) / 60,
+                reqAbs % 60);
+            return;
+        }
+        ogame->SetTime(reqAbs / 1440, (reqAbs % 1440) / 60, reqAbs % 60);   // wie Wld_SetTime: Uhr, Tagesablaeufe, Objekt-Tagesablaeufe, Spawn
+        CoopTestTimeReqApplied++;
+        if (Myself)
+            Myself->SyncTime();   // gleich an alle (sonst bis zu 1 s)
+        DialogLog("Uhrzeit: %s hat geschlafen bzw. per Skript die Uhr gestellt: Tag %d %02d:%02d -> Tag %d %02d:%02d (%+d Spielminuten) - "
+            "gilt jetzt fuer alle (P232)", by.c_str(), now / 1440, (now % 1440) / 60, now % 60, reqAbs / 1440, (reqAbs % 1440) / 60, reqAbs % 60,
+            reqAbs - now);
+    }
+
+    // Host: Uhr-Anfrage eines Clients (PacketProcessor.cpp, SYNC_TIME mit "req")
+    void CoopTimeRequestReceive(json& e, const std::string& by) {
+        if (!ServerThread || !ogame || !e.contains("d") || !e.contains("h") || !e.contains("m") || !e["d"].is_number_integer() ||
+            !e["h"].is_number_integer() || !e["m"].is_number_integer())
+            return;
+        const int d = e["d"].get<int>(), h = e["h"].get<int>(), m = e["m"].get<int>();
+        if (d < 0 || h < 0 || h > 23 || m < 0 || m > 59)
+            return;
+        const int reqAbs = d * 1440 + h * 60 + m;
+        if (IsPlayerTalkingWithAnybody() || IsLoadingLevel) {
+            TimeReqPending.on = true;
+            TimeReqPending.by = by;
+            TimeReqPending.reqAbs = reqAbs;
+            TimeReqPending.hostAbsAt = TimeAbsNow();
+            DialogLog("Uhrzeit: Anfrage von %s (Tag %d %02d:%02d) - nach dem eigenen Gespraech (P232)", by.c_str(), d, h, m);
+            return;
+        }
+        TimeReqPending.on = false;
+        TimeReqApply(by, reqAbs);
+    }
+
+    static void TimeReqPulse() {
+        if (!TimeReqPending.on || !ServerThread || !ogame || IsLoadingLevel || IsPlayerTalkingWithAnybody())
+            return;
+        TimeReqPending.on = false;
+        const int waited = TimeAbsNow() - TimeReqPending.hostAbsAt;   // so viel lief die Uhr beim Client inzwischen auch weiter
+        TimeReqApply(TimeReqPending.by, TimeReqPending.reqAbs + (waited > 0 && waited < 600 ? waited : 0));
+    }
+
     static void HostEvInstallOne(const char* name, CoopParserExternal2& orig, CoopParserExternal2 mine) {
         zCPar_Symbol* s = parser->GetSymbol(zSTRING(name));
         if (!s || s->type != zPAR_TYPE_FUNC || !(s->flags & zPAR_FLAG_EXTERNAL) || !s->single_intdata) {
@@ -4418,6 +5008,7 @@ namespace GOTHIC_ENGINE {
         HostEvInstallOne("NPC_CHANGEATTRIBUTE", OrigNpcChangeAttribute, &CoopExtNpcChangeAttribute);   // u195 (P200)
         HostEvInstallOne("WLD_REMOVENPC", OrigWldRemoveNpc, &CoopExtWldRemoveNpc);
         HostEvInstallOne("WLD_SPAWNNPCRANGE", OrigWldSpawnNpcRange, &CoopExtWldSpawnNpcRange);   // u199 (P215)
+        HostEvInstallOne("WLD_SETTIME", OrigWldSetTime, &CoopExtWldSetTime);   // u204 (P232)
 #if ENGINE >= Engine_G2
         HostEvInstallOne("EXITSESSION", OrigExitSession, &CoopExtExitSession);          // u147 (P149)
 #endif
@@ -4484,6 +5075,23 @@ namespace GOTHIC_ENGINE {
         HostEvSend(j);
     }
 
+    // u203 (Liste 6g, Rest): Tote, die der Host nach seinem Laden erzeugt hat, heissen bei ihm "<Objekt>-DYNAMIC-<Wegpunkt>-n". Laedt
+    // ein Partner danach die Weltdatei des Hosts (Betreten, Weltstand-Tausch), benennt er sie im Erstlauf nach Wegpunkt - die
+    // Wiederholung alle 30 s galt nur Lebenden. Pakete und gemeldete Tode fuer den Host-Namen liefen dort ins Leere ("unbekannter
+    // NPC-Name im Paket", "gemeldeten Tod ... nicht angewendet (hier unbekannt)"; LoA-Volltest u202: MEATBUG-DYNAMIC-LOA_SL_PATH_040-1).
+    // Eigene Meldung (aeltere Clients kennen "spawndead" nicht und benennen so keinen Lebenden um): nur umbenennen, nie anlegen.
+    static void SpawnDeadSend(const std::string& n, oCNpc* npc, const std::string& inst) {
+        const zVEC3 pos = npc->GetPositionWorld();
+        json j;
+        j["f"] = "spawndead";
+        j["n"] = n;
+        j["inst"] = inst;
+        j["x"] = pos[0];
+        j["y"] = pos[1];
+        j["z"] = pos[2];
+        HostEvSend(j);
+    }
+
     // Host, je Sekunde: neue GT-Namen = neue NPCs; alle 30 s die Liste wiederholen
     static void SpawnPulse() {
         if (!ServerThread || CurrentMs < SpawnNextMs)
@@ -4528,6 +5136,8 @@ namespace GOTHIC_ENGINE {
                 }
                 if (!it->second.npc->IsDead())
                     SpawnSend(it->first, it->second.npc, it->second.inst, true);
+                else if (it->second.npc->vobLeafList.GetNum() > 0)
+                    SpawnDeadSend(it->first, it->second.npc, it->second.inst);   // u203: Leiche in der Welt
                 ++it;
             }
         }
@@ -4657,6 +5267,49 @@ namespace GOTHIC_ENGINE {
         DialogLog("Host-Ereignis: NPC %s (%s) vom Host angelegt (%s)", n.c_str(), inst.c_str(), how);
     }
 
+    // u203 (Liste 6g, Rest): Client - Leiche des Hosts mit dessen Namen. Gleich benannt: nichts. Sonst die naechste Leiche derselben
+    // Instanz bis 3 m, die noch keinen Host-Namen traegt (CoopHostActiveNames: dafuer sendet der Host Pakete) - umbenennen.
+    static void SpawnDeadApply(json& e) {
+        const std::string n = e.at("n").get<std::string>();
+        const std::string inst = e.at("inst").get<std::string>();
+        const zVEC3 pos(e.at("x").get<float>(), e.at("y").get<float>(), e.at("z").get<float>());
+        if (n.empty() || !ogame || !ogame->GetGameWorld())
+            return;
+        auto haveIt = UniqueNameToNpcList.find(string(n.c_str()));
+        if (haveIt != UniqueNameToNpcList.end() && haveIt->second) {
+            SpawnFromHost.insert(n);
+            return;
+        }
+        oCNpc* best = NULL;
+        float bestD = 300.f;
+        for (auto* l = CoopWorldNpcListFirst(ogame->GetGameWorld()); l; l = l->next) {
+            oCNpc* npc = l->data;
+            if (!npc || !npc->IsDead() || StoryNpcSkip(npc) || inst != npc->GetInstanceName().ToChar())
+                continue;
+            auto nm = NpcToUniqueNameList.find(npc);
+            if (nm != NpcToUniqueNameList.end() && (SpawnFromHost.count(nm->second.ToChar()) || CoopHostActiveNames.count(nm->second.ToChar())))
+                continue;
+            const float d = (npc->GetPositionWorld() - pos).Length();
+            if (d < bestD) {
+                bestD = d;
+                best = npc;
+            }
+        }
+        if (!best)
+            return;
+        auto old = NpcToUniqueNameList.find(best);
+        const std::string oldName = old != NpcToUniqueNameList.end() ? old->second.ToChar() : std::string();
+        if (!oldName.empty())
+            UniqueNameToNpcList.erase(string(oldName.c_str()));
+        NpcToUniqueNameList[best] = string(n.c_str());
+        UniqueNameToNpcList[string(n.c_str())] = best;
+        SpawnFromHost.insert(n);
+        static CoopDiagBudget budget = { 0, 0 };
+        if (CoopDiagAllow(budget, 30))
+            DialogLog("Host-Ereignis: Leiche %s heisst hier jetzt %s (wie beim Host, %.1f m, u203)", oldName.empty() ? "ohne Namen" : oldName.c_str(),
+                n.c_str(), bestD / 100.f);
+    }
+
     static void HostEvReceive(json& e, const std::string& by, bool relay) {
         const std::string f = e.contains("f") && e["f"].is_string() ? e["f"].get<std::string>() : std::string();
         if (ServerThread && !relay) {   // Anfrage eines Clients
@@ -4706,6 +5359,10 @@ namespace GOTHIC_ENGINE {
             }
             else if (f == "telereq")   // u195 (P200)
                 HostEvRunTeleport(e.value("n", std::string()), e.value("wp", std::string()));
+            else if (f == "telepos") {   // u204 (P235): bis zu 4 je Sekunde und NPC - eigene Logzeilen, keine Sammelzeile
+                HostEvRunTelePos(e, by);
+                return;
+            }
             else if (f == "killreq")
                 HostEvRunKill(e.value("n", std::string()));
             else if (f == "removereq") {
@@ -4725,6 +5382,8 @@ namespace GOTHIC_ENGINE {
             return;
         if (f == "spawn")
             SpawnApply(e);
+        else if (f == "spawndead")   // u203
+            SpawnDeadApply(e);
         else if (f == "item") {   // u27 (D13d): Gegenstand des Hosts am selben Wegpunkt anlegen
             const std::string inst = e.at("inst").get<std::string>(), wp = e.at("wp").get<std::string>();
             // u199 (P212): hat ein Skript ihn hier eben selbst angelegt (und den Host angefragt), ist er schon da
@@ -4878,6 +5537,9 @@ namespace GOTHIC_ENGINE {
         SpawnFromHost.clear();
         HostEvPendingNpc.clear();    // u199 (P212): nach dem Laden gehoeren sie zu keiner Anfrage mehr
         HostEvPendingItem.clear();
+        HostEvTelePosQueue.clear();  // u204 (P235): NPC-Zeiger der alten Welt
+        HostEvCollOffPos.clear();
+        HostEvScriptTeleMs.clear();
         PartyLeaderClear();          // u199 (P217): neue NPC-Zeiger nach dem Laden
         HeroStateClear();            // u199 (P221): ebenso
         CoopHostActiveNames.clear();
@@ -4977,6 +5639,8 @@ namespace GOTHIC_ENGINE {
             }
         }
         HostEvInstall();   // v33
+        TimeReqPulse();    // u204 (P232)
+        HostEvTelePosPulse();   // u204 (P235)
         try {
             SpawnPulse();
         }
@@ -4994,6 +5658,12 @@ namespace GOTHIC_ENGINE {
             catch (std::exception& ex) {
                 CoopErrorLog("Story-Abgleich", ex.what(), "Takt");
             }
+        }
+        try {
+            VobSyncTick();   // u201 (P226)
+        }
+        catch (std::exception& ex) {
+            CoopErrorLog("Objekt-Abgleich", ex.what(), "Takt");
         }
         TrackOwnDialog();
         if (MyDialogNpcPtr && !MyDialogNpc.empty())
@@ -5042,6 +5712,27 @@ namespace GOTHIC_ENGINE {
         if (r)   // v28: erst wenn die Zeile startet - solange das Gegenueber noch spricht, liefert EV_Output 0 (wartet)
             ReportLine(_this, msg, false);
         return r;
+    }
+
+    // u204 (P235): Skript-Teleport (Ikarus) - siehe HostEvScriptSetPos/HostEvScriptCollDet; der Aufrufer ist die Ruecksprungadresse
+    // (CInvoke springt in den Haken, ohne einen eigenen Rahmen anzulegen)
+    void __fastcall zCVob_SetPositionWorld_Coop(zCVob* _this, void* vtable, const zVEC3& pos);
+    CInvoke<void(__thiscall*)(zCVob*, const zVEC3&)> Ivk_zCVob_SetPositionWorld_Coop(CoopAddr::zCVob_SetPositionWorld, &zCVob_SetPositionWorld_Coop,
+        COOP_IVK(Dialog));
+    void __fastcall zCVob_SetPositionWorld_Coop(zCVob* _this, void* vtable, const zVEC3& pos) {
+        const void* ret = _ReturnAddress();
+        Ivk_zCVob_SetPositionWorld_Coop(_this, pos);
+        if ((ClientThread || ServerThread) && !HostEvApplying)
+            HostEvScriptSetPos(_this, ret);
+    }
+
+    void __fastcall zCVob_SetCollDet_Coop(zCVob* _this, void* vtable, int on);
+    CInvoke<void(__thiscall*)(zCVob*, int)> Ivk_zCVob_SetCollDet_Coop(CoopAddr::zCVob_SetCollDet, &zCVob_SetCollDet_Coop, COOP_IVK(Dialog));
+    void __fastcall zCVob_SetCollDet_Coop(zCVob* _this, void* vtable, int on) {
+        const void* ret = _ReturnAddress();
+        Ivk_zCVob_SetCollDet_Coop(_this, on);
+        if ((ClientThread || ServerThread) && !HostEvApplying)
+            HostEvScriptCollDet(_this, ret, on != 0);
     }
 
     int __fastcall oCNpc_EV_OutputSVM_Coop(oCNpc* _this, void* vtable, oCMsgConversation* msg);
@@ -5096,6 +5787,9 @@ namespace GOTHIC_ENGINE {
             }
         }
 #endif
+        // u206 (P240): angenommen - der NPC darf beim Client aufstehen, bis ZS_Talk den Dialog oeffnet (Helpers.cpp CoopTalkStartMark)
+        if (r && other && other == player && _this && _this != player && ClientThread && !ServerThread)
+            CoopTalkStartMark(_this);
         return r;
     }
 
@@ -5306,7 +6000,14 @@ namespace GOTHIC_ENGINE {
     int __fastcall oCNpc_States_DoAIState_Coop(oCNpc_States* _this, void* vtable);
     CInvoke<int(__thiscall*)(oCNpc_States*)> Ivk_oCNpc_States_DoAIState_Coop(CoopAddr::oCNpc_States_DoAIState, &oCNpc_States_DoAIState_Coop,
         COOP_IVK(Dialog));
+    struct HostEvStateScope {   // u203: wessen Zustand gerade laeuft (HostEvInHostRoutine)
+        oCNpc* old;
+        explicit HostEvStateScope(oCNpc* npc) : old(HostEvStateNpc) { HostEvStateNpc = npc; }
+        ~HostEvStateScope() { HostEvStateNpc = old; }
+    };
+
     int __fastcall oCNpc_States_DoAIState_Coop(oCNpc_States* _this, void* vtable) {
+        HostEvStateScope stateScope(_this ? _this->npc : NULL);   // u203
         if (!DialogFrozen.empty() && _this) {
             oCNpc* npc = _this->npc;
             if (npc && DialogFrozen.count(npc) && !npc->IsDead() && npc->GetWeaponMode() == NPC_WEAPON_NONE)
@@ -5416,6 +6117,8 @@ namespace GOTHIC_ENGINE {
     void CoopDialogSyncPeerGone(const std::string&) {}
     void CoopDialogSyncWorldLoaded() {}
     void CoopDialogSyncPulse() {}
+    void CoopTimeRequestReceive(json&, const std::string&) {}   // u204 (P232)
+    bool CoopTestScriptThiscall(unsigned, void*, const void*) { return false; }   // u204 (P235)
     void CoopStorySendAllNpcs(const char*) {}
     void CoopDialogSyncLoadKind(bool) {}   // u140
     json CoopWorldEntryVarsGet(const std::string&) { return json::array(); }

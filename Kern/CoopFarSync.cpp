@@ -314,7 +314,44 @@ namespace GOTHIC_ENGINE {
     // Allgemein GT (v41; unter Othello nah beieinander getestet, daher unbemerkt).
     static std::set<oCNpc*> FarKeptDeadLogged;   // je Leiche eine Logzeile (hoechstens 20 je Sitzung)
 
+    // u203 (Liste 6g, LoA-Volltests u189-u202: die tote Fleischwanze der Markierung fehlte beim Partner nach dem Betreten; in Khorinis
+    // lag sie zufaellig nah am Startpunkt): Am Ende von oCGame::ChangeLevel ruft Gothic SpawnImmediately - CheckRemoveNpc fuer jeden
+    // NPC der Liste, der Held steht da noch am Startpunkt der Welt. GT setzt ihn erst danach (LoadEnd, CoopTeleportAcrossLoadEnd)
+    // neben den Mitspieler, und waehrend des Ladens gilt CoopFollowActive nicht (IsLoadingLevel). Tote weiter als 50 m vom
+    // Startpunkt nahm Gothic so ganz aus dem Spiel (DeleteNpc im selben Durchlauf), Lebende kamen in die Spawn-Liste und spaeter an
+    // ihrem Tagesablauf wieder. Jetzt bleiben beim Laden NPCs im Umkreis der zuletzt gemeldeten Lage eines Mitspielers in der Welt,
+    // die gerade geladen wird; ueber alles andere entscheidet danach der normale Durchlauf (KI je Bild). Allgemein (G1/G2).
+    static unsigned long FarLoadKept = 0, FarLoadKeptDead = 0;
+
+    static bool FarKeepWhileLoading(oCNpc* npc) {
+        if (!IsLoadingLevel || !npc || npc == player || WorldEditMode)
+            return false;
+        FarReadConfig();
+        if (!FarFollow || !(ServerThread || (ClientThread && !IsCoopPaused)) || MyselfId == "_player_")
+            return false;
+        const std::string w = CoopWorldName();
+        if (w.empty())
+            return false;
+        const int key = CoopWorldKeyOf(w);
+        const zVEC3 p = npc->GetPositionWorld();
+        const float range = oCSpawnManager::GetRemoveRange();
+        for (auto& kv : CoopPeerWorlds) {
+            const CoopPeerWorld& pw = kv.second;
+            if (kv.first == MyselfId.ToChar() || !pw.hasPos || pw.key != key)
+                continue;
+            if (FarDist(zVEC3(pw.pos[0], pw.pos[1], pw.pos[2]), p) < range)
+                return true;
+        }
+        return false;
+    }
+
     int __fastcall oCSpawnManager_CheckRemoveNpc_Coop(oCSpawnManager* _this, void* vtable, oCNpc* npc) {
+        if (FarKeepWhileLoading(npc)) {   // u203 (6g)
+            FarLoadKept++;
+            if (npc->IsDead())
+                FarLoadKeptDead++;
+            return 0;
+        }
         // v44: Kamera beim Mitspieler - der Mittelpunkt ist dann die Kamera (camVob, CheckRemoveNpc +0x64); NPCs um den eigenen
         // Helden bleiben trotzdem
         if (npc && npc != player && player && CoopCamWatching() &&
@@ -714,6 +751,10 @@ namespace GOTHIC_ENGINE {
 
     // Aus LoadEnd: neue Welt.
     void CoopFarSyncWorldLoaded() {
+        if (FarLoadKept)   // u203 (6g): Aufruf aus LoadEnd, nach SpawnImmediately in ChangeLevel
+            FarLog("beim Laden %lu NPCs (davon %lu Tote) im Umkreis der letzten Lage eines Mitspielers in der Welt gelassen (u203)",
+                FarLoadKept, FarLoadKeptDead);
+        FarLoadKept = FarLoadKeptDead = 0;
         FarAlive.clear();
         FarScanReady = false;
         FarKnownDead.clear();

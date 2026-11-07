@@ -421,8 +421,10 @@ namespace GOTHIC_ENGINE {
         if (!held)
             return;   // Nachricht schon fertig
         CoopMsgItemFreed++;
-        static char trail[900], line[1400];   // nicht auf dem Stapel - sonst liest CoopStackTrail alte Werte darin mit
-        CoopStackTrail(trail, sizeof(trail), 16);
+        // u210 (P244, Dauerlaeufe 07.11.: der Anstoss lag hinter 16 Eintraegen - oCNpcInventory::RemoveByPtr, wer das rief, fehlte; in LoA
+        // gibt der Host Karten, Joints und Traenke 50 ms nach dem Start der Nachricht frei): 32 Eintraege
+        static char trail[1800], line[2400];   // nicht auf dem Stapel - sonst liest CoopStackTrail alte Werte darin mit
+        CoopStackTrail(trail, sizeof(trail), 32);
         _snprintf(line, sizeof(line), "Gegenstand \"%s\" (%p) der laufenden Nachricht von %s wird freigegeben, Zustand %s (beim Merken %s, vor %lld ms) - "
             "Aufrufer: %s", e.item.c_str(), item, e.npcName.c_str(), e.npc->state.curState.name.ToChar(), e.state.c_str(), GetCurrentMs() - e.ms, trail);
         line[sizeof(line) - 1] = 0;
@@ -850,6 +852,59 @@ namespace GOTHIC_ENGINE {
         return im.Npc == (oCNpc*)vob && !im.IsDone;
     }
 
+    // u206 (P240, Archolos-Testlauf u205): Beim Client kam mit NPCs, die lehnen, sitzen oder mit verschraenkten Armen Wache stehen,
+    // nie ein Gespraech zustande ("redet nicht (kein Dialog nach 9 s)": Fabio ZS_LEAN, Urs ZS_CHECKLIST, Kazeem ZS_SIT_TURKISH, Jorn
+    // ZS_STAND_GUARDING; Ezekiel steht und redete). B_AssessTalk stellt AI_StandUp(self) vor AI_StartState(self, ZS_Talk) - der
+    // zCModel::StartAni-Haken liess die Aufsteh-Animation (T_LEAN_2_STAND, T_HGUARD_2_STAND ...) aber nur fuer Dialogpartner zu, und
+    // das wird der NPC erst in ZS_Talk. AI_StandUp wurde nie fertig. Jetzt gilt ab dem Ansprechen 8 s lang "Gespraechsbeginn": eigene
+    // Animationen erlaubt, Host-Daten zurueckgestellt wie im Dialog. Nur Zeigervergleich, der Merker wird nie dereferenziert.
+    // Allgemein (G1/G2A).
+    // u210 (P245, Archolos-Dauerlauf b318: der Client sprach Ezekiel immer wieder an, ohne dass ein Gespraech kam - jedes Ansprechen
+    // gab 8 s frei, Ezekiel spielte beim Client seinen eigenen Tagesablauf (hinsetzen, laufen, umsehen; ueber 600 Zeilen in 48 min)
+    // statt der Daten des Hosts): im Gespraechsbeginn nur noch Uebergaenge zum Stehen und Drehungen (CoopTalkStartAniOk), und je NPC
+    // hoechstens zweimal in 60 s
+    static zCVob* CoopTalkStartVob = NULL;
+    static long long CoopTalkStartUntilMs = 0;
+    static zCVob* CoopTalkStartLastVob = NULL;
+    static long long CoopTalkStartFirstMs = 0;
+    static int CoopTalkStartCount = 0;
+
+    void CoopTalkStartMark(zCVob* vob) {
+        if (!vob)
+            return;
+        if (vob == CoopTalkStartLastVob && CurrentMs < CoopTalkStartFirstMs + 60000) {
+            if (++CoopTalkStartCount > 2)
+                return;   // P245: wer nach zwei Versuchen nicht redet, bleibt Marionette des Hosts
+        }
+        else {
+            CoopTalkStartLastVob = vob;
+            CoopTalkStartFirstMs = CurrentMs;
+            CoopTalkStartCount = 1;
+        }
+        CoopTalkStartVob = vob;
+        CoopTalkStartUntilMs = CurrentMs + 8000;
+    }
+
+    // P245: was ein NPC zum Aufstehen fuer ein Gespraech braucht - T_LEAN_2_STAND, T_HGUARD_2_STAND, Mobs T_BENCH_S1_2_S0, Drehungen,
+    // Stehen und Laufen danach; nicht Hinsetzen, Anlehnen oder Umsehen
+    bool CoopTalkStartAniOk(const char* ani) {
+        if (!ani)
+            return false;
+        return strstr(ani, "_2_STAND") || strstr(ani, "_2_S0") || strstr(ani, "TURN") || !strcmp(ani, "S_RUN") || !strcmp(ani, "S_STAND") ||
+            !strcmp(ani, "S_WALK");
+    }
+
+    bool CoopTalkStarting(zCVob* vob) {
+        if (!vob || vob != CoopTalkStartVob)
+            return false;
+        if (CurrentMs >= CoopTalkStartUntilMs) {
+            CoopTalkStartVob = NULL;
+            CoopTalkStartUntilMs = 0;
+            return false;
+        }
+        return true;
+    }
+
     float GetDistance3D(float aX, float aY, float aZ, float bX, float bY, float bZ)
     {
         float distX = aX - bX;
@@ -972,9 +1027,25 @@ namespace GOTHIC_ENGINE {
     // Tagesablaufs wechselten seine NPCs so im 10-s-Takt hin und her, Harad pendelte 40 m - harte Spruenge). Jetzt jede Sekunde genau;
     // ein Sprung ueber 30 Spielminuten (der Host hat geschlafen) startet die Tagesablaeufe neu wie im Weltprozess. t < 0: Partner vor
     // u83, wie bisher nur Stunde und Minute.
+    // u204 (P232): eigene Uhr-Anfrage an den Host offen (Schlafen bzw. Skript beim Client, CoopDialogSync.cpp CoopExtWldSetTime) - bis der
+    // Host die neue Uhr meldet, keine abweichende Host-Uhr uebernehmen (sonst sprang der Client zurueck und startete die Tagesablaeufe
+    // zweimal neu). Hoechstens 30 s, dann gilt wieder die Uhr des Hosts (aelterer Host ohne P232).
+    static long long CoopTimeHoldUntilMs = 0;
+
     void CoopApplyHostTime(int day, int h, int m, const char* why, float t = -1.f) {
         if (!ogame || h < 0 || h > 23 || m < 0 || m > 59)
             return;
+        if (CoopTimeHoldUntilMs) {
+            if (abs(CoopHostTimeDiffMin(day, h, m)) <= 2)
+                CoopTimeHoldUntilMs = 0;   // der Host hat sie uebernommen
+            else if (CurrentMs < CoopTimeHoldUntilMs)
+                return;
+            else {
+                CoopTimeHoldUntilMs = 0;
+                OthelloCompatLog("[%lld s, %s] Uhrzeit: der Host hat die hier gestellte Uhr nicht uebernommen - gilt wieder seine (P232)",
+                    DiagSeconds(), DiagRole());
+            }
+        }
         oCWorldTimer* timer = ogame->GetWorldTimer();
         if (!timer)
             return;

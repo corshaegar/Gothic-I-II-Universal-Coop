@@ -34,6 +34,10 @@
     // Weltdatei wie Gothics Eintritts-Merker: wer die Welt mit der eigenen Datei betritt, fuehrt den Block selbst aus.
     "worldVars": { "MEINEMOD_MINE_ERSTES_MAL": "MEINEMINE" },
 
+    // ab u201: Welt-Objekte (ganze Namen), deren Sichtbarkeit, Kollision, Durchsichtigkeit und Aussehen Skripte direkt
+    // aendern (Ikarus) - der Coop gleicht sie zwischen Spielern in derselben Welt ab.
+    "vobSync": [ "MEINEMOD_BARRIKADE", "MEINEMOD_GRAB_01" ],
+
     // Vorgaben fuer Coop-Schalter aus GothicCoopConfig.json (nur "coop..."). Sie gelten nur, wenn die
     // GothicCoopConfig.json des Spielers sie nicht selbst setzt.
     "configDefaults": { "coopWorldProcessAuto": true },

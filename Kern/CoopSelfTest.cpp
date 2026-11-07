@@ -796,7 +796,8 @@ namespace GOTHIC_ENGINE {
                 continue;
             zCPar_Symbol* s = DlgIntSlots[i].sym;
             const std::string nm = s->name.ToChar();
-            if (StoryIgnored(nm) || DlgGuildVars.count(s))   // u48: auch ..._RANDOMIZER (CoopDialogSync.cpp); u150 (P154): Werte je Held duerfen abweichen
+            // u48: auch ..._RANDOMIZER (CoopDialogSync.cpp); u150 (P154): Werte je Held duerfen abweichen; u207 (P241): Ablauf-Zaehler auch
+            if (StoryIgnored(nm) || DlgGuildVars.count(s) || CoopModStartVar(nm.c_str()))
                 continue;
             int v = 0;
             s->GetValue(v, DlgIntSlots[i].idx);
@@ -1991,6 +1992,41 @@ namespace GOTHIC_ENGINE {
         const int pm = CTInt(post, "base", "min");
         d = CTFmt("Partner %02d:%02d, hier %02d:%02d", pm / 60, pm % 60, h, m);
         return pm >= 0 && CTMinDiff(pm, h * 60 + m) <= 5;
+    }
+
+    // u204 (P232): Client stellt die Uhr per Skript (wie PC_Sleep: Wld_SetTime) - der Host uebernimmt sie fuer alle, hier springt sie
+    // nicht zurueck (CoopDialogSync.cpp CoopExtWldSetTime, Helpers.cpp CoopApplyHostTime)
+    static int CTScriptTimeSet = -1;      // eigene Spielzeit in Minuten (Tag * 1440 + ...) direkt nach dem Stellen
+    static int CTScriptTimeReqBefore = 0;
+
+    static bool AScriptTime(std::string& why) {
+        auto ext = DialogExternal("WLD_SETTIME");
+        if (!ext) {
+            why = "kein WLD_SETTIME";
+            return false;
+        }
+        int day = 0, h = 0, m = 0;
+        ogame->GetTime(day, h, m);
+        const int t = h * 60 + m + 40;   // 40 Spielminuten weiter; ueber Mitternacht zaehlt Stunde >= 24 den Tag weiter (wie PC_Sleep)
+        CTScriptTimeReqBefore = CoopTestTimeReqSent;
+        DialogPushInt(t / 60);   // Wld_SetTime(Stunde, Minute): erster Parameter zuerst
+        DialogPushInt(t % 60);
+        ext();
+        ogame->GetTime(day, h, m);
+        CTScriptTimeSet = day * 1440 + h * 60 + m;
+        return true;
+    }
+
+    static bool JScriptTime(const json&, const json& post, std::string& d) {
+        int day = 0, h = 0, m = 0;
+        ogame->GetTime(day, h, m);
+        const int me = day * 1440 + h * 60 + m;
+        const int pd = CTInt(post, "base", "day"), pm = CTInt(post, "base", "min");
+        const int partner = pd >= 0 && pm >= 0 ? pd * 1440 + pm : -100000;
+        const int sent = CoopTestTimeReqSent - CTScriptTimeReqBefore;
+        d = CTFmt("hier per Skript gestellt auf Tag %d %02d:%02d (Anfragen an den Host %d), jetzt hier Tag %d %02d:%02d, Host Tag %d %02d:%02d",
+            CTScriptTimeSet / 1440, (CTScriptTimeSet % 1440) / 60, CTScriptTimeSet % 60, sent, day, h, m, pd, pm / 60, pm % 60);
+        return sent >= 1 && CTScriptTimeSet >= 0 && abs(partner - me) <= 5 && me >= CTScriptTimeSet - 1;
     }
 
     static bool CTRulesSame(const json& post, const char* const* keys, int n, std::string& d) {
@@ -3883,6 +3919,9 @@ namespace GOTHIC_ENGINE {
         return true;
     }
 
+    extern oCNpc* CoopDiag6gNpc;        // u201 (Liste 6g): Plugin.cpp
+    extern std::string CoopDiag6gName;
+
     static int CTMarkFinish(CTMark& m) {
         if (!m.insertedMs)
             return -1;
@@ -3903,6 +3942,8 @@ namespace GOTHIC_ENGINE {
             return CurrentMs > m.insertedMs + 8000 ? -1 : 0;
         CoopKillNoXp(fresh, NULL, "Coop-Test: Markierung fuer das Betreten");
         m.have = true;
+        CoopDiag6gNpc = fresh;   // u201 (Liste 6g): beim naechsten Speichern beobachten (Plugin.cpp, Game_SaveBegin/End)
+        CoopDiag6gName = DialogNpcName(fresh);
         return 1;
     }
 
@@ -4326,8 +4367,9 @@ namespace GOTHIC_ENGINE {
         return PBugAlive(why);
     }
 
-    static bool ABugScriptTele(std::string& why) {
-        oCNpc* b = DialogNpcByName(CT.bugName);
+    // Wegpunkt vor bzw. hinter dem Helden, 4-25 m von der Fleischwanze (CTScriptWp, CTScriptWpPos)
+    static bool CTBugScriptWp(oCNpc*& b, std::string& why) {
+        b = DialogNpcByName(CT.bugName);
         oCWorld* w = ogame ? ogame->GetGameWorld() : NULL;
         if (!b || !w || !w->wayNet) {
             why = "keine Fleischwanze oder kein Wegenetz";
@@ -4348,6 +4390,13 @@ namespace GOTHIC_ENGINE {
             why = "kein Wegpunkt 4-25 m von der Fleischwanze";
             return false;
         }
+        return true;
+    }
+
+    static bool ABugScriptTele(std::string& why) {
+        oCNpc* b = NULL;
+        if (!CTBugScriptWp(b, why))
+            return false;
         zSTRING wpn(CTScriptWp.c_str());
         if (!CoopCallNpcExternal("AI_TELEPORT", b, &wpn, NULL, 0)) {
             why = "External AI_TELEPORT nicht aufrufbar";
@@ -4366,6 +4415,23 @@ namespace GOTHIC_ENGINE {
         catch (...) {}
         d = CTFmt("%s beim Host %.1f m von %s (soll < 3 m)", CT.bugName.c_str(), dist, CTScriptWp.c_str());
         return found == 1 && dist >= 0.f && dist < 3.f;
+    }
+
+    // u204 (P235): wie ein Ikarus-Skript (TELEPORTNPCTOWP: CALL__thiscall auf zCVob::SetPositionWorld aus einem Code-Puffer im Heap) -
+    // der Host muss die Lage uebernehmen (Pruefung wie beim Skript-Teleport: JBugScriptTele)
+    bool CoopTestScriptThiscall(unsigned func, void* thisPtr, const void* arg);   // CoopDialogSync.cpp
+    static zVEC3 CTIkarusPos;
+
+    static bool ABugIkarusTele(std::string& why) {
+        oCNpc* b = NULL;
+        if (!CTBugScriptWp(b, why))
+            return false;
+        CTIkarusPos = CTScriptWpPos;
+        if (!CoopTestScriptThiscall(CoopAddr::zCVob_SetPositionWorld, b, &CTIkarusPos)) {
+            why = "Code-Puffer fuer den Aufruf nicht anlegbar";
+            return false;
+        }
+        return true;
     }
 
     static bool ABugScriptKill(std::string& why) {
@@ -8374,6 +8440,7 @@ namespace GOTHIC_ENGINE {
         { "Falscher Toter in der Welt",          "P155",   3500, 0,           PHealBug,    QHeal,      AHeal,       JHealBug,    NULL },      // u151
         { "Leiche mit Leben steht auf",          "P157",   3000, CTF_LONG,    PHealBug,    QHealZ,     AHealZ,      JHealBug,    NULL },      // u152
         { "Fleischwanze Skript-Teleport beim Client gilt beim Host", "P200", 2500, CTF_CLIENT, PBugScript, QBug, ABugScriptTele, JBugScriptTele, NULL },   // u195
+        { "Fleischwanze Ikarus-Teleport beim Client gilt beim Host", "P235", 2500, CTF_CLIENT, PBugScript, QBug, ABugIkarusTele, JBugScriptTele, NULL },   // u204
         { "Fleischwanze Skript-Tod beim Client gilt beim Host", "P200", 2500, CTF_CLIENT, PBugScript, QBug,  ABugScriptKill, JBugScriptKill, NULL },   // u195
         { "Fleischwanze toeten",                 "C1",     3000, 0,           PBugAlive,   QBug,       ABugKill,    JBugKill,    NULL },
         { "Gegenstand der Nachricht schon frei", "P142",    100, 0,           PMsgVob,     QBase,      AMsgVob,     JMsgVob,     NULL },   // u142
@@ -8490,6 +8557,7 @@ namespace GOTHIC_ENGINE {
         // ankommen, wenn der Partner woanders ist; der eigene Held bleibt eigen. Dieselben Handlungen wie Bereich 1-3, eigene Kennung.
         { "Spieltag und Uhrzeit (ueber Welten)", "GT",      100, CTF_SEPWORLD, NULL,       QBase,      ANone,       JDayTime,    NULL },
         { "Uhrzeit +30 min (ueber Welten)",      "GT",     2000, CTF_SEPWORLD | CTF_HOST, NULL, QBase, ATime,       JTime,       NULL },
+        { "Uhr per Skript beim Client gilt beim Host (ueber Welten)", "P232", 2500, CTF_SEPWORLD | CTF_CLIENT | CTF_ONCE, NULL, QBase, AScriptTime, JScriptTime, NULL },   // u204
         { "Staerke bleibt eigen (ueber Welten)", "D10",    2000, CTF_SEPWORLD | CTF_ONCE, NULL, QHero, AStr,        JStr,        CStr },
         { "EP ohne Skript lokal (ueber Welten)", "D11",    2000, CTF_SEPWORLD | CTF_ONCE, NULL, QHero, AExpLocal,   JExpLocal,   CExpLocal },
         { "Tagebuch-Eintrag Dialog (ueber Welten)", "D4/D8", 2000, CTF_SEPWORLD, PDiary,  QTopic,     ATopic,      JTopic,      NULL },
@@ -8650,6 +8718,7 @@ namespace GOTHIC_ENGINE {
         { "Wahrnehmungen nach gesperrter Reaktion", COOP_READY_HooksExt != 0, "Kampf-Erweiterungen" },   // u188 (P189)
         { "Gesperrte Beobachtung macht nicht feindlich", COOP_READY_HooksExt != 0, "Kampf-Erweiterungen" },   // u193 (P195)
         { "Fleischwanze Skript-Teleport beim Client gilt beim Host", COOP_READY_Dialog != 0, "Dialoge/Story" },   // u195 (P200)
+        { "Fleischwanze Ikarus-Teleport beim Client gilt beim Host", COOP_READY_Dialog != 0, "Dialoge/Story" },   // u204 (P235)
         { "Fleischwanze Skript-Tod beim Client gilt beim Host", COOP_READY_Dialog != 0, "Dialoge/Story" },
         { "Inventar eines NPCs aus dem Gespraech", COOP_READY_Dialog != 0 && COOP_READY_World != 0, "Dialoge/Story" },   // u163
         { "Truhe: Apfel hinein",                 COOP_READY_World != 0,      "Welt-Abgleich" },

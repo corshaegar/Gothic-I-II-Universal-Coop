@@ -159,7 +159,8 @@ namespace GOTHIC_ENGINE {
 
             // Waehrend der Spieler mit diesem NPC spricht, keine Host-Daten anwenden. Erkennung auch
             // ueber die Dialogverwaltung, nicht nur ueber den Kameramodus (siehe CoopNpcInDialogWithPlayer).
-            if (npc && (IsPlayerTalkingWithNpc(npc) || CoopNpcInDialogWithPlayer(npc))) {
+            // u206 (P240): auch beim Gespraechsbeginn (Aufstehen), sonst ueberschreibt der Host das Aufstehen
+            if (npc && (IsPlayerTalkingWithNpc(npc) || CoopNpcInDialogWithPlayer(npc) || CoopTalkStarting(npc))) {
                 CoopDiagUpdateSkipped(zSTRING(name).ToChar(), (int)localUpdates.size());
                 return;
             }

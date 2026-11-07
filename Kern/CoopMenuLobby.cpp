@@ -1888,6 +1888,7 @@ namespace GOTHIC_ENGINE {
     // hinein, im Hauptmenue mit Bauzeit. Mit einem aelteren Menue-Skript fehlen die Zeilen - dann nichts; mit einer aelteren DLL
     // bleibt der Text aus dem Skript ("GothicCoop").
     static std::map<zCMenuItem*, long long> VersionSetMs;
+    static std::map<zCMenuItem*, std::string> VersionSetText;   // u204: Soll + "\x01" + danach im Eintrag stehender (ggf. gekuerzter) Text
     static bool VersionLogged = false;
 
     void CoopVersionMenuPulse() {
@@ -1903,14 +1904,24 @@ namespace GOTHIC_ENGINE {
             if (id.size() < 17 || id.compare(id.size() - 8, 8, "_VERSION") != 0 || id.find("COOP") == std::string::npos)
                 continue;
             const bool main = id == "MENUITEM_COOPMAIN_VERSION";
-            const std::string want = main ? CoopVersionName() + CoopTr("  -  Stand ", "  -  build ") + CoopBuildStamp() : CoopVersionName();
-            if (want == it->m_parText[0].ToChar())
+            std::string want = main ? CoopVersionName() + CoopTr("  -  Stand ", "  -  build ") + CoopBuildStamp() : CoopVersionName();
+            // u204: Archolos' groessere Menue-Schrift - die Zeile passte nicht, GT kuerzte sie auf "...", sie war nie gleich dem Soll und
+            // wurde jede Sekunde neu gesetzt (Log 15x "Text gekuerzt"). Jetzt erst die kurze Form (nur Datum), und ein Text, den GT
+            // selbst gesetzt hat, bleibt stehen.
+            if (main && !LobbyFits(it, want)) {
+                const std::string stamp = CoopBuildStamp();
+                const size_t comma = stamp.find(',');
+                want = CoopVersionName() + "  -  " + (comma == std::string::npos ? stamp : stamp.substr(0, comma));
+            }
+            const std::string cur = it->m_parText[0].ToChar();
+            if (want == cur || VersionSetText[it] == want + "\x01" + cur)
                 continue;
             long long& last = VersionSetMs[it];
             if (now < last + 1000)
                 continue;
             last = now;
             LobbySetItemText(it, want);
+            VersionSetText[it] = want + "\x01" + it->m_parText[0].ToChar();
             if (!VersionLogged && main) {
                 VersionLogged = true;
                 LobbyLog("Versionszeile im Hauptmen" COOP_UE ": %s", want.c_str());
