@@ -23,6 +23,7 @@ namespace GOTHIC_ENGINE {
     // u199 (P216): Nachspielen eines Zaubers ohne Skript-Wirkung (CoopDialogSync.cpp)
     void CoopSpellReplayBegin();
     void CoopSpellReplayEnd(const char* spell);
+    void CoopSpellReplayAbort();
 
     // v74 (Nutzer: "wenn ein NPC etwas macht und der Client ihn niederschlaegt, dann macht beim Host der NPC weiter, z. B. schleifen,
     // kochen"; Test v73: NON_1501 in ZS_COOK und NON_1502 in ZS_SMITH_SHARP nach dem K.o. beim Host mit HP 1 weiter am Mob).
@@ -100,6 +101,12 @@ namespace GOTHIC_ENGINE {
         bool slideActive = false;   // u72: laeuft gerade ein Nachziehen von 3-8 m (fuer Zaehler und Meldung)
         bool hardActive = false, stuckLogged = false;   // u74: harter Sprung laeuft (je Abweichung einmal zaehlen), "haengt fest" gemeldet
         long long hardSinceMs = 0;
+        // u213 (P251): Lage, die GT zuletzt gesetzt hat (UpdateNpcPosition) - steht eine Puppe im naechsten Bild weit darueber, hat die
+        // Engine sie innerhalb eines Bilds hochgeschoben (CheckPuppetRise)
+        zVEC3 lastSetPos = zVEC3(0, 0, 0);
+        long long lastSetMs = 0;
+        long long riseLoggedMs = 0;
+        int riseCount = 0;
 
         static bool SmoothOn() {
             static int on = -1;
@@ -316,6 +323,7 @@ namespace GOTHIC_ENGINE {
                 }
                 catch (...) {
                     CoopErrorLog("RemoteNpc::Update", "Zugriffsfehler (SEH)", PluginState.c_str());
+                    CoopSpellReplayAbort();   // u211 (P246)
                     throw;
                 }
             }
@@ -819,6 +827,10 @@ namespace GOTHIC_ENGINE {
                 if (selectedSpell) {
                     std::vector<json> casts = update["casts"];
                     for each (auto c in casts) {
+                        // u211 (P246): ein Wirken kann den Zauber aus dem Buch nehmen - vor jedem weiteren neu nachsehen
+                        selectedSpell = book->GetSelectedSpell();
+                        if (!selectedSpell || book->spells.GetNumInList() <= 0)
+                            break;
                         auto target = c["target"].get<std::string>();
 
                         if (!target.empty() && UniqueNameToNpcList.count(target.c_str()) > 0) {
@@ -1260,16 +1272,94 @@ namespace GOTHIC_ENGINE {
         // u144 (P145, Testlauf b98 auf Irdorath: "FRIEND_1 haengt fest - 1054.8 m neben dem Ziel", "steht -19469/-112398/7634", 340 s lang): Die Physik der Figur lief seit dem
         // Einsetzen und fand keinen Boden. SetPositionWorld setzt nur die Lage, die Geschwindigkeit blieb und wuchs mit der Schwerkraft weiter, zuletzt um 1 km je Bild. Wo eine
         // Partner-Figur steht, sagen die Pakete; eine eigene Fallgeschwindigkeit darf sie nicht haben
+        // u212 (P249, Block 2 am 08.11.: beim Client standen Goblins und Maulwurfsratten 0,5 s nach dem harten Setzen 0,7 bis 5 km ueber
+        // ihrem Ziel - Archolos GOBBO_WARRIOR y 366991 statt 2985, LoA OLDMOLERAT y 459703 statt -4060, x und z stimmten; "harter
+        // Sprung ... war -28351/107312/-48134": zwischen zwei Bildern 1,1 km nach oben): dasselbe wie P145, nur bei NPCs, die der Host
+        // fuehrt. Bis u211 hielt GT nur die Geschwindigkeit der Partner-Figur an. Ihre Lage sagen die Pakete des Hosts
         void HoldFigureVelocity() {
-            if (!npc->physicsEnabled || !IsCoopPlayer(name))
+            if (!npc->physicsEnabled)
                 return;
-            if (zCRigidBody* rb = npc->GetRigidBody())
+            zCRigidBody* rb = npc->GetRigidBody();
+            if (!rb)
+                return;
+            if (!IsCoopPlayer(name)) {
+                const float speed = rb->v.LengthApprox();
+                if (speed > 3000.f) {   // ueber 30 m/s - mehr als ein Sturz in den ersten Sekunden
+                    static CoopDiagBudget budget = { 0, 0 };
+                    if (CoopDiagAllow(budget, 10))
+                        OthelloCompatLog("[%lld s, %s] Glaetten: %s hatte eine eigene Geschwindigkeit von %.0f m/s (y %.0f m/s) - angehalten (P249)",
+                            DiagSeconds(), DiagRole(), zSTRING(name).ToChar(), speed / 100.f, rb->v.n[1] / 100.f);
+                }
+            }
+            rb->SetVelocity(zVEC3(0.f, 0.f, 0.f));
+        }
+
+        // u213 (P251, Block 3 am 08.11. mit u212): P249 meldete nie eine hohe Geschwindigkeit - und doch stand beim Client ein
+        // GOBBO_WARRIOR in Archolos (PART14, am Wasser) 4 min lang immer wieder 0,5 bis 9 km ueber seinem Ziel, in LoA Maulwurfsratten
+        // und eine Fleischwanze am Hafen ebenso; x und z genau am Ziel. GT setzt jede Puppe in jedem Bild (Plugin.cpp: SyncNpcs ->
+        // Update) - die Engine hob sie also innerhalb eines einzigen Bilds um Kilometer. Woher (Fall- oder Gleitphysik, Wasser,
+        // Wurzelbewegung der Animation, Bodenkorrektur), sagen die Quellen nicht eindeutig. Jetzt: steht eine Puppe des Hosts mehr als
+        // 30 m ueber der Lage, die GT im vorigen Bild gesetzt hat, meldet GT je NPC und Minute einmal ihren Zustand (Physik und
+        // Starrkoerper, Wasserstand, Hoehe ueber dem Boden, Geschwindigkeit der KI und des Modells, Wurzelbewegung, Bildzeit) und nimmt
+        // ihr die eigene Physik und jede Geschwindigkeit (Starrkoerper, KI, Modell). Wo sie steht, sagen die Pakete des Hosts
+        void CheckPuppetRise(const zVEC3& now) {
+            if (!lastSetMs || CurrentMs - lastSetMs > 250)
+                return;   // im vorigen Bild nicht gesetzt (Dialog, Laden) - kein Vergleich
+            const float rise = now.n[1] - lastSetPos.n[1];
+            if (rise < 3000.f)
+                return;
+            riseCount++;
+            const bool phys = npc->physicsEnabled != 0;
+            zCRigidBody* rb = phys ? npc->GetRigidBody() : NULL;
+            oCAniCtrl_Human* ai = npc->anictrl;
+            zCModel* model = npc->GetModel();
+            // u214: Bodenebene der Animation aufgeblaeht (Engine-Fehler bei skalierten Modellen, P252 - in G2A schon abgefangen)
+            const bool bodenNeu = model && fabsf(model->rootPosLocal.n[1]) > 1000.f;   // u215: ab 10 m (Block 5: 36 m blieben stehen)
+            static CoopDiagBudget budget = { 0, 0 };
+            if (CurrentMs - riseLoggedMs >= 60000 && CoopDiagAllow(budget, 12)) {
+                riseLoggedMs = CurrentMs;
+                char rbText[160] = "-", aiText[200] = "-", mdlText[260] = "-";
+                if (rb)
+                    _snprintf(rbText, sizeof(rbText), "Modus %s, Masse %.0f, v %.0f/%.0f/%.0f, Impuls-y %.0f, Lage-y %.0f", rb->mode ? "Gleiten" : "Fliegen",
+                        rb->mass, rb->v.n[0], rb->v.n[1], rb->v.n[2], rb->PLinMom.n[1], rb->xPos.n[1]);
+                if (ai)
+                    _snprintf(aiText, sizeof(aiText), "Wasser %d, ueber Boden %.0f, Fuesse %.0f, Kopf %.0f, v %.0f/%.0f/%.0f, Fall ab %.0f, Zustand %d/%d",
+                        ai->waterLevel, ai->aboveFloor, ai->feetY, ai->headY, ai->velocity.n[0], ai->velocity.n[1], ai->velocity.n[2],
+                        ai->fallDownStartY, (int)ai->oldState, (int)ai->state);
+                if (model)
+                    _snprintf(mdlText, sizeof(mdlText), "fliegt %d, Wurzel %.0f/%.0f/%.0f, v %.0f/%.0f/%.0f, Massstab %d (%.2f), Bodenebene %.0f",
+                        (int)model->isFlying, model->vobTrans.n[0], model->vobTrans.n[1], model->vobTrans.n[2], model->modelVelocity.n[0],
+                        model->modelVelocity.n[1], model->modelVelocity.n[2], (int)model->modelScaleOn, model->modelScale.n[1],
+                        model->rootPosLocal.n[1]);
+                rbText[sizeof(rbText) - 1] = aiText[sizeof(aiText) - 1] = mdlText[sizeof(mdlText) - 1] = 0;
+                OthelloCompatLog("[%lld s, %s] Glaetten: Puppe %s stand %.1f m ueber der Lage, die GT im vorigen Bild gesetzt hat (%.0f/%.0f/%.0f, vor %lld ms;"
+                    " %d. Mal; hier %s, Koerperzustand %d) | Physik %s: %s | KI: %s | Modell: %s | Bildzeit %.0f ms - Physik aus, alle"
+                    " Geschwindigkeiten 0%s (P251)", DiagSeconds(), DiagRole(), zSTRING(name).ToChar(), rise / 100.f, lastSetPos.n[0], lastSetPos.n[1],
+                    lastSetPos.n[2], CurrentMs - lastSetMs, riseCount, npc->state.curState.name.ToChar(), npc->GetBodyState(), phys ? "an" : "aus",
+                    rbText, aiText, mdlText, ztimer ? ztimer->frameTimeFloat : -1.f, bodenNeu ? ", Bodenebene neu aus den Animationen" : "");
+            }
+            if (rb) {
                 rb->SetVelocity(zVEC3(0.f, 0.f, 0.f));
+                npc->SetPhysicsEnabled(FALSE);
+            }
+            if (ai) {
+                ai->velocity = zVEC3(0.f, 0.f, 0.f);
+                ai->velocityLen2 = 0.f;
+                ai->fallDownStartY = lastSetPos.n[1];
+                ai->fallDownDistanceY = 0.f;
+            }
+            if (model) {
+                model->ResetVelocity();
+                if (bodenNeu)
+                    model->RecalcRootPosLocal(TRUE);   // u214: wie zCAIPlayer (zAiPlayer.cpp: "rootPosLocal ... neu berechnet")
+            }
         }
 
         void UpdateNpcPosition(float dt) {
-            HoldFigureVelocity();
             auto currentPosition = npc->GetPositionWorld();
+            if (!IsCoopPlayer(name))
+                CheckPuppetRise(currentPosition);   // u213 (P251) - vor HoldFigureVelocity: so stand die Physik nach dem Bild der Engine
+            HoldFigureVelocity();
             auto pos = *lastPositionFromServer;
             if (SmoothOn()) {
                 // v52: Ziel = letzte Lage + Geschwindigkeit x Alter. Pakete kommen beim Laufen alle 33-50 ms; ist laenger als
@@ -1335,6 +1425,8 @@ namespace GOTHIC_ENGINE {
                 npc->SetCollDet(FALSE);
                 npc->SetPositionWorld(pos);
                 npc->SetCollDet(TRUE);
+                lastSetPos = pos;   // u213 (P251)
+                lastSetMs = CurrentMs;
 
                 return;
             }
@@ -1355,6 +1447,8 @@ namespace GOTHIC_ENGINE {
             npc->SetCollDet(FALSE);
             npc->SetPositionWorld(pos);
             npc->SetCollDet(TRUE);
+            lastSetPos = pos;   // u213 (P251)
+            lastSetMs = CurrentMs;
 
             if (inMove) {
                 npc->BeginMovement();

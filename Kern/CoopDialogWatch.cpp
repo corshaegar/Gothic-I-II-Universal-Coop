@@ -104,12 +104,72 @@ namespace GOTHIC_ENGINE {
         return false;
     }
 
+    // u216 (P253): Gespraechssperre des Helden. Archolos-Bloecke 4-6 (u213-u215): "redet nicht" auch bei NPCs mit offener wichtiger
+    // Info - Test-Diagnose b326: BAU_2244_TERRY "DIA_TERRY_HELLO W ja", AssessTalk_S 1, er blieb in ZS_OBSERVEPLAYER; Rupert am Halt.
+    // Archolos' B_ASSESSTALK bricht ab, wenn ISHEROINVISIBLE() (= OTHER.AIVAR[AIV_INVINCIBLE] beim Spieler), ZS_TALK ebenso. Gesetzt
+    // wird das Flag in ZS_TALK fuer NPC und Held, zurueck nur in ZS_TALK_LOOP beim regulaeren Ende (InfoManager_HasFinished) - nicht in
+    // ZS_TALK_END. Endet ein Gespraech anders (Laden mitten im Dialog, der Waechter beendet ihn, Abbruch), bleibt der Held fuer alle
+    // Gespraeche gesperrt, auch im Spielstand. Absichtlich setzt Archolos es beim Helden nur in Zwischensequenzen und im Teleport-Dialog
+    // (beides vor einem Ende), beim Goldhacken (Mob) und fuer Unsichtbarkeit (mit Durchsichtigkeit, MAKEHEROGHOST). Jetzt: 10 s nach
+    // jedem Gespraechsende und nach jedem Laden prueft GT - ist das Flag des Helden noch gesetzt, ohne offenen Dialog, ohne Mob und
+    // ohne Durchsichtigkeit, kommt es zurueck. Index aus der Skript-Konstante AIV_INVINCIBLE (fehlt sie, tut GT nichts). Allgemein.
+    int CoopTalkLockResets = 0;
+    static long long CoopTalkLockCheckMs = 0;   // wann pruefen (0 = nichts geplant)
+    static bool CoopTalkLockOpen = false;       // war im vorigen Takt ein Dialog offen?
+    static bool CoopTalkLockAfterLoadPending = false;
+    static const char* CoopTalkLockWhy = "";
+
+    static int CoopAivInvincible() {
+        static zCParser* forParser = NULL;
+        static int idx = -1;
+        if (parser != forParser) {
+            forParser = parser;
+            idx = -1;
+            zCPar_Symbol* s = parser ? parser->GetSymbol(zSTRING("AIV_INVINCIBLE")) : NULL;
+            if (s && s->type == zPAR_TYPE_INT && (s->flags & zPAR_FLAG_CONST) && s->ele <= 1 && s->single_intdata >= 0 &&
+                s->single_intdata < (int)(sizeof(player->aiscriptvars) / sizeof(player->aiscriptvars[0])))
+                idx = s->single_intdata;
+        }
+        return idx;
+    }
+
+    void CoopTalkLockAfterLoad() {   // Plugin.cpp Game_LoadEnd_SaveGame
+        CoopTalkLockAfterLoadPending = true;
+    }
+
+    static void CoopTalkLockPulse(oCInformationManager& im) {
+        const bool open = !im.IsDone && (im.Npc || im.Player);
+        if (CoopTalkLockOpen && !open) {
+            CoopTalkLockCheckMs = CurrentMs + 10000;
+            CoopTalkLockWhy = "10 s nach dem Ende eines Gespraechs";
+        }
+        CoopTalkLockOpen = open;
+        if (CoopTalkLockAfterLoadPending) {
+            CoopTalkLockAfterLoadPending = false;
+            CoopTalkLockCheckMs = CurrentMs + 10000;
+            CoopTalkLockWhy = "10 s nach dem Laden";
+        }
+        if (!CoopTalkLockCheckMs || CurrentMs < CoopTalkLockCheckMs)
+            return;
+        CoopTalkLockCheckMs = 0;
+        const int idx = CoopAivInvincible();
+        if (idx < 0 || !player || open || player->interactMob || player->aiscriptvars[idx] == 0)
+            return;
+        if (player->visualAlphaEnabled && player->visualAlpha < 0.99f)
+            return;   // durchsichtig: gewollte Unsichtbarkeit
+        player->aiscriptvars[idx] = 0;
+        CoopTalkLockResets++;
+        OthelloCompatLog("[%lld s, %s] Gespraechssperre: der Held hatte AIV_INVINCIBLE (AIVAR %d) gesetzt, ohne Gespraech, Mob oder Unsichtbarkeit (%s)"
+            " - zurueckgesetzt, NPCs reden wieder mit ihm (P253)", DiagSeconds(), DiagRole(), idx, CoopTalkLockWhy);
+    }
+
     void CoopDialogWatchPulse() {
         static oCNpc* watchNpc = NULL;
         static long long since = 0;
         static int tries = 0;
 
         oCInformationManager& im = oCInformationManager::GetInformationManager();
+        CoopTalkLockPulse(im);   // u216 (P253)
         if (!im.Npc || !im.Player || im.IsDone) {
             watchNpc = NULL;
             tries = 0;
@@ -187,7 +247,9 @@ namespace GOTHIC_ENGINE {
     int CoopDialogLoadEnds = 0;
     int CoopDialogStaleEnds = 0;
     std::string CoopDialogLastEnded;
+    int CoopTalkLockResets = 0;
     void CoopDialogWatchPulse() {}
     void CoopDialogWatchLoadBegin() {}
+    void CoopTalkLockAfterLoad() {}
 #endif
 }

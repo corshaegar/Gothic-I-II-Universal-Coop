@@ -421,12 +421,22 @@ namespace GOTHIC_ENGINE {
         if (!held)
             return;   // Nachricht schon fertig
         CoopMsgItemFreed++;
+        // u211 (P248, Dauerlaeufe 07./08.11.: Archolos 98-mal, LoA 243-mal - der NPC wird aus der Welt genommen (oCWorld::RemoveVob ->
+        // RemoveFromLists -> Release), sein Gegenstand mit, die Benutzen-Nachricht bleibt): den Zeiger der Nachricht gleich jetzt loeschen.
+        // Bisher geschah das erst beim naechsten Bearbeiten ("... der Nachricht ist schon frei ... Zeiger geloescht"); dazwischen konnte
+        // der Speicher schon einem neuen Objekt gehoeren, das die Pruefung (Referenzzaehler <= 0) nicht mehr erkennt. Ohne Gegenstand
+        // sucht die Nachricht ihn wie sonst im Inventar
+        oCMsgManipulate* m = (oCMsgManipulate*)e.msg;
+        const bool geloescht = m->targetVob == item;
+        if (geloescht)
+            m->targetVob = NULL;
         // u210 (P244, Dauerlaeufe 07.11.: der Anstoss lag hinter 16 Eintraegen - oCNpcInventory::RemoveByPtr, wer das rief, fehlte; in LoA
         // gibt der Host Karten, Joints und Traenke 50 ms nach dem Start der Nachricht frei): 32 Eintraege
         static char trail[1800], line[2400];   // nicht auf dem Stapel - sonst liest CoopStackTrail alte Werte darin mit
         CoopStackTrail(trail, sizeof(trail), 32);
-        _snprintf(line, sizeof(line), "Gegenstand \"%s\" (%p) der laufenden Nachricht von %s wird freigegeben, Zustand %s (beim Merken %s, vor %lld ms) - "
-            "Aufrufer: %s", e.item.c_str(), item, e.npcName.c_str(), e.npc->state.curState.name.ToChar(), e.state.c_str(), GetCurrentMs() - e.ms, trail);
+        _snprintf(line, sizeof(line), "Gegenstand \"%s\" (%p) der laufenden Nachricht von %s wird freigegeben, Zustand %s (beim Merken %s, vor %lld ms)%s - "
+            "Aufrufer: %s", e.item.c_str(), item, e.npcName.c_str(), e.npc->state.curState.name.ToChar(), e.state.c_str(), GetCurrentMs() - e.ms,
+            geloescht ? ", Zeiger der Nachricht gleich geloescht (P248)" : "", trail);
         line[sizeof(line) - 1] = 0;
         CoopMsgItemLast = line;
         static CoopDiagBudget budget = { 0, 0 };

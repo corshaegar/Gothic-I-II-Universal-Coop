@@ -982,6 +982,29 @@ namespace GOTHIC_ENGINE {
         return Ivk_oCAIHuman_StandActions(_this);
     }
 
+    // u211 (P246, Archolos-Dauerlauf 5, Client: ueber 100-mal "C0000005 bei Gothic2.exe+0x79C10 (Lesen von 0x00000000) | Zustand
+    // Updating NPC BLOODFLY_SWAMP_RUNE-... TYPE: 13"): oCMag_Book::GetSpellItem(oCSpell*) vergleicht den ersten Eintrag der
+    // Zauberliste, bevor es die Anzahl prueft (G2A 0x00479C00: edx = spells.array, "cmp esi, [edx]", erst danach "inc eax / cmp eax,
+    // numInList"). Bei leerer Liste (array NULL) liest es bei 0. Das kam beim Nachspielen der Zauber eines NPCs vor
+    // (RemoteNpc::UpdateSpellCasts -> Spell_Invest/Spell_Cast), wenn ein Wirken den Zauber schon aus dem Buch genommen hatte.
+    // Leere Liste: NULL, wie die Engine es fuer "nicht gefunden" liefert.
+    oCItem* __fastcall oCMag_Book_GetSpellItemBySpell(oCMag_Book*, void*, oCSpell*);
+#if ENGINE >= Engine_G2
+    CInvoke<oCItem*(__thiscall*)(oCMag_Book*, oCSpell*)> Ivk_oCMag_Book_GetSpellItemBySpell(0x00479C00, &oCMag_Book_GetSpellItemBySpell);
+#else
+    CInvoke<oCItem*(__thiscall*)(oCMag_Book*, oCSpell*)> Ivk_oCMag_Book_GetSpellItemBySpell(0x00472E40, &oCMag_Book_GetSpellItemBySpell);
+#endif
+    oCItem* __fastcall oCMag_Book_GetSpellItemBySpell(oCMag_Book* _this, void* vtable, oCSpell* spell) {
+        if (!_this || _this->spells.GetNumInList() <= 0) {
+            static CoopDiagBudget budget = { 0, 0 };
+            if (_this && CoopDiagAllow(budget, 5))
+                OthelloCompatLog("[%lld s, %s] Zauberbuch: GetSpellItem bei leerer Zauberliste (Besitzer %s) - NULL statt Lesen bei 0 (P246)",
+                    DiagSeconds(), DiagRole(), _this->owner ? ((zCVob*)_this->owner)->GetObjectName().ToChar() : "-");
+            return NULL;
+        }
+        return Ivk_oCMag_Book_GetSpellItemBySpell(_this, spell);
+    }
+
     void __fastcall oCMag_Book_Spell_Cast(oCMag_Book*, void*);
 #if ENGINE >= Engine_G2
     CInvoke<void(__thiscall*)(oCMag_Book*)> Ivk_oCMag_Book_Spell_Cast(0x004767A0, &oCMag_Book_Spell_Cast);
@@ -1130,6 +1153,57 @@ namespace GOTHIC_ENGINE {
 
         return Ivk_oCWorld_RemoveVob(_this, vob);
     }
+
+#if ENGINE == Engine_G2A
+    // u214 (P252, Engine-Fehler bei skalierten Modellen): Block 4 am 08.11. (u213) - die Messung P251 zeigte beim Client einen
+    // KM_LURKER (Archolos) 603,7 m ueber der Lage, die GT im Bild davor gesetzt hatte: Physik aus, Geschwindigkeiten 0, aber "ueber
+    // Boden -60369, Fuesse -62313" und "Massstab 1" - die KI hielt seine Fuesse fuer 604 m unter dem Boden und hob ihn per
+    // Bodenkorrektur genau darum an (wie zuvor GOBBO_WARRIOR in Archolos, OLDMOLERAT und OLD_BUG in LoA, alle vergroessert).
+    // Ursache in zCModel::AdvanceAnis (0x0057CA90): ein Modell weiter als 10 m von der Kamera mit genau einer Ruhe-Animation wird
+    // nicht animiert (0x0057CC57: Abstand > 1000, numActiveAnis == 1, flagIdle, nicht das erste Mal -> jmp 0x0057D91D) - am
+    // Sprungziel multipliziert die Engine aber bei gesetztem Massstab (modelScaleOn) rootPosLocal (= Lage der Bodenebene in der
+    // Animation, aus der KI und Kollisionsobjekt die Fuesse rechnen: Lage - rootPosLocal) noch einmal mit modelScale. Im normalen
+    // Durchlauf kommt rootPosLocal frisch aus der Animation, beim Ueberspringen waechst der Wert jedes Bild: bei Massstab 1,2 in gut
+    // einer Sekunde aufs Tausendfache. Puppen beim Client spielen oft lange nur die Ruhe-Animation, die der Host schickt, weit weg von
+    // der Kamera des Clients. Nur G2A (Gothic 1: EXE gepackt, Ablauf nicht geprueft).
+    // u215 (Block 5): u214 stellte rootPosLocal nur in diesem einen Fall wieder her - ein GOBBO_WARRIOR (Massstab 1,15) stand trotzdem
+    // dreimal 30 m zu hoch, Bodenebene 36 m statt unter 1 m. Auch im normalen Durchlauf setzt nicht jede Animation die Bodenebene
+    // (rootPosLocalSet; das "Sicherheitsnetz" dafuer ist im Engine-Code abgeschaltet, in G2A zwischen 0x0057D902 und 0x0057D91D nichts),
+    // multipliziert wird trotzdem. Jetzt allgemein: ist rootPosLocal nach dem Original genau der vorige Wert mal modelScale (je Achse,
+    // dieselbe float-Rechnung wie die Engine), hat keine Animation sie gesetzt - dann bleibt der vorige Wert
+    static long long CoopRootFixCount = 0;
+    void __fastcall zCModel_AdvanceAnis_Coop(zCModel* _this, void* vtable);
+    CInvoke<void(__thiscall*)(zCModel*)> Ivk_zCModel_AdvanceAnis_Coop(0x0057CA90, &zCModel_AdvanceAnis_Coop);
+    void __fastcall zCModel_AdvanceAnis_Coop(zCModel* _this, void* vtable) {
+        if (!_this || !_this->modelScaleOn) {
+            Ivk_zCModel_AdvanceAnis_Coop(_this);
+            return;
+        }
+        const zVEC3 pre = _this->rootPosLocal;
+        Ivk_zCModel_AdvanceAnis_Coop(_this);
+        zVEC3& post = _this->rootPosLocal;
+        const zVEC3& s = _this->modelScale;
+        bool changed = false;
+        for (int i = 0; i < 3; i++) {
+            const volatile float want = pre.n[i] * s.n[i];   // volatile: als float runden wie die Engine
+            if (fabsf(post.n[i] - want) > 1e-6f * (1.f + fabsf(want)))
+                return;   // von einer Animation gesetzt
+            if (post.n[i] != pre.n[i])
+                changed = true;
+        }
+        if (!changed)
+            return;
+        const float grew = post.n[1] - pre.n[1];
+        post = pre;
+        CoopRootFixCount++;
+        if (CoopRootFixCount == 1 || CoopRootFixCount == 1000 || CoopRootFixCount % 1000000 == 0) {
+            zCVob* home = _this->homeVob;
+            OthelloCompatLog("[%lld s, %s] Modell-Wurzel: skaliertes Modell %s (Massstab %.2f/%.2f/%.2f) ohne neue Bodenebene aus der Animation - "
+                "Bodenebene bleibt (y %.0f, die Engine haette %+.1f cm daraufgerechnet), bisher %lld-mal (P252)", DiagSeconds(), DiagRole(),
+                home ? home->GetObjectName().ToChar() : "?", s.n[0], s.n[1], s.n[2], pre.n[1], grew, CoopRootFixCount);
+        }
+    }
+#endif
 
     void __fastcall zCModel_StartAni(zCModel*, void*, zCModelAni*, int);
 #if ENGINE >= Engine_G2
@@ -1617,6 +1691,41 @@ namespace GOTHIC_ENGINE {
             (mbi.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)) != 0;
     }
 
+    // Skript-Spur aus einer Kopie des Stapels (P238 Stapelueberlauf, u213 P250 Haenger): "Skript (neueste zuerst): A <- B", Rueckgabe
+    // die Zahl der Funktionen. Ohne Heap
+    static int CoopScriptTraceBuf(const BYTE* buf, DWORD len, char* trace, size_t cap) {
+        trace[0] = 0;
+        zCParser* p = CoopScriptMapParser;
+        if (!p || CoopScriptMap.empty() || cap < 32)
+            return 0;
+        const DWORD base = (DWORD)p->stack.stack, size = (DWORD)p->stack.stacksize;
+        const unsigned char* code = (const unsigned char*)base;
+        const char* last = NULL;
+        int count = 0;
+        int n = _snprintf(trace, cap, "Skript (neueste zuerst):");
+        for (DWORD i = 0; base && size && i + 4 <= len && count < 40 && n > 0 && n + 2 < (int)cap; i += 4) {
+            const DWORD v = *(const DWORD*)(buf + i);
+            int off = -1;
+            if (v >= base && v < base + size)
+                off = (int)(v - base);
+            else if (v >= 5 && v < size && code[v - 5] == zPAR_TOK_CALL && CoopScriptIsFuncStart(*(const int*)(code + v - 4)))
+                off = (int)v;
+            if (off < 0)
+                continue;
+            const char* nm = CoopScriptFuncAt(off);
+            if (!nm || nm == last)
+                continue;
+            const int k = _snprintf(trace + n, cap - n, "%s%s", count ? " <- " : " ", nm);
+            if (k < 0)
+                break;
+            n += k;
+            last = nm;
+            count++;
+        }
+        trace[cap - 1] = 0;
+        return count;
+    }
+
     static void CoopSoWriteReport(HANDLE f) {
         SYSTEMTIME st;
         GetLocalTime(&st);
@@ -1661,34 +1770,9 @@ namespace GOTHIC_ENGINE {
             CoopSoWrite(f, "  %4lu x %s\r\n", sum[i].count, w);
         }
         // Skript-Spur wie P199 (CoopScriptTrace), aber aus der Kopie des Stapels
-        zCParser* p = CoopScriptMapParser;
-        if (p && !CoopScriptMap.empty()) {
-            const DWORD base = (DWORD)p->stack.stack, size = (DWORD)p->stack.stacksize;
-            const unsigned char* code = (const unsigned char*)base;
-            const char* last = NULL;
-            int count = 0;
+        if (CoopScriptMapParser && !CoopScriptMap.empty()) {
             char trace[1200];
-            int n = _snprintf(trace, sizeof(trace), "Skript (neueste zuerst):");
-            for (DWORD i = 0; base && size && i + 4 <= CoopSO_StackLen && count < 40 && n > 0 && n + 2 < (int)sizeof(trace); i += 4) {
-                const DWORD v = *(const DWORD*)(CoopSO_StackBuf + i);
-                int off = -1;
-                if (v >= base && v < base + size)
-                    off = (int)(v - base);
-                else if (v >= 5 && v < size && code[v - 5] == zPAR_TOK_CALL && CoopScriptIsFuncStart(*(const int*)(code + v - 4)))
-                    off = (int)v;
-                if (off < 0)
-                    continue;
-                const char* nm = CoopScriptFuncAt(off);
-                if (!nm || nm == last)
-                    continue;
-                const int k = _snprintf(trace + n, sizeof(trace) - n, "%s%s", count ? " <- " : " ", nm);
-                if (k < 0)
-                    break;
-                n += k;
-                last = nm;
-                count++;
-            }
-            trace[sizeof(trace) - 1] = 0;
+            const int count = CoopScriptTraceBuf(CoopSO_StackBuf, CoopSO_StackLen, trace, sizeof(trace));
             CoopSoWrite(f, "%s\r\n", count ? trace : "Skript: keine Skriptfunktion auf dem kopierten Stapel");
         }
         CoopSoWrite(f, "\r\n");
@@ -1802,7 +1886,181 @@ namespace GOTHIC_ENGINE {
         CoopVehHandle = h;
     }
 
+    // u213 (P250): Haenger-Diagnose. LoA-Block 3 am 08.11. (u212): der Host stand beim Weltwechsel Goldmine -> Hauptwelt mitten im
+    // Laden still (nach "Zuschau-Fenster aus (Laden)", vor dem Ladeende) - 240 s ohne Logzeile, sein Netzfaden lief weiter (beim Client
+    // Ping 1 ms, die Sicherung des Hosts kam nie an), der Laeufer beendete ihn ohne eine Spur, wo der Hauptfaden stand. Jetzt zaehlt
+    // jedes Spiel- und Menuebild (CoopCrashFilterPulse) einen Herzschlag; ein eigener Faden schaut alle 5 s nach: steht der Hauptfaden
+    // 90 s, haelt er ihn kurz an, kopiert Register und Stapel in feste Puffer (kein Heap, solange er steht - wie P238), laesst ihn
+    // weiterlaufen und schreibt system\GothicCoopStapel.log (Stelle, Rueckspruenge, Skript-Spur, Lesestelle des Parsers, Zustand) -
+    // nach 150 und 210 s noch einmal (Schleife oder Warten an derselben Stelle?), beim ersten Mal auch eine Zeile ins Coop-Log. Laeuft
+    // der Hauptfaden wieder, meldet er die Dauer selbst (auch lange Videos oder Ladebildschirme landen so im Log). Nur Diagnose.
+    // Allgemein (Windows).
+    static HANDLE CoopHangThread = NULL, CoopHangMain = NULL;
+    static bool CoopHangTried = false;
+    static DWORD CoopHangStackTop = 0, CoopHangMainTid = 0;
+    static volatile LONG CoopHangBeat = 0;
+    static volatile LONG CoopHangReportedS = 0;   // > 0: dieser Stillstand wurde gemeldet (Sekunden beim letzten Bericht)
+    static CONTEXT CoopHangCtx;
+    static BYTE CoopHangStackBuf[65536];
+    static DWORD CoopHangLen = 0;
+    static char CoopHangState[96] = "";
+    static char CoopHangPath[MAX_PATH] = "";
+    static int CoopHangParserPos = -1;   // Lesestelle des Parsers (Abstand im Code) beim Anhalten
+
+    // Hauptfaden anhalten, Register und Stapel kopieren, weiterlaufen lassen - dazwischen nur Kopien (kein Heap, kein Log)
+    static bool CoopHangCapture() {
+        if (!CoopHangMain || SuspendThread(CoopHangMain) == (DWORD)-1)
+            return false;
+        bool ok = false;
+        ZeroMemory(&CoopHangCtx, sizeof(CoopHangCtx));
+        CoopHangCtx.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
+        CoopHangLen = 0;
+        CoopHangState[0] = 0;
+        CoopHangParserPos = -1;
+        if (GetThreadContext(CoopHangMain, &CoopHangCtx)) {
+            ok = true;
+            const DWORD from = CoopHangCtx.Esp, top = CoopHangStackTop;
+            DWORD n = from < top ? top - from : 0;
+            if (n > sizeof(CoopHangStackBuf))
+                n = sizeof(CoopHangStackBuf);
+            __try {
+                memcpy(CoopHangStackBuf, (const void*)from, n);
+                CoopHangLen = n;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER) {
+                CoopHangLen = 0;
+            }
+            __try {
+                strncpy(CoopHangState, PluginState.c_str(), sizeof(CoopHangState) - 1);
+                CoopHangState[sizeof(CoopHangState) - 1] = 0;
+                zCParser* p = parser;
+                if (p && p->stack.stack) {
+                    const DWORD base = (DWORD)p->stack.stack, cur = (DWORD)p->stack.stackptr;
+                    if (cur >= base && cur < base + (DWORD)p->stack.stacksize)
+                        CoopHangParserPos = (int)(cur - base);
+                }
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER) {
+                CoopHangState[0] = 0;
+            }
+        }
+        ResumeThread(CoopHangMain);
+        return ok;
+    }
+
+    static bool CoopHangIsRet(DWORD a) {   // Code direkt hinter einem call (wie CoopCrashScanStack)
+        if (!CoopCrashIsCode(a) || !CoopCrashIsCode(a - 7))
+            return false;
+        __try {
+            const unsigned char* c = (const unsigned char*)a;
+            return c[-5] == 0xE8 || (c[-6] == 0xFF && (c[-5] & 0x38) == 0x10) || (c[-3] == 0xFF && (c[-2] & 0x38) == 0x10) ||
+                (c[-2] == 0xFF && (c[-1] & 0x38) == 0x10);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {
+            return false;
+        }
+    }
+
+    static void CoopHangWriteReport(HANDLE f, DWORD stalledS, int nr) {
+        SYSTEMTIME st;
+        GetLocalTime(&st);
+        char w[160];
+        CoopCrashWhere(CoopHangCtx.Eip, w, sizeof(w));
+        CoopSoWrite(f, "[%04d-%02d-%02d %02d:%02d:%02d] Haenger (P250) - GothicCoop %s | Hauptfaden %lu steht seit %lu s (Bericht %d von 3) | %s |"
+            " Zustand %s | Eip %s\r\n", st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, COOP_FASSUNG, CoopHangMainTid, stalledS, nr,
+            IsLoadingLevel ? "beim Laden" : (IsSavingGame ? "beim Speichern" : "im Spiel oder Menue"), CoopHangState[0] ? CoopHangState : "-", w);
+        const CONTEXT& c = CoopHangCtx;
+        CoopSoWrite(f, "  Register: EAX=%08X EBX=%08X ECX=%08X EDX=%08X ESI=%08X EDI=%08X EBP=%08X ESP=%08X\r\n", c.Eax, c.Ebx, c.Ecx, c.Edx,
+            c.Esi, c.Edi, c.Ebp, c.Esp);
+        CoopSoWrite(f, "  Rueckspruenge auf dem Stapel (neueste zuerst, Abstand ab Esp; %lu Bytes kopiert):\r\n", CoopHangLen);
+        int shown = 0;
+        for (DWORD i = 0; i + 4 <= CoopHangLen && shown < 60; i += 4) {
+            const DWORD v = *(const DWORD*)(CoopHangStackBuf + i);
+            if (!CoopHangIsRet(v))
+                continue;
+            CoopCrashWhere(v, w, sizeof(w));
+            CoopSoWrite(f, "    +0x%05X  %s\r\n", i, w);
+            shown++;
+        }
+        if (!shown)
+            CoopSoWrite(f, "    (keine)\r\n");
+        const char* now = CoopHangParserPos >= 0 ? CoopScriptFuncAt(CoopHangParserPos) : NULL;
+        CoopSoWrite(f, "  Lesestelle des Parsers: %s\r\n", now ? now : "-");
+        char trace[1200];
+        const int count = CoopScriptTraceBuf(CoopHangStackBuf, CoopHangLen, trace, sizeof(trace));
+        CoopSoWrite(f, "  %s\r\n\r\n", count ? trace : "Skript: keine Skriptfunktion auf dem kopierten Stapel");
+    }
+
+    static void CoopHangWriteSafe(HANDLE f, DWORD stalledS, int nr) {
+        __try {
+            CoopHangWriteReport(f, stalledS, nr);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {
+            CoopSoWrite(f, "(Lesefehler beim Schreiben des Haenger-Berichts)\r\n\r\n");
+        }
+    }
+
+    static DWORD WINAPI CoopHangWatchProc(LPVOID) {
+        LONG lastBeat = CoopHangBeat;
+        DWORD lastChange = GetTickCount();
+        int reports = 0;
+        for (;;) {
+            Sleep(5000);
+            const LONG beat = CoopHangBeat;
+            const DWORD now = GetTickCount();
+            if (beat != lastBeat) {
+                lastBeat = beat;
+                lastChange = now;
+                reports = 0;
+                continue;
+            }
+            const DWORD stalled = now - lastChange;
+            if (reports >= 3 || stalled < 90000u + 60000u * (DWORD)reports)
+                continue;
+            reports++;
+            if (!CoopHangCapture())
+                continue;
+            InterlockedExchange(&CoopHangReportedS, (LONG)(stalled / 1000));
+            HANDLE f = CreateFileA(CoopHangPath, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+            if (f != INVALID_HANDLE_VALUE) {
+                CoopHangWriteSafe(f, stalled / 1000, reports);
+                CloseHandle(f);
+            }
+            if (reports == 1) {   // eine Zeile ins Coop-Log (nach dem eigenen Bericht - haelt der Hauptfaden die Log-Sperre, wartet nur dieser Faden)
+                char w[160];
+                CoopCrashWhere(CoopHangCtx.Eip, w, sizeof(w));
+                OthelloCompatLog("[%lld s, %s] Haenger-Diagnose: Hauptfaden steht seit %lu s (%s, Zustand %s) bei %s - Stapel in system\\GothicCoopStapel.log"
+                    " (P250)", DiagSeconds(), DiagRole(), stalled / 1000, IsLoadingLevel ? "beim Laden" : "Video, Ladebild oder Haenger",
+                    CoopHangState[0] ? CoopHangState : "-", w);
+            }
+        }
+#pragma warning(suppress: 4702)   // nie erreicht - der Faden laeuft bis zum Ende des Prozesses
+        return 0;
+    }
+
+    static void CoopHangPulse() {   // Hauptfaden, jedes Spiel- und Menuebild
+        InterlockedIncrement(&CoopHangBeat);
+        if (!CoopHangTried) {
+            CoopHangTried = true;
+            CoopHangMainTid = GetCurrentThreadId();
+            const NT_TIB* tib = (const NT_TIB*)NtCurrentTeb();
+            CoopHangStackTop = (DWORD)tib->StackBase;
+            strncpy(CoopHangPath, CoopSystemFile("GothicCoopStapel.log").c_str(), sizeof(CoopHangPath) - 1);
+            CoopHangPath[sizeof(CoopHangPath) - 1] = 0;
+            CoopHangMain = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, CoopHangMainTid);
+            if (CoopHangMain)
+                CoopHangThread = CreateThread(NULL, 128 * 1024, &CoopHangWatchProc, NULL, 0, NULL);
+            OthelloCompatLog("Haenger-Diagnose: Waechter %s (Hauptfaden %lu, Bericht nach 90 s Stillstand in system\\GothicCoopStapel.log, P250)",
+                CoopHangThread ? "laeuft" : "nicht gestartet", CoopHangMainTid);
+        }
+        const LONG rep = InterlockedExchange(&CoopHangReportedS, 0);
+        if (rep > 0)
+            OthelloCompatLog("[%lld s, %s] Haenger-Diagnose: Hauptfaden laeuft wieder (stand mindestens %ld s, Stapel in system\\GothicCoopStapel.log) (P250)",
+                DiagSeconds(), DiagRole(), rep);
+    }
+
     void CoopCrashFilterPulse() {
+        CoopHangPulse();   // u213 (P250)
         CoopVehPulse();
         LPTOP_LEVEL_EXCEPTION_FILTER cur = SetUnhandledExceptionFilter(&CoopTopCrashFilter);
         if (cur == &CoopTopCrashFilter || cur == CoopNextCrashFilter)

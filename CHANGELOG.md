@@ -4,6 +4,19 @@ Projektversion (Veröffentlichung) und je Spiel/Mod die Coop-Fassung `uNN`. Vorg
 (github.com/corshaegar/Othello-Coop, 0.1.0–0.1.2, nur Othello). Die Fassungen dazwischen (u1–u61) stehen im Entwicklungsverlauf;
 hier beginnt der Verlauf mit u62.
 
+## 0.9.0 – Stabilität: Absturz beim Laden, fliegende Monster, Hänger-Diagnose (Gothic I u216, Gothic II u216, Othello u216, Legend of Ahssun u216, Archolos u216)
+
+Aus einem langen Lauf in der Nacht (drei Abstürze beim Laden in Archolos, Grundlage für u211) und sechs einstündigen automatischen Testläufen am 08.11.2026 in Archolos und Legend of Ahssun (beide zugleich, Host und Client auf einem PC, jeder Lauf ausgewertet). In den sechs Läufen kein Absturz, ein Hänger im zweiten (Legend of Ahssun, beim Weltwechsel – danach kam die Hänger-Diagnose, seitdem keiner mehr); die Prüfrunden am Ende der letzten vier Läufe zeigten 0 Fehler.
+
+**Korrekturen**
+
+- **Absturz beim Laden** (u211): Mods, die Ikarus-Funktionszeiger im Spielstand halten, stürzten nach dem Laden ab, wenn der Skript-Code im neuen Prozess an anderer Stelle lag – in Archolos bei Spielständen, die während eines Abblendens gespeichert wurden (im Coop löst der Partner das gemeinsame Speichern jederzeit aus). Der Coop schreibt die Lage des Skript-Codes in den Spielstand und rechnet solche Zeiger beim Laden um. Allgemein.
+- **Fliegende Monster** (u212–u215): Beim Client standen vergrößerte Monster (Archolos: Goblin-Krieger, Lurker; Legend of Ahssun: alte Maulwurfsratten, Fleischwanzen) Hunderte Meter bis Kilometer über ihrem Platz. Ursache ist ein Fehler der Engine: Bei vergrößerten Modellen weit weg von der Kamera wächst die Bodenebene der Animation Bild für Bild, die Bodenkorrektur hebt die Figur dann um diesen Betrag an. Der Coop hält den Wert fest (Gothic 2; in Gothic 1 rechnet er ihn nur bei NPCs des Hosts neu, wenn er aufgebläht ist).
+- **Zauber des Partners** (u211): Absturz beim Nachspielen eines Zaubers, wenn das Zauberbuch leer war; ein abgebrochenes Nachspiel blieb danach hängen.
+- **Gegenstände in NPC-Händen** (u211): Wird ein Gegenstand freigegeben, den ein NPC gerade benutzt, löscht der Coop den Zeiger darauf sofort.
+- **Hänger-Diagnose** (u213): Steht das Spiel 90 Sekunden still, schreibt der Coop den Stapel des Hauptfadens nach `system\GothicCoopStapel.log` (auch Skript-Spur und Zustand) – damit lassen sich Hänger ohne Absturz finden.
+- **Gesprächssperre abgesichert** (u216): Archolos setzt beim Gesprächsbeginn beim Helden das Flag „unverwundbar im Gespräch“ und nimmt es nur beim regulären Ende zurück; solange es steht, beginnt kein NPC ein Gespräch mit ihm. Endet ein Gespräch anders (Laden mitten im Dialog, Abbruch), bliebe der Held gesperrt, auch im Spielstand. Der Coop setzt das Flag 10 Sekunden nach dem Gesprächsende und nach dem Laden zurück, außer die Mod braucht es gerade (Dialog, Mob, gewollte Unsichtbarkeit). Gefunden beim Lesen der Mod-Skripte; in den Testläufen bisher nicht ausgelöst.
+
 ## 0.8.0 – The Chronicles of Myrtana: Archolos, Schlafen beim Client, Tote beim Weltwechsel, Handel (Gothic I u210, Gothic II u210, Othello u210, Legend of Ahssun u210, Archolos u210)
 
 **Neu**

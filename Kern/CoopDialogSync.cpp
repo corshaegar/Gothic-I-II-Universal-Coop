@@ -3974,6 +3974,18 @@ namespace GOTHIC_ENGINE {
         }
     }
 
+    // u211 (P246): Bricht ein Zugriffsfehler das Nachspielen ab (RemoteNpc::Update faengt ihn), lief CoopSpellReplayEnd nie - die
+    // Tiefe blieb ueber 0, und ab da schluckte HostEvReplaySwallow die Welt-Externals ALLER Skripte dieses PCs (Wld_InsertNpc,
+    // Wld_SendTrigger, ...), der Zeit-Abgleich blieb aus. Archolos-Client 07.11. ab 23:52:56. Jetzt zurueck auf 0, Werte wie nach
+    // einem normalen Ende zurueckgesetzt
+    void CoopSpellReplayAbort() {
+        if (CoopSpellReplayDepth <= 0)
+            return;
+        DialogLog("Zauber-Nachspiel abgebrochen (Ausnahme, Tiefe %d) - Tiefe zurueck auf 0, Skript-Werte zurueckgesetzt (P246)", CoopSpellReplayDepth);
+        CoopSpellReplayDepth = 1;
+        CoopSpellReplayEnd("abgebrochen");
+    }
+
     // Nachspielen eines Zaubers: das External wirkungslos machen (Parameter vom Stapel nehmen). Bei true sofort mit 0 zurueck
     static bool HostEvReplaySwallow(const char* ext) {
         if (CoopSpellReplayDepth <= 0 || zCParser::GetParser() != parser)

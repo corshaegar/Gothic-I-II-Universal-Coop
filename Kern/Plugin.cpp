@@ -603,6 +603,7 @@ namespace GOTHIC_ENGINE {
         CoopSaveSyncOnSaveEnd();   // v17: im naechsten Frame archivieren und den Partner mitspeichern lassen
         CoopTeleportSaveEnd();     // u7: Rune-Aussehen nach dem Speichern neu setzen (zUnionUtils raeumt das Inventar um)
         CoopTruheSaveEnd();        // u97: Inhalt der Coop-Truhe in den Slot (COOPTRUHE.TXT)
+        CoopCodePtrSaveEnd();      // u211 (P247): Adresse des Skript-Codes in den Slot (COOPCODE.TXT)
     }
 
     void LoadBegin() {
@@ -707,9 +708,11 @@ namespace GOTHIC_ENGINE {
             list = next;
         }
 
+        CoopCodePtrLoadEnd();            // u211 (P247): Ikarus-Funktionszeiger des Spielstands auf den Code dieses Prozesses umrechnen
         CoopSaveSyncApplyHeroAtLoad();   // v24: eigener Held + Lage noch im Ladevorgang (kein sichtbarer Sprung)
         CoopHeroSymbolFixNow();          // u195 (P201): nach dem Einsetzen des eigenen Helden
         CoopTruheLoadEnd(true);          // u97: Inhalt der Coop-Truhe aus dem Slot (Client: bis der Host-Stand kommt)
+        CoopTalkLockAfterLoad();         // u216 (P253): Gespraechssperre des Helden aus dem Spielstand nach 10 s pruefen (CoopDialogWatch.cpp)
     }
 
     void Game_LoadBegin_Trigger() {

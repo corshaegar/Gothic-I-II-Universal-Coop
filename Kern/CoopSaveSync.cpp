@@ -5708,7 +5708,87 @@ namespace GOTHIC_ENGINE {
         SaveSyncLog("%s bittet um den vollen Stand (%s) - eigener Held und %d NPCs neu gesendet", id.c_str(), why.c_str(), n);
     }
 
+    // u211 (P247, Archolos-Dauerlauf 5, Host: dreimal beim Laden von Slot 6 abgestuerzt - zweimal "U:PAR: AUTORUN\PC_MULTIPLAYER_HERO.D:
+    // Error DoStack. ( line 26 )", einmal C0000005 in zCParser::GetParameter, Skript FADESCREENTOBLACKLOOP <- FRAMEFUNCTIONS <- _FF_HOOK):
+    // Ikarus' MEM_GetFuncPtr liefert eine Speicheradresse im Skript-Code (Codebeginn parser->stack.stack + Funktionsanfang).
+    // Archolos legt sie in FADEOUTFUNCPTR ab (FADESCREENTOBLACKF), und FADESCREENTOBLACKLOOP ruft sie am Ende des Abblendens mit
+    // MEM_CallByPtr. Die Variable steht im Spielstand. Ein neuer Prozess hat den Code oft woanders - der Aufruf sprang dann ins Leere.
+    // Ein Spieler speichert selten genau waehrend des Abblendens, im Coop aber loest der Partner die gemeinsame Sicherung jederzeit aus
+    // (hier mitten in einem Ruecksetzer der Mod). Darum: beim Speichern die Code-Adresse in den Slot (COOPCODE.TXT, beide PCs), nach
+    // dem Laden jede Skript-Ganzzahl, die genau auf einen Funktionsanfang des alten Codes zeigt, auf den neuen umrechnen.
+    void CoopCodePtrSaveEnd() {
+        const int slot = UnionCore::SaveLoadGameInfo.slotID;
+        if (slot < 0 || IsLoadingLevel || !parser || !parser->stack.stack)
+            return;
+        char buf[200];
+        _snprintf(buf, sizeof(buf), "// GothicCoop " COOP_FASSUNG ": Skript-Code beim Speichern (P247)\nbase %u\nsize %d\n",
+            (unsigned)(uintptr_t)parser->stack.stack, parser->stack.stacksize);
+        buf[sizeof(buf) - 1] = 0;
+        if (!CoopWriteTextAtomic(CoopSlotDir(slot) + "COOPCODE.TXT", buf))
+            SaveSyncLog("COOPCODE.TXT in Slot %d nicht schreibbar (P247)", slot);
+    }
+
+    void CoopCodePtrLoadEnd() {
+        const int slot = UnionCore::SaveLoadGameInfo.slotID;
+        if (slot < 0 || !parser || !parser->stack.stack || parser->stack.stacksize <= 0)
+            return;
+        unsigned alt = 0;
+        int altSize = -1;
+        if (FILE* f = fopen((CoopSlotDir(slot) + "COOPCODE.TXT").c_str(), "r")) {
+            char line[200];
+            while (fgets(line, sizeof(line), f)) {
+                unsigned u = 0;
+                int n = 0;
+                if (sscanf(line, "base %u", &u) == 1)
+                    alt = u;
+                else if (sscanf(line, "size %d", &n) == 1)
+                    altSize = n;
+            }
+            fclose(f);
+        }
+        const unsigned neu = (unsigned)(uintptr_t)parser->stack.stack;
+        const int size = parser->stack.stacksize;
+        if (!alt || alt == neu)
+            return;
+        if (altSize != size) {
+            SaveSyncLog("Code-Zeiger: Slot %d stammt von einem anderen Skript (Code %d statt %d Bytes) - nichts umgerechnet (P247)", slot, altSize, size);
+            return;
+        }
+        std::set<int> starts;
+        const int cnt = parser->symtab.table.GetNum();
+        for (int i = 0; i < cnt; i++) {
+            zCPar_Symbol* s = parser->symtab.table[i];
+            if (s && !(s->flags & (zPAR_FLAG_EXTERNAL | zPAR_FLAG_CLASSVAR)) &&
+                (s->type == zPAR_TYPE_FUNC || s->type == zPAR_TYPE_PROTOTYPE || s->type == zPAR_TYPE_INSTANCE) &&
+                s->single_intdata >= 0 && s->single_intdata < size)
+                starts.insert(s->single_intdata);
+        }
+        int n = 0;
+        std::string names;
+        for (int i = 0; i < cnt; i++) {
+            zCPar_Symbol* s = parser->symtab.table[i];
+            if (!s || s->type != zPAR_TYPE_INT || (s->flags & (zPAR_FLAG_CONST | zPAR_FLAG_CLASSVAR | zPAR_FLAG_EXTERNAL)))
+                continue;
+            const int ele = s->ele > 1 ? (int)s->ele : 1;
+            for (int k = 0; k < ele; k++) {
+                int v = 0;
+                s->GetValue(v, k);
+                const unsigned u = (unsigned)v;
+                if (u < alt || u >= alt + (unsigned)size || !starts.count((int)(u - alt)))
+                    continue;
+                s->SetValue((int)(neu + (u - alt)), k);
+                n++;
+                if (names.size() < 300)
+                    names += (names.empty() ? "" : ", ") + std::string(s->name.ToChar()) + (ele > 1 ? "[" + std::to_string(k) + "]" : "");
+            }
+        }
+        SaveSyncLog("Code-Zeiger: Skript-Code liegt jetzt bei %08X statt %08X - %d Zeiger auf Funktionen umgerechnet%s%s (P247)", neu, alt, n,
+            n ? ": " : "", names.c_str());
+    }
+
 #else   // Modul in dieser Engine nicht freigegeben (CoopModulesReport)
+    void CoopCodePtrSaveEnd() {}
+    void CoopCodePtrLoadEnd() {}
     void CoopSaveSyncSetMenu(bool) {}
     void CoopSaveSyncMenuPulse() {}
     void CoopSaveSyncSkipConnectTake() {}
