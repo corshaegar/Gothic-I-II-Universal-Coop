@@ -4,6 +4,14 @@ Projektversion (Veröffentlichung) und je Spiel/Mod die Coop-Fassung `uNN`. Vorg
 (github.com/corshaegar/Othello-Coop, 0.1.0–0.1.2, nur Othello). Die Fassungen dazwischen (u1–u61) stehen im Entwicklungsverlauf;
 hier beginnt der Verlauf mit u62.
 
+## 0.9.1 – Archolos: Gespräche nach hängendem Abblenden (Gothic I u217, Gothic II u217, Othello u217, Legend of Ahssun u217, Archolos u217)
+
+Aus dem siebten und achten einstündigen automatischen Testlauf am 08.11.2026 (Archolos und Legend of Ahssun zugleich, Host und Client auf einem PC): kein Absturz, kein Hänger, abschließende Prüfrunden 0 Fehler.
+
+**Korrekturen**
+
+- **Abblendsperre** (u217): Archolos lässt kein Gespräch zu, solange das Bild abgeblendet ist (Skriptwerte `SCREENFADED` und `FADESCREENSTATE`) – auch keine wichtigen Infos, mit denen NPCs die Geschichte weiterführen. Wurde mitten im Abblenden gespeichert und der Stand mit einer Fassung vor u211 geladen, kam das Aufblenden nie; danach redete kein NPC mehr mit dem Helden, auch in jedem späteren Spielstand. Steht das Spiel jetzt 60 Sekunden unverändert auf „abgeblendet“, ohne offenen Dialog, blendet der Coop mit der Funktion der Mod selbst auf (das löst auch die Bewegungssperre des Helden). Im Testlauf griff das nach dem Laden solcher Stände bei Host und Client; danach redeten die NPCs wieder, und Ruperts Geleit ging weiter. Allgemein: nur in Mods mit diesen Abblend-Funktionen.
+
 ## 0.9.0 – Stabilität: Absturz beim Laden, fliegende Monster, Hänger-Diagnose (Gothic I u216, Gothic II u216, Othello u216, Legend of Ahssun u216, Archolos u216)
 
 Aus einem langen Lauf in der Nacht (drei Abstürze beim Laden in Archolos, Grundlage für u211) und sechs einstündigen automatischen Testläufen am 08.11.2026 in Archolos und Legend of Ahssun (beide zugleich, Host und Client auf einem PC, jeder Lauf ausgewertet). In den sechs Läufen kein Absturz, ein Hänger im zweiten (Legend of Ahssun, beim Weltwechsel – danach kam die Hänger-Diagnose, seitdem keiner mehr); die Prüfrunden am Ende der letzten vier Läufe zeigten 0 Fehler.

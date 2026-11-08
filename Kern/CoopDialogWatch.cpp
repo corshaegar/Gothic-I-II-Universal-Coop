@@ -163,6 +163,79 @@ namespace GOTHIC_ENGINE {
             " - zurueckgesetzt, NPCs reden wieder mit ihm (P253)", DiagSeconds(), DiagRole(), idx, CoopTalkLockWhy);
     }
 
+    // u217 (P254): Abblendsperre. Archolos-Block 7 (u216): Rupert (offene wichtige Info), Harry, Viktor und Markus redeten nicht, das
+    // Flag des Helden (P253) stand auf 0. Im Spielstand des Hosts stand SCREENFADED = 1 - Archolos' B_ASSESSTALK bricht bei
+    // (FADESCREENSTATE != 0) || SCREENFADED ab: solange redet kein NPC mit dem Helden, auch keine wichtige Info (B_ASSESSPLAYER ->
+    // B_ASSESSTALK). So in allen 209 Staenden seit dem 07.11. 22:39: Slot 6 war mitten im Abblenden gespeichert (FADESCREENSTATE 1;
+    // FADESCREENTOBLACKF legt den Rueckruf - hier Q102_RUPERTDISTANCELIMIT_TELEPORT, die Abstandsgrenze in Ruperts Geleit - als
+    // Ikarus-Funktionszeiger FADEOUTFUNCPTR ab), die Sitzung um 22:58 lud ihn mit u210, also ohne P247: der Rueckruf mit dem Aufblenden
+    // (FADESCREENFROMBLACK) lief ins Leere, FADEOUTFINISH setzte SCREENFADED, und das stand danach in jedem Spielstand. P247 verhindert
+    // diesen Weg; es bleiben schon so gespeicherte Staende und jeder andere Weg, auf dem das Aufblenden ausfaellt (im Coop speichert der
+    // Partner jederzeit). Jetzt: stehen SCREENFADED/FADESCREENSTATE 60 s unveraendert auf "abgeblendet", ohne offenen Dialog, ruft GT
+    // FADESCREENFROMBLACKNOW der Mod (Ansicht klar, Zustand 0, FADEINFINISH: SCREENFADED aus, Bewegungssperre des Helden aus). Ein
+    // regulaeres Abblenden dauert wenige Sekunden. Allgemein: nur in Skripten mit diesen Namen (Archolos' Abblend-Funktionen).
+    static int CoopFadeLockResets = 0;
+
+    struct CoopFadeLockSymbols { zCPar_Symbol* faded; zCPar_Symbol* state; int nowFunc; };
+
+    static const CoopFadeLockSymbols& CoopFadeLockSyms() {
+        static zCParser* forParser = NULL;
+        static CoopFadeLockSymbols s = { NULL, NULL, -1 };
+        if (parser != forParser) {
+            forParser = parser;
+            s = { NULL, NULL, -1 };
+            if (parser) {
+                auto intVar = [](zCPar_Symbol* x) { return x && x->type == zPAR_TYPE_INT && !(x->flags & zPAR_FLAG_CONST) && x->ele == 1; };
+                zCPar_Symbol* faded = parser->GetSymbol(zSTRING("SCREENFADED"));
+                zCPar_Symbol* state = parser->GetSymbol(zSTRING("FADESCREENSTATE"));
+                const int fn = parser->GetIndex(zSTRING("FADESCREENFROMBLACKNOW"));
+                zCPar_Symbol* fs = fn >= 0 ? parser->GetSymbol(fn) : NULL;
+                if (intVar(faded) && fs && fs->type == zPAR_TYPE_FUNC) {
+                    s.faded = faded;
+                    s.state = intVar(state) ? state : NULL;
+                    s.nowFunc = fn;
+                }
+            }
+        }
+        return s;
+    }
+
+    static void CoopFadeLockPulse(const oCInformationManager& im) {
+        static long long nextCheck = 0, since = 0;
+        static int lastFaded = 0, lastState = 0;
+        if (CurrentMs < nextCheck)
+            return;
+        nextCheck = CurrentMs + 1000;
+        const CoopFadeLockSymbols& s = CoopFadeLockSyms();
+        if (!s.faded || !player || !ogame || !ogame->GetGameWorld())
+            return;
+        int faded = 0, state = 0;
+        s.faded->GetValue(faded, 0);
+        if (s.state)
+            s.state->GetValue(state, 0);
+        const bool open = !im.IsDone && (im.Npc || im.Player);
+        if ((!faded && !state) || open || faded != lastFaded || state != lastState || !since) {
+            lastFaded = faded;
+            lastState = state;
+            since = CurrentMs;
+            return;
+        }
+        const long long stuckS = (CurrentMs - since) / 1000;
+        if (stuckS < 60)
+            return;
+        parser->CallFunc(s.nowFunc);
+        int fadedAfter = 0, stateAfter = 0;
+        s.faded->GetValue(fadedAfter, 0);
+        if (s.state)
+            s.state->GetValue(stateAfter, 0);
+        CoopFadeLockResets++;
+        since = CurrentMs;
+        if (CoopFadeLockResets <= 20)
+            OthelloCompatLog("[%lld s, %s] Abblendsperre: SCREENFADED=%d, FADESCREENSTATE=%d seit %lld s unveraendert, ohne Dialog - "
+                "FADESCREENFROMBLACKNOW aufgerufen (danach %d/%d), NPCs reden wieder mit dem Helden (P254, %d.)", DiagSeconds(), DiagRole(),
+                faded, state, stuckS, fadedAfter, stateAfter, CoopFadeLockResets);
+    }
+
     void CoopDialogWatchPulse() {
         static oCNpc* watchNpc = NULL;
         static long long since = 0;
@@ -170,6 +243,7 @@ namespace GOTHIC_ENGINE {
 
         oCInformationManager& im = oCInformationManager::GetInformationManager();
         CoopTalkLockPulse(im);   // u216 (P253)
+        CoopFadeLockPulse(im);   // u217 (P254)
         if (!im.Npc || !im.Player || im.IsDone) {
             watchNpc = NULL;
             tries = 0;
