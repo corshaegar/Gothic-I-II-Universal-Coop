@@ -4,6 +4,15 @@ Projektversion (Veröffentlichung) und je Spiel/Mod die Coop-Fassung `uNN`. Vorg
 (github.com/corshaegar/Othello-Coop, 0.1.0–0.1.2, nur Othello). Die Fassungen dazwischen (u1–u61) stehen im Entwicklungsverlauf;
 hier beginnt der Verlauf mit u62.
 
+## 0.10.2 – Speichern in Mods mit LeGo ohne Absturz; Ende des Archolos-Prologs (Gothic I u240, Gothic II u240, Othello u240, Legend of Ahssun u240, Archolos u240)
+
+Aus automatischen Testläufen am 09.11.2026 in Archolos (Host und Client auf einem PC, der Client trat mitten im Prolog bei).
+
+**Korrekturen**
+
+- **Absturz beim Speichern in Archolos und anderen Mods mit LeGo** (u239): Mit 0.10.0 und 0.10.1 stürzte das Spiel in Mods, deren Skripte sich mit LeGo in das Speichern einhängen (z. B. Archolos), bei jedem Speichern ab. Seit 0.10.0 hängt sich der Coop selbst dort ein (Speichern nur gemeinsam). LeGo kopiert beim Spielstart den Sprung zum Coop an eine andere Stelle, wo er ins Leere zeigt. Solche Kopien setzt der Coop seit 0.6.0 wieder richtig (Legend of Ahssun), kannte die neuen Stellen aber nicht. Jetzt erkennt er beim Spielstart jede Stelle selbst, an der er oder ein anderes Plugin eingehängt ist. Geprüft: Startstand und gemeinsame Sicherungen in Archolos.
+- **Archolos: Ende des Prologs hing** (u240): Szenen, die auf beiden PCs als eigener Ablauf laufen, blieben stehen, wenn der Ablauf beim Client vorn lag. Sein Skript tötete und versetzte NPCs, auf die der Ablauf des Hosts noch wartete (auf dem Schiff muss erst Rupert ins Wasser springen). Die Kamera des Clients blieb in der letzten Einstellung hängen, beide Helden standen an Deck. Jetzt wartet der Host bis zu 30 Sekunden, ob sein eigener Ablauf dasselbe tut, und führt es sonst danach aus. Geprüft: Der Ablauf des Clients lag wieder vorn, das Prolog-Ende lief auf beiden PCs durch, die Helden kamen an den Strand.
+
 ## 0.10.1 – Teleport-Rune in die Hand, immer genau eine; Meldungszeile aufgeräumt (Gothic I u238, Gothic II u238, Othello u238, Legend of Ahssun u238, Archolos u238)
 
 **Neu**

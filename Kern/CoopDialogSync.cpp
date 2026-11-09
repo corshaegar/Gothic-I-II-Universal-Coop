@@ -1197,9 +1197,11 @@ namespace GOTHIC_ENGINE {
     // Entfernen), gilt 60 s lang auch nach mehr als 3 s als geschehen: beim Host paart P202 die eigenen Ereignisse mit den Anfragen seit
     // dem Start des Partners, beim Client gehen die Anfragen mit "spaet" hinaus (so weit schaut der Host zurueck). Allgemein
     static long long DlgLateSeqFromMs = 0, DlgLateSeqUntilMs = 0;   // GetCurrentMs
+    static long long DlgAblaufAktivMs = 0;   // u240 (P287): zuletzt lief hier ein Ablauf-Zaehler weiter (GetCurrentMs) - HostEvDeferredPulse
 
     static void DlgLateSeqBegin(long long partnerStartMs, const char* nm, const std::string& by) {
         const long long now = GetCurrentMs();
+        DlgAblaufAktivMs = now;   // u240 (P287)
         DlgLateSeqFromMs = partnerStartMs - 15000;   // seine Ereignisse kamen kurz vor dem Story-Abgleich
         DlgLateSeqUntilMs = now + 60000;
         DialogLog("Story-Abgleich: %s von %s laeuft hier an (%lld s nach seinem Start) - was sein Ablauf in der Welt schon tat, gilt 60 s lang "
@@ -1283,6 +1285,8 @@ namespace GOTHIC_ENGINE {
     static bool DlgStartVarHold(zCPar_Symbol* sym, int cur, int old) {
         if (!sym || !CoopModStartVar(sym->name.ToChar()))
             return false;
+        if (cur != old)
+            DlgAblaufAktivMs = GetCurrentMs();   // u240 (P287): der eigene Ablauf laeuft (auch sein Start)
         if (old == 0 && cur != 0)
             return false;
         if (DlgStartVarHoldLogged < 20) {
@@ -5694,11 +5698,128 @@ namespace GOTHIC_ENGINE {
                 n.c_str(), bestD / 100.f);
     }
 
+    // u240 (P287, Archolos-Lauf mit u239 am 09.11.: der Client trat mitten im Prolog ueber einen Spielstand bei, seine Kopie des Ablaufs
+    // Q101_CAPTAIN_CUTSCENEENABLE lief der des Hosts voraus. Bei 6 -> 7 (Q101_SHIP_FINAL_CAPTAIN) toetete und versetzte sein Skript Ana, Rupert
+    // und Flora - P200/P235 fuehrten das beim Host sofort aus. Der Ablauf des Hosts wartete bei 6 aber noch darauf, dass Rupert schwimmt
+    // (EVENTSMANAGER_Q101: C_BodyStateContains(NONE_7_RUPERT, BS_SWIM)): Rupert war tot, der Ablauf des Hosts blieb stehen, Jorn sprang beim Host
+    // nie ins Wasser - und darauf wartete der Ablauf des Clients bei 7. Die Kamera des Clients hing in SHIP_FINAL_05, beide Helden standen an
+    // Deck. P202 und P273 decken nur den Fall ab, dass der Host vorn liegt): Laeuft beim Host gerade ein eigener Ablauf (ein Ablauf-Zaehler
+    // aenderte sich hier binnen 3 min), stellt er Anfragen des Clients zu Ausloesern und NPCs (Ausloesen, Toeten, Versetzen, Entfernen) bis zu
+    // 30 s zurueck. Tut sein eigener Ablauf dasselbe, entfaellt die Anfrage; sonst fuehrt er sie danach aus. Allgemein (jede Mod mit
+    // Ablauf-Zaehlern im Profil)
+    struct HostEvDeferred { json e; std::string by, key; long long ms, back; };
+    static std::vector<HostEvDeferred> HostEvDeferredList;
+    static bool HostEvDeferredReplay = false;
+    static int HostEvDeferredLogged = 0, HostEvDeferredCount = 0, HostEvDeferredDropped = 0, HostEvDeferredLate = 0;
+    static const long long HOST_EV_DEFER_MS = 30000, HOST_EV_ABLAUF_MS = 180000;
+
+    static bool HostEvDeferKind(const std::string& f) {
+        return f == "triggerreq" || f == "untriggerreq" || f == "killreq" || f == "telereq" || f == "telepos" || f == "removereq";
+    }
+
+    static std::string HostEvDeferKey(const std::string& f, json& e) {
+        if (f == "triggerreq" || f == "untriggerreq")
+            return HostEvKey(f == "triggerreq" ? "trigger" : "untrigger", e.value("s", std::string()));
+        if (f == "removereq")
+            return HostEvKey("remove", e.value("inst", std::string()));
+        return HostEvKey(f.c_str(), e.value("n", std::string()));   // killreq, telereq, telepos: je NPC
+    }
+
+    // true: der Host hat es seit der Anfrage selbst getan (eigener Ablauf) - die Anfrage entfaellt
+    static bool HostEvDeferDone(HostEvDeferred& d) {
+        const std::string f = d.e.value("f", std::string());
+        if (f == "triggerreq" || f == "untriggerreq" || f == "removereq") {   // eigenes Ereignis als offenes Gegenstueck (P202)
+            auto it = HostEvTwins.find(d.key);
+            if (it == HostEvTwins.end())
+                return false;
+            for (auto q = it->second.begin(); q != it->second.end(); ++q)
+                if (q->second == 0 && q->first >= d.ms - d.back) {
+                    it->second.erase(q);
+                    HostEvTwinDropped++;
+                    return true;
+                }
+            return false;
+        }
+        auto it = UniqueNameToNpcList.find(string(d.e.value("n", std::string()).c_str()));
+        oCNpc* npc = it != UniqueNameToNpcList.end() ? it->second : NULL;
+        if (!npc)
+            return false;   // nach der Wartezeit meldet HostEvRunKill/HostEvRunTelePos "unbekannt"
+        if (f == "killreq")
+            return npc->IsDead() != 0;
+        auto own = HostEvScriptTeleMs.find(npc);   // telereq, telepos: eigenes Skript versetzte ihn seit der Anfrage
+        return own != HostEvScriptTeleMs.end() && own->second + 3000 >= d.ms;
+    }
+
+    static void HostEvReceive(json& e, const std::string& by, bool relay);
+
+    // Host, je Takt: zurueckgestellte Anfragen - erledigt der eigene Ablauf sie, entfallen sie; nach 30 s ausfuehren
+    static void HostEvDeferredPulse() {
+        if (HostEvDeferredList.empty())
+            return;
+        if (!ServerThread) {
+            HostEvDeferredList.clear();
+            return;
+        }
+        const long long now = GetCurrentMs();
+        for (size_t i = 0; i < HostEvDeferredList.size();) {
+            HostEvDeferred& d = HostEvDeferredList[i];
+            if (HostEvDeferDone(d)) {
+                HostEvDeferredDropped++;
+                if (HostEvDeferredLogged++ < 60)
+                    DialogLog("Host-Ereignis: Anfrage %s von %s - der eigene Ablauf tat es nach %.1f s selbst, entfaellt (P287)", d.key.c_str(),
+                        d.by.c_str(), (now - d.ms) / 1000.f);
+                HostEvDeferredList.erase(HostEvDeferredList.begin() + i);
+                continue;
+            }
+            if (now - d.ms < HOST_EV_DEFER_MS) {
+                i++;
+                continue;
+            }
+            HostEvDeferred x = d;
+            HostEvDeferredList.erase(HostEvDeferredList.begin() + i);
+            HostEvDeferredLate++;
+            if (HostEvDeferredLogged++ < 60)
+                DialogLog("Host-Ereignis: Anfrage %s von %s - der eigene Ablauf tat es in %lld s nicht, jetzt ausgefuehrt (P287)", x.key.c_str(),
+                    x.by.c_str(), HOST_EV_DEFER_MS / 1000);
+            HostEvDeferredReplay = true;
+            HostEvReceive(x.e, x.by, false);
+            HostEvDeferredReplay = false;
+        }
+    }
+
     static void HostEvReceive(json& e, const std::string& by, bool relay) {
         const std::string f = e.contains("f") && e["f"].is_string() ? e["f"].get<std::string>() : std::string();
         if (ServerThread && !relay) {   // Anfrage eines Clients
             // u195 (P202): Gegenstueck eines eigenen Ereignisses der letzten 3 s (Schleife auf beiden PCs) - nicht noch einmal
             const long long spaet = e.contains("spaet") && e["spaet"].is_number_integer() ? e["spaet"].get<long long>() : 0;   // u229 (P273)
+            // u240 (P287): eigener Ablauf laeuft - Ausloeser und NPCs erst, wenn er es nicht selbst tut
+            if (!HostEvDeferredReplay && HostEvDeferKind(f) && DlgAblaufAktivMs && GetCurrentMs() - DlgAblaufAktivMs < HOST_EV_ABLAUF_MS) {
+                HostEvDeferred d{ e, by, HostEvDeferKey(f, e), GetCurrentMs(), (std::max)(HOST_EV_TWIN_MS, (std::min)(spaet, HOST_EV_KEEP_MS)) };
+                if (HostEvDeferDone(d)) {
+                    DialogLog("Host-Ereignis: Anfrage %s von %s hat der Host eben selbst ausgefuehrt - nicht noch einmal (P202, P287)", d.key.c_str(),
+                        by.c_str());
+                    return;
+                }
+                if (f == "telepos")   // je NPC nur die letzte Lage - die Wartezeit laeuft ab der ersten
+                    for (auto& x : HostEvDeferredList)
+                        if (x.key == d.key) {
+                            x.e = e;
+                            return;
+                        }
+                if (HostEvDeferredList.size() >= 256) {   // Notbremse: aelteste gleich ausfuehren
+                    HostEvDeferred x = HostEvDeferredList.front();
+                    HostEvDeferredList.erase(HostEvDeferredList.begin());
+                    HostEvDeferredReplay = true;
+                    HostEvReceive(x.e, x.by, false);
+                    HostEvDeferredReplay = false;
+                }
+                HostEvDeferredList.push_back(d);
+                HostEvDeferredCount++;
+                if (HostEvDeferredLogged++ < 60)
+                    DialogLog("Host-Ereignis: Anfrage %s von %s zurueckgestellt - hier laeuft ein eigener Ablauf (zuletzt vor %.1f s), bis 30 s (P287)",
+                        d.key.c_str(), by.c_str(), (GetCurrentMs() - DlgAblaufAktivMs) / 1000.f);
+                return;
+            }
             auto twin = [&](const std::string& key) {
                 if (HostEvTwinAllow(key, 1, spaet))
                     return true;
@@ -5932,6 +6053,10 @@ namespace GOTHIC_ENGINE {
         HostEvTelePosQueue.clear();  // u204 (P235): NPC-Zeiger der alten Welt
         HostEvCollOffPos.clear();
         HostEvScriptTeleMs.clear();
+        if (!HostEvDeferredList.empty())   // u240 (P287): Anfragen zur alten Welt
+            DialogLog("Host-Ereignis: %d zurueckgestellte Anfragen verworfen (Welt geladen, P287)", (int)HostEvDeferredList.size());
+        HostEvDeferredList.clear();
+        DlgAblaufAktivMs = 0;
         PartyLeaderClear();          // u199 (P217): neue NPC-Zeiger nach dem Laden
         HeroStateClear();            // u199 (P221): ebenso
         CoopHostActiveNames.clear();
@@ -6072,6 +6197,7 @@ namespace GOTHIC_ENGINE {
         HostEvInstall();   // v33
         TimeReqPulse();    // u204 (P232)
         HostEvTelePosPulse();   // u204 (P235)
+        HostEvDeferredPulse();   // u240 (P287)
         try {
             SpawnPulse();
         }

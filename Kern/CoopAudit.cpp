@@ -511,18 +511,54 @@ namespace GOTHIC_ENGINE {
     // EV_AttackFinish). GT merkt sich in Game_Init (vor den Skripten) das Ziel seines Sprungs an jedem Eingang. Steht spaeter ein fremder
     // Sprung davor, sucht GT in dessen Ziel die unveraenderte Kopie (E9 mit dem alten Abstand, wenige Bytes dahinter LeGos Ruecksprung
     // "68 <Eingang+n> C3") und versetzt den Abstand, so dass er wieder GT trifft. Allgemein (jeder Mod mit LeGo-Haken auf GT-Funktionen)
-    struct CoopEntryJump { DWORD entry; DWORD target; const char* name; };
+    struct CoopEntryJump { DWORD entry; DWORD target; const char* name; bool gt; };
     static std::vector<CoopEntryJump> CoopEntryJumps;   // CoopLegoFixedAt steht oben bei den Zaehlern der Selbstpruefung
     int CoopLegoFixed = 0;
 
+    // u239 (P286): Archolos (LeGo 2.7.0 mit LeGo_Saves) stuerzte mit u237/u238 beim ersten Speichern ab - "C0000005 bei 0xFAA64D81" aus
+    // CoopDoSave -> CGameManager::Write_Savegame. LeGos Haken _BW_SaveGame sitzt auf demselben Eingang wie der GT-Haken aus P282, die
+    // Haken-Tabelle stammte aber noch von u197 (tools\hooktable.py lief seitdem nicht): Write_Savegame und fuenf weitere neue GT-Haken
+    // fehlten darin, P177 merkte sich ihre Eingaenge nicht und versetzte LeGos kopierten Sprung nie. Darum zusaetzlich zur Tabelle jeder
+    // Funktionsanfang, an dem jetzt (vor den Skripten) ein Sprung steht: GT-Haken, die in der Tabelle fehlen (Logzeile), und die
+    // Spruenge anderer Plugins - LeGos Kopie eines solchen Sprungs zeigt ebenso ins Leere und wird nur bei genau diesem Muster versetzt
     void CoopLegoNoteEntries() {   // auch im Weltprozess - dort laufen die Skripte des Mods ebenso
         if (!CoopEntryJumps.empty())
             return;
         for (auto& h : CoopFnNames) {
             const unsigned char* p = (const unsigned char*)h.a;
             if (h.hook && IsReadableMemory(p, 5) && p[0] == 0xE9)
-                CoopEntryJumps.push_back({ h.a, h.a + 5 + *(const int*)(p + 1), h.n });
+                CoopEntryJumps.push_back({ h.a, h.a + 5 + *(const int*)(p + 1), h.n, true });
         }
+        const void* gtModule = ModuleOf((const void*)&CoopLegoNoteEntries);
+        std::string fehlen;
+        int nFehlen = 0, nFremd = 0;
+        for (DWORD a : CoopFnStarts) {
+            const unsigned char* p = (const unsigned char*)a;
+            if (!IsReadableMemory(p, 5) || p[0] != 0xE9)
+                continue;
+            const CoopFnName* info = AuditFnInfo(a);
+            if (info && info->hook)
+                continue;   // schon aus der Tabelle (oben), auch wenn dort gerade kein Sprung steht
+            int hops = 0;
+            const bool gt = ModuleOf((const void*)AuditFollowJumps(a, &hops)) == gtModule;
+            CoopEntryJumps.push_back({ a, a + 5 + *(const int*)(p + 1), info ? info->n : NULL, gt });
+            if (!gt) {
+                nFremd++;
+                continue;
+            }
+            nFehlen++;
+            if (fehlen.size() < 600) {
+                char b[128];
+                _snprintf(b, sizeof(b), "%s%08X %s", fehlen.empty() ? "" : ", ", (unsigned)a, info ? info->n : "?");
+                b[sizeof(b) - 1] = 0;
+                fehlen += b;
+            }
+        }
+        if (nFehlen)
+            OthelloCompatLog("Haken-Tabelle veraltet: %d GT-Haken fehlen darin (%s) - tools\\hooktable.py neu laufen lassen; P177 schuetzt sie trotzdem (P286)",
+                nFehlen, fehlen.c_str());
+        OthelloCompatLog("LeGo-Schutz (P177, P286): %d Eingaenge mit Sprung gemerkt - %d GT-Haken, %d andere", (int)CoopEntryJumps.size(),
+            (int)CoopEntryJumps.size() - nFremd, nFremd);
     }
 
     // cur: die 5 Bytes, die jetzt am Eingang stehen (Testschritt: ein nachgebauter Eingang). 1 = Kopie versetzt
@@ -579,9 +615,17 @@ namespace GOTHIC_ENGINE {
             char how[260];
             if (CoopLegoFixAt(e.entry, (const unsigned char*)e.entry, e.target, how, sizeof(how))) {
                 CoopLegoFixed++;
-                CoopLegoFixedAt.insert(e.entry);
-                OthelloCompatLog("[%lld s, %s] LeGo-Haken vor GT an %s (%08X): %s - Abstand versetzt, die Kette laeuft wieder bis GT",
-                    DiagSeconds(), DiagRole(), e.name, (unsigned)e.entry, how);
+                char nm[16];
+                _snprintf(nm, sizeof(nm), "%08X", (unsigned)e.entry);
+                nm[sizeof(nm) - 1] = 0;
+                if (e.gt) {
+                    CoopLegoFixedAt.insert(e.entry);
+                    OthelloCompatLog("[%lld s, %s] LeGo-Haken vor GT an %s (%08X): %s - Abstand versetzt, die Kette laeuft wieder bis GT",
+                        DiagSeconds(), DiagRole(), e.name ? e.name : nm, (unsigned)e.entry, how);
+                }
+                else   // u239 (P286): Sprung eines anderen Plugins - die Selbstpruefung zaehlt ihn nicht als GT-Haken
+                    OthelloCompatLog("[%lld s, %s] LeGo-Haken vor fremdem Sprung an %s (%08X): %s - Abstand versetzt, die Kette laeuft wieder wie vor LeGo",
+                        DiagSeconds(), DiagRole(), e.name ? e.name : nm, (unsigned)e.entry, how);
             }
         }
     }

@@ -156,6 +156,10 @@ startet weiter von selbst), der Coop-Testlauf mit seinen Tasten (Shift+F11, F7) 
 Ab u238: die Rune-Taste (Vorgabe Shift+T) nimmt die Teleport-Rune in die Hand - fehlt sie, kommt sie vorher ins Inventar; nochmal
 druecken legt sie weg. Jeder Held hat immer genau eine Coop-Rune (nach dem Laden auch im Zauberbuch); eine, die frei in der Welt
 liegt, verschwindet nach wenigen Sekunden. Die Meldungszeile bleibt frei von Test- und Einstellungszeilen.
+Ab u239: kein Absturz mehr beim Speichern in Mods mit LeGo-Speicherhaken (z. B. Archolos) - mit u237/u238 stuerzte dort jedes
+Speichern ab.
+Ab u240: Szenen, die auf beiden PCs als eigener Ablauf laufen (Archolos: Ende des Prologs auf dem Schiff), bleiben nicht mehr
+stehen, wenn der Ablauf beim Client vorn liegt - der Host wartet bis zu 30 s, ob sein eigener Ablauf dasselbe tut.
 
 Spielen: Hauptmenue > COOP > Figur waehlen > "Weiter: Verbinden" > "Spiel hosten" bzw. "Ueber IP beitreten"
 (Port 9955) oder ueber Steam. Protokoll: system\\GothicCoop.log.
