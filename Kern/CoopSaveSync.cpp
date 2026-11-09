@@ -1812,6 +1812,47 @@ namespace GOTHIC_ENGINE {
 
     // --- Pruefen, ob gerade gespeichert werden darf -------------------------------------------------
 
+    bool CoopKamerafahrtLaeuft(std::string* name);   // CoopWorldSync.cpp (u219)
+    bool CoopAblaufLaeuft(long long withinMs);       // CoopDialogSync.cpp (u243, P290)
+
+    // u243 (P290, Archolos-Lauf b368 am 09.11., Nutzer: "Archolos buggt gerade oder": bei 115 s trat der Client bei, der Host machte die
+    // gemeinsame Sicherung - das Spiel stand 3 s. Eben hatte der Kapitaens-Ablauf begonnen (Q101_CAPTAIN_CUTSCENEENABLE 1 -> 2, gleich darauf
+    // SHIP_CAPITAN_01). Danach holten Archolos' Frame-Funktionen (LeGo, alle 75 ms) die verpassten Takte auf einmal nach, der Zaehler sprang
+    // auf 7: die Kapitaens-Szene fiel beim Host aus, sein Ablauf begann gleich das Finale, der Client spielte die Szene, und P287 spielte
+    // seine Kameras 30 s spaeter beim Host nach): im Einzelspiel speichert Gothic in einer Kamerafahrt nicht (u138, u219). Jetzt warten alle
+    // Sicherungen des Coops (eigene, Auto-Sicherung, Mitspeichern, Beitritt), solange eine Kamerafahrt laeuft oder ein Ablauf-Zaehler der
+    // Mod sich binnen 2 min aenderte. Notbremsen: eine Kamerafahrt, die laenger als 5 min laeuft, und ein Ablauf, der ohne Pause laenger als
+    // 10 min laeuft, halten nicht mehr auf
+    static bool CoopSzeneSperrt(std::string& why) {
+        static std::string camName;
+        static long long camSeit = 0, ablaufSeit = 0;
+        const long long now = GetCurrentMs();
+        std::string cam;
+        if (CoopKamerafahrtLaeuft(&cam)) {
+            if (cam != camName) {
+                camName = cam;
+                camSeit = now;
+            }
+            if (now - camSeit < 300000) {
+                why = CoopTr("Kamerafahrt ", "camera ride ") + cam;
+                return true;
+            }
+        }
+        else
+            camName.clear();
+        if (CoopAblaufLaeuft(120000)) {
+            if (!ablaufSeit)
+                ablaufSeit = now;
+            if (now - ablaufSeit < 600000) {
+                why = CoopTr("Szene der Mod l" "\xE4" "uft", "mod scene running");
+                return true;
+            }
+        }
+        else
+            ablaufSeit = 0;
+        return false;
+    }
+
     static bool CoopCanSaveNow(std::string& why) {
         if (IsLoadingLevel || IsSavingGame) { why = CoopTr("Laden/Speichern l" "\xE4" "uft", "loading/saving"); return false; }
         if (!player || !ogame->savegameManager) { why = CoopTr("kein Held", "no hero"); return false; }
@@ -1822,6 +1863,8 @@ namespace GOTHIC_ENGINE {
         if (player->inventory2.IsOpen()) { why = CoopTr("Inventar offen", "inventory open"); return false; }
         const int bs = player->GetBodyState();
         if (bs > BS_SPRINT) { why = CoopTr("Held besch" "\xE4" "ftigt (K" "\xF6" "rperzustand ", "hero busy (body state ") + std::to_string(bs) + ")"; return false; }
+        if (CoopSzeneSperrt(why))   // u243 (P290)
+            return false;
         return true;
     }
 

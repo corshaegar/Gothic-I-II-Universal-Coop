@@ -74,6 +74,10 @@ druecken legt sie weg. Jeder Held hat immer genau eine Coop-Rune (nach dem Laden
 liegt, verschwindet nach wenigen Sekunden. Die Meldungszeile bleibt frei von Test- und Einstellungszeilen.
 Ab u239: kein Absturz mehr beim Speichern in Mods mit LeGo-Speicherhaken - mit u237/u238 stuerzte dort jedes Speichern ab.
 Ab u240: Szenen, die auf beiden PCs als eigener Ablauf laufen, bleiben nicht mehr stehen, wenn der Ablauf beim Client vorn liegt.
+Ab u241: liegt der Ablauf beim Client hinten, laeuft nichts doppelt.
+Ab u242: ein Gespraech des Mitspielers macht den eigenen Helden nicht mehr dauerhaft "unverwundbar" (in Othello griffen Monster ihn
+danach nicht an, er traf sie nicht) - 10 s nach dem Ende wird es zurueckgesetzt.
+Ab u243: der Coop speichert nicht mehr mitten in einer Szene (Kamerafahrt oder Szenenablauf einer Mod).
 """
 
 SKRIPTE =('COOP_MENU.D', 'COOP_ITEMS.D', 'PC_MULTIPLAYER_HERO.D')

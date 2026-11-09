@@ -1,8 +1,18 @@
 # Änderungen
 
-Projektversion (Veröffentlichung) und je Spiel/Mod die Coop-Fassung `uNN`. Vorgänger: das Othello-Coop
-(github.com/corshaegar/Othello-Coop, 0.1.0–0.1.2, nur Othello). Die Fassungen dazwischen (u1–u61) stehen im Entwicklungsverlauf;
-hier beginnt der Verlauf mit u62.
+Projektversion (Veröffentlichung) und je Spiel/Mod die Coop-Fassung `uNN` – die neueste oben. Ganz unten steht die Vorgeschichte:
+das Othello-Coop 0.1.0–0.1.2 (github.com/corshaegar/Othello-Coop) und die unveröffentlichten Fassungen u1–u61, aus denen 0.2.0
+wurde. So steht hier alles seit der ersten Fassung.
+
+## 0.10.3 – Szenen und Kämpfe im Koop: Archolos-Prolog, Othello (Gothic I u243, Gothic II u243, Othello u243, Legend of Ahssun u243, Archolos u243)
+
+Aus automatischen Testläufen am 09.11.2026 in Archolos und Othello (Host und Client auf einem PC).
+
+**Korrekturen**
+
+- **Keine Sicherung mitten in einer Szene** (u243): Sicherte der Coop während einer Szene (Auto-Sicherung, Mitspeichern oder die Sicherung, wenn der Partner beitritt), stand das Spiel kurz still. Danach holten die Skriptschleifen der Mod die verpassten Takte auf einmal nach und übersprangen dabei Teile der Szene. In Archolos fiel so beim Host die Kapitäns-Szene auf dem Schiff aus, während der Client sie spielte. Wie Gothic im Einzelspiel wartet der Coop jetzt mit dem Sichern, solange eine Kamerafahrt läuft oder eine Szene der Mod gerade weiterläuft. Geprüft: Der Prolog lief komplett durch.
+- **Unverwundbar nach einem Gespräch des Partners** (u242): Führte der Partner ein Gespräch, setzte das Gesprächsskript des NPCs auch beim eigenen Helden „unverwundbar“, und es blieb stehen. In Othello griffen Monster einen solchen Helden nicht an und liefen davon – der Client traf in 9 von 10 Kämpfen nichts. In anderen Mods redeten NPCs dann nicht mehr mit ihm. Jetzt wird es 10 Sekunden nach dem Ende des Gesprächs zurückgesetzt. Geprüft in Othello: alle 13 Kämpfe des Clients mit Treffern.
+- **Szenen doppelt** (u241): Lag eine Szene beim Client hinter der des Hosts, konnte eine Kamerafahrt ein zweites Mal ablaufen. Der Host erkennt jetzt auch ältere eigene Gegenstücke.
 
 ## 0.10.2 – Speichern in Mods mit LeGo ohne Absturz; Ende des Archolos-Prologs (Gothic I u240, Gothic II u240, Othello u240, Legend of Ahssun u240, Archolos u240)
 
@@ -227,3 +237,38 @@ Erstmals läuft der automatische Testlauf (Host und Client auf einem PC) auch in
   fehlt, legt `system\dinput.dll` von SystemPack nach `CoopBackup` und nimmt beides beim Rückgängig wieder heraus (bis u61
   startete er das Union-Setup). Neu: ZIP für Othello.
 - u56–u61: am Coop unverändert gegenüber u55.
+
+## Vorgeschichte
+
+### Gothic Union Coop u1–u61 (unveröffentlicht)
+
+Aus dem Othello-Coop wurde ein Union-Plugin für Gothic 1, Gothic 2 Die Nacht des Raben und Othello aus einem gemeinsamen
+Quelltext. Die wichtigsten Schritte:
+
+- **u1–u7 – ein Kern für alle Engines:** Der Coop-Kern ist unabhängig von der Engine, alle Engine-Adressen stehen in einer
+  Tabelle, jedes Modul wird je Engine freigegeben. Gothic 2 lässt sich bauen, Gothic 1 läuft auch ohne Othello (eigenes
+  Hauptmenü, Laden). Die Neuerungen des Othello-Coops bis v110 sind übernommen, dazu ein automatischer Coop-Testlauf.
+- **u8–u20 – Gothic 2 Die Nacht des Raben:** COOP-Menü und Maus, gemeinsames neues Spiel mit Intro für beide,
+  Coop-Renderer mit 3D-Vorschau der Figur und Zuschau-Fenster, Gespräche (einer spricht, der andere hört zu – Fortschritt,
+  Tagebuch und Erfahrung für beide), Welt-Abgleich, gemeinsame Spielstände mit Vorschau, Kampf mit Treffer-Hoheit und
+  Kampf-Übergabe, COOP-Schwierigkeit, Teleport-Rune, Markierung des Partners, Selbstprüfung gegen die Engine.
+- **u21–u28 – Bedienung:** Esc-Menü mit „Hauptmenü“ und „Spielstand wählen“, Tagebuch mit der Maus, Mauszeiger,
+  Kapitelbild der eigenen Gilde, Story-Videos auch beim Partner, der Partner auf Gothics Karte.
+- **u29–u40 – getrennte Welten:** Jeder kann in seiner eigenen Welt sein (Khorinis, Minental, Jharkendar, Irdorath),
+  der gemeinsame Weltwechsel ist eine Einstellung. Der Weltprozess – ein zweites Gothic im Hintergrund – zeigt die Welt
+  des Partners im Zuschau-Fenster. Teleport über Welten, Weltstand-Tausch beim Speichern in verschiedenen Welten.
+- **u41–u55 – stabil und installierbar:** Absturzkorrekturen aus Testläufen, ein automatischer Testlauf mit Host und
+  Client auf einem PC, der Installer (erkennt das Spiel am Inhalt, sichert alles, „Letzte Installation rückgängig“), die
+  Sicherung beim Partner (jeder bekommt den Stand des anderen) und Story-Videos, die für beide übersprungen werden.
+
+### Othello-Coop 0.1.0–0.1.2 (nur Gothic 1 mit Othello 4.4.2.1, Alpha)
+
+- **0.1.2:** Teleport-Rune zum Mitspieler (kostet kein Mana, eigenes Aussehen). Mitspieler-Markierung: Name über dem Kopf
+  (hinter Wänden blass, mit Entfernung), Pfeil am Bildrand, beide Spieler als Pfeile auf Othellos Weltkarte. Behoben: Sprünge,
+  wenn NPCs das Ziel zwischen den Spielern wechseln, Kämpfe von NPCs, die dem Host feindlich sind, Abstürze beim Seitenschritt
+  im Kampf und bei einer Zwischensequenz kurz nach dem Laden; beim Laden wird der Zustand der alten Welt verworfen.
+- **0.1.1:** Speicherleck beim Host behoben (der Speicher wuchs mit der Spielzeit und jedem Abgleich), die Absturzmeldung
+  stürzt nicht mehr selbst ab, stabilere Warteschlange zwischen Netz und Spiel, kein Absturz mehr beim Zauberwechsel des
+  Mitspielers.
+- **0.1.0:** erste öffentliche Fassung – Koop für Gothic 1 mit Othello: COOP-Menü mit Mitspieler-Figur, Renderer mit
+  Zuschau-Fenster und Figur-Vorschau, Verbinden über IP oder Steam.

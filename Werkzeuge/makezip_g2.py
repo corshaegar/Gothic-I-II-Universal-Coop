@@ -160,6 +160,11 @@ Ab u239: kein Absturz mehr beim Speichern in Mods mit LeGo-Speicherhaken (z. B. 
 Speichern ab.
 Ab u240: Szenen, die auf beiden PCs als eigener Ablauf laufen (Archolos: Ende des Prologs auf dem Schiff), bleiben nicht mehr
 stehen, wenn der Ablauf beim Client vorn liegt - der Host wartet bis zu 30 s, ob sein eigener Ablauf dasselbe tut.
+Ab u241: liegt der Ablauf beim Client dagegen hinten, laeuft nichts doppelt (Kamerafahrten, Ausloeser, Versetzen von NPCs).
+Ab u242: ein Gespraech des Mitspielers macht den eigenen Helden nicht mehr dauerhaft "unverwundbar" (Monster griffen ihn danach
+nicht an, NPCs redeten nicht mit ihm) - 10 s nach dem Ende wird es zurueckgesetzt.
+Ab u243: der Coop speichert nicht mehr mitten in einer Szene (Kamerafahrt oder Szenenablauf einer Mod) - Auto-Sicherung, Mitspeichern
+und Beitritt warten, bis sie vorbei ist. Sonst konnte eine Szene der Mod uebersprungen werden (Archolos: Kapitaens-Szene).
 
 Spielen: Hauptmenue > COOP > Figur waehlen > "Weiter: Verbinden" > "Spiel hosten" bzw. "Ueber IP beitreten"
 (Port 9955) oder ueber Steam. Protokoll: system\\GothicCoop.log.

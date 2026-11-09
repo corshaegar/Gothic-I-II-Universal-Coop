@@ -137,6 +137,17 @@ namespace GOTHIC_ENGINE {
         CoopTalkLockAfterLoadPending = true;
     }
 
+    // u242 (P289, Othello-Lauf b361 am 09.11.: 9 von 10 Kaempfen des Clients ohne einen Treffer - "Zwischensequenz (Held unverwundbar)" beim
+    // Client ab 77 s, als der Host mit Bloodwyn sprach. Othellos ZS_MM_ATTACK geht bei OTHER.AIVAR[AIV_INVINCIBLE] in den Tagesablauf zurueck:
+    // die Monster griffen den Helden des Clients nicht an und liefen weiter, er schlug 48-mal ins Leere, "Gegner holte 0-mal aus"): ein
+    // Gespraech des Partners laeuft hier mit ZS_TALK des NPCs nach, dessen Start setzt AIV_INVINCIBLE auch beim eigenen Helden. Zurueck kommt
+    // es nur am Ende im eigenen InfoManager - hier nie. Das Ende eines Gespraechs des Partners plant dieselbe Pruefung wie P253 (10 s, kein
+    // eigener Dialog, kein Mob, nicht durchsichtig). Allgemein
+    void CoopTalkLockCheckSoon(const char* why) {   // CoopDialogSync.cpp, SYNC_DIALOG_END
+        CoopTalkLockCheckMs = CurrentMs + 10000;
+        CoopTalkLockWhy = why;
+    }
+
     static void CoopTalkLockPulse(oCInformationManager& im) {
         const bool open = !im.IsDone && (im.Npc || im.Player);
         if (CoopTalkLockOpen && !open) {
@@ -325,5 +336,6 @@ namespace GOTHIC_ENGINE {
     void CoopDialogWatchPulse() {}
     void CoopDialogWatchLoadBegin() {}
     void CoopTalkLockAfterLoad() {}
+    void CoopTalkLockCheckSoon(const char*) {}
 #endif
 }

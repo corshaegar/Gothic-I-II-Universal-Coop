@@ -67,6 +67,7 @@ namespace GOTHIC_ENGINE {
     bool CoopRuleTakeOnConnect();   // v110: beim Verbinden gilt der Stand des Hosts
     bool CoopNewGameInfoBlocked();   // v91: CoopNewGame.cpp - gemeinsames neues Spiel: der Host spricht zuerst (Diego)
     void CoopNewGameDialogEnded(const std::string& by, const std::string& npc);
+    void CoopTalkLockCheckSoon(const char* why);   // CoopDialogWatch.cpp (u242, P289)
 
 #if COOP_BUILD(Dialog)   // u3: bis u2 nur G1 - Freigabe je Engine in CoopCore.cpp
 
@@ -1273,6 +1274,11 @@ namespace GOTHIC_ENGINE {
     }
 
     // u224 (P260): wartet der Start einer Szene auf das Ende des eigenen Gespraechs? (Testinstanz: ein selbst begonnenes Gespraech dann beenden)
+    // u243 (P290): lief hier eben ein Ablauf der Mod weiter (ein Ablauf-Zaehler aenderte sich binnen withinMs)? Fuer CoopCanSaveNow
+    bool CoopAblaufLaeuft(long long withinMs) {
+        return DlgAblaufAktivMs && GetCurrentMs() - DlgAblaufAktivMs < withinMs;
+    }
+
     bool CoopDialogSzeneWartet(std::string* was) {
         if (DlgStartVarWarten.empty())
             return false;
@@ -5712,6 +5718,10 @@ namespace GOTHIC_ENGINE {
     static bool HostEvDeferredReplay = false;
     static int HostEvDeferredLogged = 0, HostEvDeferredCount = 0, HostEvDeferredDropped = 0, HostEvDeferredLate = 0;
     static const long long HOST_EV_DEFER_MS = 30000, HOST_EV_ABLAUF_MS = 180000;
+    // u241 (P288, Archolos-Lauf mit u240: der Client trat spaeter bei, seine Kopie lag 27 s hinter der des Hosts - "Anfrage TRIGGER|SHIP_CAPITAN_02|
+    // zurueckgestellt", 30 s spaeter ausgefuehrt, die Kamerafahrt lief ein zweites Mal; der Host hatte sie bei 79 s selbst ausgeloest, P202 schaut nur 3 s
+    // zurueck): laeuft hier ein eigener Ablauf, gilt ein eigenes Gegenstueck der letzten 2 min - auch ein Versetzen desselben NPCs
+    static const long long HOST_EV_ABLAUF_BACK_MS = 120000;
 
     static bool HostEvDeferKind(const std::string& f) {
         return f == "triggerreq" || f == "untriggerreq" || f == "killreq" || f == "telereq" || f == "telepos" || f == "removereq";
@@ -5746,8 +5756,8 @@ namespace GOTHIC_ENGINE {
             return false;   // nach der Wartezeit meldet HostEvRunKill/HostEvRunTelePos "unbekannt"
         if (f == "killreq")
             return npc->IsDead() != 0;
-        auto own = HostEvScriptTeleMs.find(npc);   // telereq, telepos: eigenes Skript versetzte ihn seit der Anfrage
-        return own != HostEvScriptTeleMs.end() && own->second + 3000 >= d.ms;
+        auto own = HostEvScriptTeleMs.find(npc);   // telereq, telepos: eigenes Skript versetzte ihn seit der Anfrage (u241, P288: oder kurz davor)
+        return own != HostEvScriptTeleMs.end() && own->second + d.back >= d.ms;
     }
 
     static void HostEvReceive(json& e, const std::string& by, bool relay);
@@ -5794,7 +5804,7 @@ namespace GOTHIC_ENGINE {
             const long long spaet = e.contains("spaet") && e["spaet"].is_number_integer() ? e["spaet"].get<long long>() : 0;   // u229 (P273)
             // u240 (P287): eigener Ablauf laeuft - Ausloeser und NPCs erst, wenn er es nicht selbst tut
             if (!HostEvDeferredReplay && HostEvDeferKind(f) && DlgAblaufAktivMs && GetCurrentMs() - DlgAblaufAktivMs < HOST_EV_ABLAUF_MS) {
-                HostEvDeferred d{ e, by, HostEvDeferKey(f, e), GetCurrentMs(), (std::max)(HOST_EV_TWIN_MS, (std::min)(spaet, HOST_EV_KEEP_MS)) };
+                HostEvDeferred d{ e, by, HostEvDeferKey(f, e), GetCurrentMs(), (std::max)(HOST_EV_ABLAUF_BACK_MS, (std::min)(spaet, HOST_EV_KEEP_MS)) };   // u241 (P288)
                 if (HostEvDeferDone(d)) {
                     DialogLog("Host-Ereignis: Anfrage %s von %s hat der Host eben selbst ausgefuehrt - nicht noch einmal (P202, P287)", d.key.c_str(),
                         by.c_str());
@@ -5993,6 +6003,7 @@ namespace GOTHIC_ENGINE {
                 DialogEnds.push_back({ n, by, CurrentMs });
                 DialogLog("%s beendet den Dialog mit %s - frei", by.c_str(), n.c_str());
                 CoopNewGameDialogEnded(by, n);   // v91: erstes Gespraech des Hosts nach dem gemeinsamen Start
+                CoopTalkLockCheckSoon("10 s nach dem Ende eines Gespraechs des Partners");   // u242 (P289): ZS_TALK des NPCs setzte AIV_INVINCIBLE auch hier
                 break;
             }
             case SYNC_DIALOG_STATE:
@@ -6675,6 +6686,7 @@ namespace GOTHIC_ENGINE {
     void CoopDialogSyncWorldLoaded() {}
     void CoopDialogSyncPulse() {}
     bool CoopDialogSzeneWartet(std::string*) { return false; }   // u224 (P260)
+    bool CoopAblaufLaeuft(long long) { return false; }           // u243 (P290)
     void CoopTimeRequestReceive(json&, const std::string&) {}   // u204 (P232)
     bool CoopTestScriptThiscall(unsigned, void*, const void*) { return false; }   // u204 (P235)
     void CoopStorySendAllNpcs(const char*) {}
