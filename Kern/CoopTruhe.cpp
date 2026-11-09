@@ -848,34 +848,23 @@ namespace GOTHIC_ENGINE {
 
     // Plugin.cpp, Game_Loop (Tasten, nicht im Gespraech): Taste aus den COOP-Einstellungen (je 2 s gelesen) oeffnet bzw. schliesst
     // das Coop-Inventar - einmal je Druck (Flanke von KeyPressed wie die Kamera-Taste, CoopCamera.cpp), nicht mit Shift, nicht in Menues
+    // u226 (P264): Nutzer "Coop-Inventar beliebige Tasten" - die Taste kommt aus Einstellungen > COOP > Coop-Tasten (coopKeyInv, jede
+    // Taste mit Shift/Strg/Alt; Vorgabe aus coopInvKey). Flanke, Zusatztasten und "nicht in Menues" prueft CoopKeyHit.
     void CoopTruheKeyPulse(bool shift) {
-        const long long now = GetCurrentMs();
-        if (TruheTasteIdx < 0 || now > TruheTasteLesenMs + 2000) {
-            TruheTasteLesenMs = now;
-            int k = 1;
-            if (zoptions) {
-                CoopTruheDefaults();
-                k = zoptions->ReadInt(zSTRING("GOTHICCOOP"), "coopInvKey", 1);
-            }
-            TruheTasteIdx = k >= 0 && k < TruheTastenZahl ? k : 1;
-        }
-        const int key = TruheTasten[TruheTasteIdx].key;
-        if (!key || !zinput || !player || IsLoadingLevel) {
-            TruheTasteWar = false;
+        (void)shift;
+        (void)TruheTasteIdx;
+        (void)TruheTasteLesenMs;
+        (void)TruheTasteWar;
+        if (!zinput || !player || IsLoadingLevel)
             return;
-        }
-        const bool down = zinput->KeyPressed(key) != 0;
-        const bool edge = down && !TruheTasteWar;
-        TruheTasteWar = down;
-        if (!edge || shift || zCMenu::GetActive())
+        if (!CoopKeyHit(CK_INV))
             return;
-        zinput->KeyToggled(key);   // Merker verbrauchen (die Taste gehoert in dieser Lage GT)
         if (TruheOffenHier) {
             TruheSchliessenHier("Taste");
             return;
         }
         if (TruheAnderesFenster()) {
-            TruheLog("Taste %s - ein anderes Fenster ist offen (Truhe, Pluendern, Handel) - nicht geoeffnet", TruheTasten[TruheTasteIdx].name);
+            TruheLog("Taste %s - ein anderes Fenster ist offen (Truhe, Pluendern, Handel) - nicht geoeffnet", CoopKeyText(CK_INV).c_str());
             return;
         }
         TruheDirekt("Taste");

@@ -62,11 +62,11 @@ Im Hauptmenü gibt es **keine Welt und keinen Helden** (`player == NULL`, `ogame
 
 | Datei | Aufgabe |
 |---|---|
-| `Plugin.cpp`, `UnionHooks.cpp`, `DllMain.cpp` | Einstieg, Takt, Tasten (Shift+F1…F4), Anzeige oben links |
+| `Plugin.cpp`, `UnionHooks.cpp`, `DllMain.cpp` | Einstieg, Takt, Tasten (Vorgaben Shift+F1…F4, einstellbar), Anzeige oben links |
 | `Client.cpp`, `Server.cpp`, `PacketProcessor.cpp`, `SafeQueue.cpp` | ENet-Fäden, Paketverteilung |
 | `LocalNpc.cpp`, `RemoteNpc.cpp`, `PlayerAnimation.cpp` | NPC-Zustände senden/anwenden, Figuren, Bewegung glätten |
 | `CoopWorldSync.cpp` | Truhen, Gegenstände am Boden, Leichen – der Host führt den Bestand |
-| `CoopSaveSync.cpp` (größte Datei) | gemeinsames Speichern/Laden, Archiv, Stand übernehmen, F9-Liste |
+| `CoopSaveSync.cpp` (größte Datei) | gemeinsames Speichern/Laden, Archiv, Stand übernehmen; ab u237 Speicherbereitschaft beider Seiten (gespeichert wird nur, wenn jeder mitspeichern kann) |
 | `CoopDialogSync.cpp` | Dialoge (einer je NPC, beobachtbar), Quest-Fortschritt, Tagebuch, Kapitel, Spawns/Trigger über den Host |
 | `CoopCombatLead.cpp`, `CoopHitAuthority.cpp`, `CoopDamage.cpp`, `Hooks.cpp` | Kampf: Übergabe, Treffer-Hoheit, Schaden skalieren |
 | `CoopFarSync.cpp` | Abgleich außerhalb der Reichweite (Verfolgungspunkt, Tode, EP-Reichweite) |
@@ -84,7 +84,9 @@ Im Hauptmenü gibt es **keine Welt und keinen Helden** (`player == NULL`, `ogame
 | `CoopCore.cpp` (u1) | Fassungsname `COOP_FASSUNG`, Profil (Othello/Vanilla, `CoopProfile()`), Hauptprotokoll, Log-Archiv, Sprache (`CoopTr`), `COOP_ENGINE_SWITCH` – alle Engines |
 | `OthelloCompat.cpp` | Ersatz für von Othello umgewidmete Engine-Funktionen, Othellos Absturzbericht (nur Othello) |
 | `OthelloHookOrder.cpp`, `OthelloUnlock.cpp`, `Utils.cpp` | Haken-Reihenfolge gegen Mod-Haken, Othello-Besonderheiten, Robustheit |
-| `CoopAudit.cpp`, `CoopDiag*.cpp`, `CoopTrace.cpp`, `CoopSelfTest.cpp`, `CoopLogShip.cpp` | Selbstprüfung, Diagnose, Testlauf (Shift+F11), Logs zum Partner |
+| `CoopAudit.cpp`, `CoopDiag*.cpp`, `CoopTrace.cpp`, `CoopLogShip.cpp` | Selbstprüfung, Diagnose, Schnappschüsse, Logs zum Partner |
+| `CoopKeys.cpp` | Coop-Tasten (alle einstellbar unter Einstellungen > COOP > Coop-Tasten), Hilfe, Coop-Fenster, Einführung |
+| `CoopOhneTests.cpp` | ab u237: Gegenstücke für den Bau ohne Testfunktionen (Testläufe gehören nur zum Entwicklungsbau) |
 
 ## 6. Menüs
 
@@ -142,7 +144,6 @@ Im Hauptmenü gibt es **keine Welt und keinen Helden** (`player == NULL`, `ogame
   beim Client (z. B. `GothicCoopOthelloClient.log`).
 - Beim Start archiviert GT die Logs der vorigen Sitzung nach `CoopLogs\<Fassung>\<Start>\`. **Logs nie löschen.**
 - `GothicCoopAudit.log` ist die Selbstprüfung: alle Haken vorn? fremde Patches? Fingerabdruck der Engine-Abschnitte.
-- `Shift+F11` startet einen Testlauf mit Rückmeldung des Partners je Schritt.
 - **Abstürze:** Im Vollbild liegen die Fehlerfenster unsichtbar hinter dem Spiel – ein Absturz sieht dann aus wie ein Hänger.
   Seit v101 schreibt GT zuerst einen Block „ABSTURZ: …“ ins Hauptprotokoll (Stelle als Modul+Versatz, Register,
   Rücksprünge vom Stapel) und minimiert das Spielfenster. **Othello hat einen eigenen Absturz-Filter** (schreibt

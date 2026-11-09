@@ -729,11 +729,25 @@ namespace GOTHIC_ENGINE {
         menu->ForceSelAction(SEL_ACTION_CLOSE, zSTRING(LobbyLoadAction()), NULL);
     }
 
+    // u226: CoopKeys.cpp - Coop-Tasten (COOP_KEY_*), Einfuehrung vor neuem Spiel (COOP_INTRO_OK, MENU_COOP_INTRO), Coop-Fenster im Spiel
+    bool CoopKeysSelAction(const std::string& arg, zCMenu* menu, int& result);
+    bool CoopKeysIngameCommand(const std::string& cmd, zCMenu* menu);
+    bool CoopIntroGate(zCMenu* menu, const std::string& arg);
+    bool CoopMenuCycleGuard(zCMenu* menu, const std::string& target, int& result);
+
     // --- Haken auf zCMenu::HandleSelAction ----------------------------------------------------------------------------
     // Rueckgabe true: selbst behandelt, result = Rueckgabe an zCMenu::HandleAction (0 = Menue bleibt offen).
     static bool LobbyHandleSelAction(zCMenu* menu, int action, const zSTRING& s, int& result) {
         const std::string arg = LobbyUpper(s);
         result = 0;
+        if (action == SEL_ACTION_EXECCOMMANDS && CoopKeysSelAction(arg, menu, result))   // u226 (P264, P267)
+            return true;
+        if (action == SEL_ACTION_STARTMENU && CoopMenuCycleGuard(menu, arg, result))   // u226: Menue schon offen - dorthin zurueck
+            return true;
+        if (action == SEL_ACTION_CLOSE && CoopIntroGate(menu, arg)) {   // u226 (P267): Einfuehrung mit Zurueck verlassen - kein neues Spiel
+            result = 0;
+            return true;
+        }
         if (IngameLoadOwn && action == SEL_ACTION_CLOSE && (arg == "SAVEGAME_LOAD" || arg == "OTHELLO_SAVEGAME_LOAD")) {
             IngameLoadOwn = false;   // u91: unser Schliessen zum Laden (CoopIngameMenuLoadPulse) - Gothic laedt
             LobbyLog("im Spiel: Men" COOP_UE " schlie" "\xDF" "t, Gothic l" COOP_AE "dt Slot %d", gameMan && gameMan->menu_load_savegame ? (int)gameMan->menu_load_savegame->m_selSlot : -1);
@@ -769,8 +783,9 @@ namespace GOTHIC_ENGINE {
             return true;
         }
         if (action == SEL_ACTION_EXECCOMMANDS && arg.compare(0, 5, "COOP_") == 0) {
-            if (player) {   // nur ausserhalb des Spiels (MENU_COOP gibt es nur im Hauptmenue)
-                LobbyLog("Befehl %s im Spiel ignoriert", arg.c_str());
+            if (player) {   // u226 (P266): Coop-Fenster auch im Spiel (Taste, Einstellungen > COOP) - Hosten/Beitreten/Trennen wie die Tasten
+                LobbyLog("Befehl %s im Spiel", arg.c_str());
+                CoopKeysIngameCommand(arg, menu);
                 return true;
             }
             LobbyCommand(arg, menu);
@@ -1114,8 +1129,9 @@ namespace GOTHIC_ENGINE {
             }
             else if (Lobby.hostInGame && !Lobby.hostTakes) {
                 l1 = CoopTr("Der Host spielt schon.", "The host is already playing.");
-                l2 = LobbyJointSaves() ? CoopTr("\"Verbindung trennen\", einen Stand laden und im Spiel mit Shift+F2 verbinden.", "\"Disconnect\", load a save and connect in game with Shift+F2.")
-                    : CoopTr("Spielst" COOP_AE "nde getrennt: selbst einen Stand laden (\"Spiel laden\") - die Verbindung bleibt.", "Separate saves: load a save yourself (\"Load game\") - you stay connected.");   // v75
+                l2 = LobbyJointSaves() ? std::string(CoopTr("\"Verbindung trennen\", einen Stand laden und im Spiel mit ", "\"Disconnect\", load a save and connect in game with ")) +
+                        CoopKeyText(CK_JOIN) + CoopTr(" verbinden.", ".")   // u226 (P268)
+                    : std::string(CoopTr("Spielst" COOP_AE "nde getrennt: selbst einen Stand laden (\"Spiel laden\") - die Verbindung bleibt.", "Separate saves: load a save yourself (\"Load game\") - you stay connected."));   // v75
             }
             else if (Lobby.loadPending || Lobby.loading) {
                 l1 = CoopTr("Lade den gemeinsamen Spielstand ...", "Loading the shared save ...");
@@ -1134,7 +1150,8 @@ namespace GOTHIC_ENGINE {
                     b[sizeof(b) - 1] = 0;
                     l1 = b;
                     l2 = LobbyJointSaves() ? CoopTr("Warte, bis der Host einen Spielstand w" COOP_AE "hlt oder ein neues Spiel startet.", "Wait until the host chooses a save or starts a new game.")   // v75, v91
-                        : CoopTr("Spielst" COOP_AE "nde getrennt (Einstellung des Hosts): selbst einen Stand laden, im Spiel mit Shift+F2 verbinden.", "Separate saves (host setting): load a save yourself, connect in game with Shift+F2.");
+                        : std::string(CoopTr("Spielst" COOP_AE "nde getrennt (Einstellung des Hosts): selbst einen Stand laden, im Spiel mit ", "Separate saves (host setting): load a save yourself, connect in game with ")) +
+                            CoopKeyText(CK_JOIN) + CoopTr(" verbinden.", ".");   // u226 (P268)
                 }
                 if (Lobby.hostOthello != LobbyOthelloStamp() && l2.empty())
                     l2 = CoopTr("Achtung: Othello-Skripte unterscheiden sich!", "Warning: Othello scripts differ!");

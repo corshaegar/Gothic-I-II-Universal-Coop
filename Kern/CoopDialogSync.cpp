@@ -89,6 +89,7 @@ namespace GOTHIC_ENGINE {
         std::string s;
         std::string o;
         bool svm;
+        std::string w;   // u220 (P257): Sprecher, wenn nicht der Gespraechs-NPC (Trialog - ein anderer NPC spricht in seinem Objekt)
     };
 
     struct CoopDialogLineTrack {
@@ -104,6 +105,13 @@ namespace GOTHIC_ENGINE {
     static std::vector<CoopDialogEnd> DialogEnds;                 // beendet, NPC spricht evtl. noch die letzte Zeile
     static std::set<oCNpc*> DialogFrozen;                         // Tagesablauf angehalten (nur Vergleich)
     static std::map<std::string, std::deque<CoopDialogQueuedLine>> DialogLineQueue;   // je NPC: Zeilen, die noch warten
+    // u232 (P277): je Gespraechs-NPC die zuletzt hier gestartete Zeile und wer sie spricht (GT-Name; im Trialog ein anderer NPC, P275)
+    static std::map<std::string, std::pair<std::string, std::string>> DialogLineSpeaker;
+    // u234 (P279): je Gespraechs-NPC die anderen Trialog-Sprecher, die hier fuer das Gespraech des Partners angehalten sind
+    static std::map<std::string, std::set<std::string>> DialogTriaMit;
+    static oCNpc* TriaTauschA = NULL;   // u220 (P257): diese beiden Objekte sind in den Namenslisten gerade getauscht (TriaTauschPulse)
+    static oCNpc* TriaTauschB = NULL;
+    static void TriaTauschPulse();      // u230 (P274): auch beim Melden einer Zeile
     static std::map<std::string, long long> DialogLastInjectMs;
     static oCNpc* MyDialogNpcPtr = NULL;
     static std::string MyDialogNpc;
@@ -150,6 +158,26 @@ namespace GOTHIC_ENGINE {
     static oCNpc* DialogNpcByName(const std::string& n) {
         auto f = UniqueNameToNpcList.find(string(n.c_str()));
         return f == UniqueNameToNpcList.end() ? NULL : f->second;
+    }
+
+    // u231 (P276, Aufnahme Archolos mit b353: beim Client wechselten Timo und Beckett bei jedem Tausch ihre Tagesablaeufe, "RTN_SHIP_6 ->
+    // RTN_SHIP02_2" und zurueck): _TRIA_COPY tauscht Name, Aussehen, Lage, Werte, Gilde und Stimme - Skriptwerte (aivar), Tagesablauf und
+    // Haltung bleiben im Objekt. Solange GT die Namen tauscht (P257), gehoeren diese Werte zum eigentlichen Namen des Objekts
+    static oCNpc* TriaPartner(oCNpc* npc) {
+        if (!npc || !TriaTauschA || !TriaTauschB)
+            return NULL;
+        return npc == TriaTauschA ? TriaTauschB : npc == TriaTauschB ? TriaTauschA : NULL;
+    }
+
+    static std::string DialogNpcNameEcht(oCNpc* npc) {
+        oCNpc* p = TriaPartner(npc);
+        return DialogNpcName(p ? p : npc);
+    }
+
+    static oCNpc* DialogNpcByNameEcht(const std::string& n) {
+        oCNpc* npc = DialogNpcByName(n);
+        oCNpc* p = TriaPartner(npc);
+        return p ? p : npc;
     }
 
     static oCNpc* DialogFigureOf(const std::string& who) {
@@ -383,9 +411,16 @@ namespace GOTHIC_ENGINE {
         if (!IsCoopPlayer(MyDialogNpc) && !now->IsDead())   // u201 (P225)
             DlgTradeBegin(now);
         auto f = DialogLocks.find(MyDialogNpc);
-        if (f != DialogLocks.end() && f->second.owner != DialogMe())
+        if (f != DialogLocks.end() && f->second.owner != DialogMe()) {
             DialogLog("eigener Dialog mit %s, obwohl %s mit ihm spricht (gleichzeitig angesprochen oder vom NPC gestartet)",
                 MyDialogNpc.c_str(), f->second.owner.c_str());
+            // u220 (P256, Aufnahme Archolos 08.11.: die Prolog-Szene zwingt auf beiden PCs zugleich das Trialog-Gespraech mit dem Kapitaen -
+            // beide fuehrten es, auf beiden liefen die Zeilen 08_00, 08_02, 08_04 bis zu sechsmal im Kreis): der NPC ist hier Partner im
+            // eigenen Gespraech - nicht angehalten lassen (DoAIState gesperrt haelt seinen Gespraechszustand an), wartende Zeilen des
+            // anderen fuer ihn verwerfen
+            DialogFrozen.erase(now);
+            DialogLineQueue.erase(MyDialogNpc);
+        }
         json j;
         j["n"] = MyDialogNpc;
         DialogSend(j, SYNC_DIALOG_START);
@@ -419,6 +454,17 @@ namespace GOTHIC_ENGINE {
         j["s"] = hero ? "h" : "n";
         j["o"] = name;
         j["svm"] = svm ? 1 : 0;
+        // u220 (P257): im Trialog traegt das Objekt des Gespraechs-NPCs gerade einen anderen (TriaTauschPulse) - dessen Namen mitgeben,
+        // der Partner laesst ihn sprechen
+        if (!hero) {
+            TriaTauschPulse();   // u230 (P274): der Tausch kann in diesem Bild geschehen sein - die erste Zeile danach nicht unter dem alten Namen
+            const std::string wer = DialogNpcName(speaker);
+            // u231 (P275, Nutzer: "timo und beckett waren immernoch vertauscht in der dialogzeile ... beim client statt immer beckett auch
+            // wenn timo was gesagt hat"): der Sprecher stand in "w" - DialogSend schreibt dort die Welt hinein, beim Partner kam
+            // "ARCHOLOS_MAINLAND.ZEN" als Sprecher an, also sprach immer der Gespraechs-NPC. Jetzt eigenes Feld "sp"
+            if (!wer.empty() && wer != MyDialogNpc)
+                j["sp"] = wer;
+        }
         DialogSend(j, SYNC_DIALOG_LINE);
     }
 
@@ -1137,6 +1183,102 @@ namespace GOTHIC_ENGINE {
     // Zwischensequenzen mit dem eigenen Helden). Der Abgleich schickte jede Aenderung: Host 1, dann 6, der Client zaehlte selbst weiter und
     // schickte 8 zurueck - beide Ablaeufe sprangen. Jetzt geht nur der Start (0 -> Wert) hinaus, danach zaehlt jeder PC selbst.
     // true = diese Aenderung bleibt auf diesem PC. Allgemein (jede Mod mit solchen Werten im Profil).
+    // u224 (P260, Aufnahme Archolos b340 08.11. 21:23: der Client sprach mit Jorn, der Host sprach gerade mit Ezekiel - der Host begann die
+    // Kapitaens-Szene sofort, Q101_CAPTAIN_APPLY rief AI_StartState(HERO, ZS_TALK) mitten in seinem Gespraech, der Trialog mit dem Kapitaen
+    // kam nie, beide Ablaeufe blieben beim Zaehler 6 stehen): im Einzelspiel beginnt eine solche Szene nie mitten in einem Gespraech des
+    // Helden. Der Start eines Ablauf-Zaehlers vom Partner wartet hier, bis das eigene Gespraech endet (hoechstens 3 min). Allgemein
+    struct DlgStartVarWartend { std::string name; int k; std::string by; long long seit; };
+    static std::vector<DlgStartVarWartend> DlgStartVarWarten;
+
+    // u229 (P273, Aufnahme Archolos mit b351: der Client loeste die Kapitaens-Szene aus, der Host sprach gerade mit Ezekiel - sein Ablauf
+    // begann nach P260 erst 73 s spaeter, sein Q101_CAPTAIN_START loeste SHIP_TRAPDOOR noch einmal aus, die Anfrage des Clients lag laengst
+    // ausserhalb der 3 s von P202: das Gitter ging wieder zu, der Kapitaen war eingesperrt): Ein Ablauf, den der Partner begonnen hat,
+    // laeuft hier als eigene Kopie an (P241/P258). Was seine Kopie in der gemeinsamen Welt schon getan hat (Ausloeser, Einsetzen,
+    // Entfernen), gilt 60 s lang auch nach mehr als 3 s als geschehen: beim Host paart P202 die eigenen Ereignisse mit den Anfragen seit
+    // dem Start des Partners, beim Client gehen die Anfragen mit "spaet" hinaus (so weit schaut der Host zurueck). Allgemein
+    static long long DlgLateSeqFromMs = 0, DlgLateSeqUntilMs = 0;   // GetCurrentMs
+
+    static void DlgLateSeqBegin(long long partnerStartMs, const char* nm, const std::string& by) {
+        const long long now = GetCurrentMs();
+        DlgLateSeqFromMs = partnerStartMs - 15000;   // seine Ereignisse kamen kurz vor dem Story-Abgleich
+        DlgLateSeqUntilMs = now + 60000;
+        DialogLog("Story-Abgleich: %s von %s laeuft hier an (%lld s nach seinem Start) - was sein Ablauf in der Welt schon tat, gilt 60 s lang "
+            "als geschehen (P273)", nm, by.c_str(), (now - partnerStartMs) / 1000);
+    }
+
+    // u229 (P272, Nutzer: "die dialoge sollten enden wenn die Szene kommt und nicht einfach weiterlaufen"): bis u228 wartete der Start bis
+    // zu 3 min auf das Ende des eigenen Gespraechs (P260) - die Szene lief beim Partner, hier ging das Gespraech weiter. Jetzt beendet der
+    // Start das eigene Gespraech gleich (oCInformationManager::Exit wie vor dem Laden, nach 5 s OnTermination); die Szene beginnt hier,
+    // sobald es zu ist. Allgemein
+    static long long DlgSzeneExitMs = 0, DlgSzeneTermMs = 0;
+
+    static void DlgSzeneGespraechBeenden(const char* nm, const std::string& by) {
+        oCInformationManager& im = oCInformationManager::GetInformationManager();
+        if (DlgSzeneExitMs && CurrentMs < DlgSzeneExitMs + 5000)
+            return;
+        DlgSzeneExitMs = CurrentMs;
+        DlgSzeneTermMs = 0;
+        if (!im.IsDone)
+            im.Exit();
+        DialogLog("Story-Abgleich: %s von %s - die Szene beginnt, das eigene Gespraech mit %s endet jetzt (P272)", nm, by.c_str(),
+            MyDialogNpc.empty() ? "?" : MyDialogNpc.c_str());
+    }
+
+    static void DlgStartVarZurueckstellen(zCPar_Symbol* sym, int k, const std::string& by) {
+        for (const auto& w : DlgStartVarWarten)
+            if (w.name == sym->name.ToChar() && w.k == k)
+                return;
+        DlgStartVarWarten.push_back({ sym->name.ToChar(), k, by, (long long)CurrentMs });
+        DialogLog("Story-Abgleich: %s von %s - hier laeuft ein eigenes Gespraech mit %s, der Ablauf beginnt bei 1, sobald es endet (P260)",
+            sym->name.ToChar(), by.c_str(), MyDialogNpc.empty() ? "?" : MyDialogNpc.c_str());
+        DlgSzeneGespraechBeenden(sym->name.ToChar(), by);   // u229 (P272)
+    }
+
+    static void DlgStartVarPulse() {
+        if (DlgStartVarWarten.empty() || !parser)
+            return;
+        const bool lange = CurrentMs - DlgStartVarWarten.front().seit >= 180000;
+        if (MyDialogNpcPtr && !lange) {
+            // u229 (P272): Exit wirkte nicht (Gespraech wartet auf eine Zeile bzw. Auswahl) - nach 5 s wie vor dem Laden beenden
+            oCInformationManager& im = oCInformationManager::GetInformationManager();
+            if (DlgSzeneExitMs && !DlgSzeneTermMs && CurrentMs > DlgSzeneExitMs + 5000 && !im.IsDone && im.Npc && im.Player) {
+                DlgSzeneTermMs = CurrentMs;
+                im.OnTermination();
+                DialogLog("Story-Abgleich: das eigene Gespraech endete 5 s nach Exit nicht - beendet (OnTermination, P272)");
+            }
+            return;
+        }
+        DlgSzeneExitMs = DlgSzeneTermMs = 0;
+        for (const auto& w : DlgStartVarWarten) {
+            zCPar_Symbol* sym = parser->GetSymbol(zSTRING(w.name.c_str()));
+            if (!sym || sym->type != zPAR_TYPE_INT || w.k < 0 || w.k >= (sym->ele > 1 ? (int)sym->ele : 1))
+                continue;
+            int old = 0;
+            sym->GetValue(old, w.k);
+            if (old != 0) {   // hier schon selbst begonnen (eigenes Gespraech mit demselben NPC)
+                DialogLog("Story-Abgleich: %s laeuft hier schon (%d) - der Start von %s entfaellt (P260)", w.name.c_str(), old, w.by.c_str());
+                continue;
+            }
+            sym->SetValue(1, w.k);
+            auto slot = DlgSlotIndex.find(std::make_pair(sym, w.k));   // kein Echo im Story-Takt
+            if ((StoryReady || StoryLevelChange) && slot != DlgSlotIndex.end() && slot->second < (int)StoryBaseInts.size())
+                StoryBaseInts[slot->second] = 1;
+            DialogLog("Story-Abgleich: %s=1 von %s nach %lld s %s - der Ablauf beginnt (P260)", w.name.c_str(), w.by.c_str(),
+                (long long)(CurrentMs - w.seit) / 1000, lange ? "Wartezeit (Gespraech laeuft noch)" : "nach dem eigenen Gespraech");
+            DlgLateSeqBegin(w.seit, w.name.c_str(), w.by);   // u229 (P273)
+        }
+        DlgStartVarWarten.clear();
+    }
+
+    // u224 (P260): wartet der Start einer Szene auf das Ende des eigenen Gespraechs? (Testinstanz: ein selbst begonnenes Gespraech dann beenden)
+    bool CoopDialogSzeneWartet(std::string* was) {
+        if (DlgStartVarWarten.empty())
+            return false;
+        if (was)
+            *was = DlgStartVarWarten.front().name + " von " + DlgStartVarWarten.front().by;
+        return true;
+    }
+
     static int DlgStartVarHoldLogged = 0;
     static bool DlgStartVarHold(zCPar_Symbol* sym, int cur, int old) {
         if (!sym || !CoopModStartVar(sym->name.ToChar()))
@@ -1344,10 +1486,11 @@ namespace GOTHIC_ENGINE {
                 if (rs)
                     jn["r"] = rs->name.ToChar();
             }
-            DlgNpcFieldsDiff(o.f, n.f, jn);
+            if (!TriaPartner(n.npc))   // u231 (P276): Gilde, Typ und Merker tauscht _TRIA_COPY mit - im Tausch nicht vergleichbar
+                DlgNpcFieldsDiff(o.f, n.f, jn);
             if (jn.empty())
                 continue;
-            jn["n"] = DialogNpcName(n.npc);
+            jn["n"] = DialogNpcNameEcht(n.npc);   // u231 (P276): Skriptwerte und Tagesablauf gehoeren zum eigentlichen Namen des Objekts
             if (!gi.empty() || join) {   // u152 (P156), u154 (P159): mit dem Stand davor
                 DlgGuildNpcNote(jn);
                 DlgGuildNpcBaseKeep(jn, o.att, o.tatt, o.aiv);
@@ -1477,6 +1620,45 @@ namespace GOTHIC_ENGINE {
         return npc && npc != MyDialogNpcPtr && npc != player && !npc->IsDead() && npc->GetWeaponMode() == NPC_WEAPON_NONE;
     }
 
+    // u218 (P255, Aufnahme Archolos 08.11.: der Prolog stand bei Q101_CAPTAIN_CUTSCENEENABLE 8 - Q101_SHIP_FINAL_MARVIN hatte dem
+    // Kapitaen AI_WaitTillEnd, AI_Function(...CAMERA_03), AI_PlayAni und AI_Function(Q101_SHIP_FINAL_CAMERA_UNLOCK) in die Befehlsliste
+    // gelegt; "FRIEND_1 spricht mit PIR_2_CAPTAIN-1 - gesperrt, NPC angehalten" leerte sie mit ClearEM, die Szene kam nie zu Ende): Skript-
+    // befehle einer Szene - AI_Function (EV_CALLSCRIPT) und AI_WaitTillEnd (EV_WAITTILLEND) - stehen im Tagesablauf kaum, in Szenen
+    // immer. Liefert die erste solche Nachricht (Art fuer das Log). Allgemein
+    static const char* DialogSkriptSzene(oCNpc* npc) {
+        zCEventManager* em = npc ? npc->GetEM(TRUE) : NULL;
+        for (int i = 0; em && i < em->GetNumMessages(); i++) {
+            zCEventMessage* m = em->GetEventMessage(i);
+            if (!m || m->IsDeleted())
+                continue;
+            if (oCMsgManipulate* x = zDYNAMIC_CAST<oCMsgManipulate>(m))
+                if (x->subType == oCMsgManipulate::EV_CALLSCRIPT)
+                    return "AI_Function";
+            if (oCMsgConversation* c = zDYNAMIC_CAST<oCMsgConversation>(m))
+                if (c->subType == oCMsgConversation::EV_WAITTILLEND)
+                    return "AI_WaitTillEnd";
+        }
+        return NULL;
+    }
+
+    // u219: Befehlsliste kurz fuers Log (Anzahl, je Nachricht Art und Untertyp, hoechstens 8) - Diagnose zu P255 (Aufnahme Archolos
+    // 08.11., dritter Versuch: "FRIEND_1 spricht mit PIR_2_CAPTAIN-1 - gesperrt, NPC angehalten" ohne P255-Zeile, die Szene stand wieder)
+    static std::string DialogEmKurz(oCNpc* npc) {
+        zCEventManager* em = npc ? npc->GetEM(TRUE) : NULL;
+        if (!em)
+            return "keine";
+        std::string out = std::to_string(em->GetNumMessages());
+        for (int i = 0; i < em->GetNumMessages() && i < 8; i++) {
+            zCEventMessage* m = em->GetEventMessage(i);
+            if (!m)
+                continue;
+            const char* art = zDYNAMIC_CAST<oCMsgConversation>(m) ? "Gespraech" : zDYNAMIC_CAST<oCMsgMovement>(m) ? "Bewegung" :
+                zDYNAMIC_CAST<oCMsgManipulate>(m) ? "Gegenstand" : zDYNAMIC_CAST<oCMsgState>(m) ? "Zustand" : zDYNAMIC_CAST<oCMsgAttack>(m) ? "Kampf" : "andere";
+            out += std::string(i ? ", " : ": ") + art + " " + m->MD_GetSubTypeString(m->GetSubType()).ToChar() + (m->IsDeleted() ? " (geloescht)" : "");
+        }
+        return out;
+    }
+
     static void DialogFreezeStart(const std::string& n, const std::string& by) {
         oCNpc* npc = DialogNpcByName(n);
         if (!npc) {
@@ -1488,16 +1670,28 @@ namespace GOTHIC_ENGINE {
             return;
         }
         oCNpc* fig = DialogFigureOf(by);
+        // u218 (P255): in einer Szene bleiben ihre Befehle stehen - angehalten wird nur der Tagesablauf (DoAIState), die Befehlsliste
+        // arbeitet die Engine je Bild unabhaengig davon ab; der NPC dreht sich dann auch nicht zum Partner
+        const char* szene = DialogSkriptSzene(npc);
+        if (!szene) {   // u219: was geleert wird
+            zCEventManager* em = npc->GetEM(TRUE);
+            if (em && em->GetNumMessages() > 0)
+                DialogLog("NPC %s angehalten - Befehlsliste geleert (%s)", n.c_str(), DialogEmKurz(npc).c_str());
+        }
         DialogInjecting++;
-        npc->ClearEM();
+        if (!szene)
+            npc->ClearEM();
         // kein Gespraechspartner: EV_PlaySound waehlt sonst den NPC-NPC-Untertitel (Art 2) statt Umgebung (Art 5)
         npc->StopTalkingWith();
         if (fig && fig->GetTalkingWith() != player)
             fig->StopTalkingWith();
-        if (fig)
+        if (fig && !szene)
             npc->GetEM()->OnMessage(new oCMsgMovement(oCMsgMovement::EV_TURNTOVOB, (zCVob*)fig), npc);
         DialogInjecting--;
         DialogFrozen.insert(npc);
+        if (szene)
+            DialogLog("NPC %s: Skriptbefehle einer Szene in seiner Befehlsliste (%s) - bleiben stehen, nur der Tagesablauf ruht (P255; %s)",
+                n.c_str(), szene, DialogEmKurz(npc).c_str());
     }
 
     // Zeile abspielen. Ziel bewusst NULL: EV_Output nimmt dann den Monolog-Weg (kein StartTalkingWith - der eigene
@@ -1507,7 +1701,8 @@ namespace GOTHIC_ENGINE {
     static bool DialogInjectLine(const std::string& n, const CoopDialogQueuedLine& l) {
         oCNpc* npc = DialogNpcByName(n);
         oCNpc* fig = DialogFigureOf(l.by);
-        oCNpc* speaker = l.s == "h" ? fig : npc;
+        oCNpc* wer = l.w.empty() ? NULL : DialogNpcByName(l.w);   // u220 (P257): Trialog - der eigentliche Sprecher
+        oCNpc* speaker = l.s == "h" ? fig : wer ? wer : npc;
         if (!speaker) {
             DialogLog("Zeile %s von %s: %s hier nicht vorhanden", l.o.c_str(), l.by.c_str(), !fig ? "Coop-Figur" : n.c_str());
             return false;
@@ -1515,11 +1710,26 @@ namespace GOTHIC_ENGINE {
         const zVEC3 d = speaker->GetPositionWorld() - player->GetPositionWorld();
         if (d.Length() > DIALOG_HEAR_RANGE)
             return false;
+        // u234 (P279, Nutzer: "die zeile von jorn war nicht zu sehen" - beim Client begann sie dank P278 vorn, aber den Ton mit dem Untertitel
+        // legt Gothic als eigenen Befehl an, und der kam wieder hinter Jorns Tagesablauf-Befehle): ein anderer Trialog-Sprecher wird hier fuer das
+        // Gespraech des Partners angehalten wie der Gespraechs-NPC (Befehlsliste leer, Szenenbefehle bleiben, Tagesablauf ruht) - bis es endet
+        if (wer && wer != npc && l.s != "h" && !DialogFrozen.count(wer)) {
+            DialogFreezeStart(l.w, l.by);
+            if (DialogFrozen.count(wer))
+                DialogTriaMit[n].insert(l.w);
+        }
         oCMsgConversation* msg = new oCMsgConversation(l.svm ? oCMsgConversation::EV_OUTPUTSVM : oCMsgConversation::EV_OUTPUT, zSTRING(l.o.c_str()));
         msg->target = NULL;
+        // u233 (P278, Aufnahme Archolos mit b355: beim Client 38 Trialog-Zeilen "ausgelassen (wartete noch)" - Jorns Zeile stand hinten in
+        // seiner Befehlsliste, vor ihr Befehle seines Tagesablaufs (Wache stehen, Animation in Schleife), sie begann nie, und die naechsten
+        // warteten auf ihn): spricht im Trialog ein anderer NPC als der Gespraechs-NPC (den das Anhalten leert), kommt die Zeile vorn in seine
+        // Liste - wie bei Gothic eine Nachricht mit hohem Vorrang
+        if (wer && wer != npc && l.s != "h")
+            msg->SetHighPriority(TRUE);
         DialogInjecting++;
         speaker->GetEM()->OnMessage(msg, speaker);
         DialogInjecting--;
+        DialogLineSpeaker[n] = { l.o, l.s == "h" ? std::string() : wer ? l.w : n };   // u232 (P277)
         return true;
     }
 
@@ -1534,18 +1744,43 @@ namespace GOTHIC_ENGINE {
         const CoopDialogQueuedLine& l = q->second.front();
         if (DialogSpeaking(DialogNpcByName(n)) || DialogSpeaking(DialogFigureOf(l.by)))
             return;
+        // u232 (P277, Aufnahme Archolos mit b354, Nutzer: "irgendwas war immernoch falsch mit den dialogen"): im Trialog spricht hier ein
+        // anderer NPC (P275) - auch er muss fertig sein, sonst begann Beckett, waehrend Timo noch sprach
+        // u233 (P278): hoechstens 12 s nach dem Start der vorigen Zeile - begann sie bei ihm nie, steht sonst alles
+        const bool warteAndere = CurrentMs < DialogLastInjectMs[n] + 12000;
+        auto ls = DialogLineSpeaker.find(n);
+        if (warteAndere && ls != DialogLineSpeaker.end() && !ls->second.second.empty() && ls->second.second != n && DialogSpeaking(DialogNpcByName(ls->second.second)))
+            return;
+        if (warteAndere && !l.w.empty() && l.w != n && DialogSpeaking(DialogNpcByName(l.w)))
+            return;
         const CoopDialogQueuedLine line = l;
         q->second.pop_front();
         if (DialogInjectLine(n, line))
             DialogLastInjectMs[n] = CurrentMs;
     }
 
-    static void DialogPlayLine(const std::string& n, const std::string& by, const std::string& s, const std::string& o, bool svm) {
-        DialogLineQueue[n].push_back({ by, s, o, svm });
+    static void DialogPlayLine(const std::string& n, const std::string& by, const std::string& s, const std::string& o, bool svm, const std::string& w) {
+        // u220 (P256): fuehre ich selbst gerade ein Gespraech mit diesem NPC (beide zugleich - eine Szene startet es auf jedem PC), spielt
+        // er hier nur meine Zeilen. Die des Partners dazwischen brachten sein Trialog-Gespraech durcheinander (Zeilen im Kreis)
+        if (!MyDialogNpc.empty() && n == MyDialogNpc) {
+            static int gemeldet = 0;
+            if (gemeldet < 20) {
+                gemeldet++;
+                DialogLog("Zeile %s von %s mit %s nicht abgespielt - hier laeuft ein eigenes Gespraech mit ihm (P256)", o.c_str(), by.c_str(), n.c_str());
+            }
+            return;
+        }
+        DialogLineQueue[n].push_back({ by, s, o, svm, w });
         DialogPumpLines(n);
     }
 
     static void DialogCutLine(const std::string& n, const std::string& by, const std::string& s, const std::string& o) {
+        // u220 (P256): mein eigenes Gespraech mit ihm laeuft - das Ueberspringen des Partners betrifft hier nur seine (nicht abgespielten)
+        // Zeilen, nicht meine
+        if (!MyDialogNpc.empty() && n == MyDialogNpc) {
+            DialogLog("%s ueberspringt %s - hier nicht abgebrochen, eigenes Gespraech mit %s (P256)", by.c_str(), o.c_str(), n.c_str());
+            return;
+        }
         // noch nicht gestartet? Dann einfach auslassen.
         auto q = DialogLineQueue.find(n);
         if (q != DialogLineQueue.end())
@@ -1556,6 +1791,14 @@ namespace GOTHIC_ENGINE {
                     return;
                 }
         oCNpc* speaker = s == "h" ? DialogFigureOf(by) : DialogNpcByName(n);
+        // u232 (P277): im Trialog sprach die Zeile hier ein anderer NPC (P275) - bei ihm abbrechen. Bis u231 suchte GT sie beim
+        // Gespraechs-NPC ("hier lief nicht (mehr)"), Timos Zeile lief beim Client 8 s weiter, Becketts naechste darueber
+        if (s != "h") {
+            auto ls = DialogLineSpeaker.find(n);
+            if (ls != DialogLineSpeaker.end() && ls->second.first == o && !ls->second.second.empty())
+                if (oCNpc* wer = DialogNpcByName(ls->second.second))
+                    speaker = wer;
+        }
         zCEventManager* em = speaker ? speaker->GetEM(0) : NULL;
         if (!em)
             return;
@@ -1568,12 +1811,33 @@ namespace GOTHIC_ENGINE {
                 cut++;
             }
         }
+        // u233 (P278): noch nicht begonnen (die Ausgabe wartet in seiner Liste) - dann ganz heraus, sonst kaeme sie nach dem Ueberspringen
+        for (int i = em->GetNumMessages() - 1; i >= 0; i--) {
+            oCMsgConversation* m = zDYNAMIC_CAST<oCMsgConversation>(em->GetEventMessage(i));
+            if (m && !m->IsDeleted() && (m->subType == oCMsgConversation::EV_OUTPUT || m->subType == oCMsgConversation::EV_OUTPUTSVM) && !_stricmp(m->name.ToChar(), o.c_str())
+                && !em->IsRunning(m)) {
+                em->Delete(m);
+                cut++;
+            }
+        }
         if (cut)
             speaker->StopAllVoices();
         DialogLog("%s ueberspringt %s - hier %s", by.c_str(), o.c_str(), cut ? "abgebrochen" : "lief nicht (mehr)");
     }
 
     static void DialogRelease(const std::string& n, const std::string& by) {
+        // u234 (P279): die fuer dieses Gespraech angehaltenen anderen Trialog-Sprecher laufen wieder
+        auto tm = DialogTriaMit.find(n);
+        if (tm != DialogTriaMit.end()) {
+            for (const std::string& m : tm->second)
+                if (oCNpc* andere = DialogNpcByName(m))
+                    if (DialogLocks.find(m) == DialogLocks.end()) {
+                        DialogFrozen.erase(andere);
+                        if (andere != MyDialogNpcPtr)
+                            andere->StopTalkingWith();
+                    }
+            DialogTriaMit.erase(tm);
+        }
         oCNpc* npc = DialogNpcByName(n);
         oCNpc* fig = DialogFigureOf(by);
         if (npc && DialogLocks.find(n) == DialogLocks.end()) {
@@ -2459,7 +2723,7 @@ namespace GOTHIC_ENGINE {
     // NPC-Zustand des Partners (aivar, Haltung, Tagesablauf, u139 Skriptfelder) anwenden; false = NPC hier (noch) unbekannt
     static bool DialogApplyNpcEntry(json& jn) {
         const std::string n = jn.at("n").get<std::string>();
-        oCNpc* npc = DialogNpcByName(n);
+        oCNpc* npc = DialogNpcByNameEcht(n);   // u231 (P276): im eigenen Trialog-Tausch das Objekt, das diese Skriptwerte traegt
         if (!npc || npc == player)
             return false;
         if (jn.contains("a"))
@@ -2487,8 +2751,9 @@ namespace GOTHIC_ENGINE {
             if (idx > 0)
                 rtnNow = idx;
         }
-        DialogApplyNpcFields(npc, n, jn);
-        if (StoryReady)   // v31: kein Echo im Story-Takt
+        if (!TriaPartner(npc))   // u231 (P276): Gilde, Typ und Merker liegen im Tausch beim anderen Objekt
+            DialogApplyNpcFields(npc, n, jn);
+        if (StoryReady && !TriaPartner(npc))   // v31: kein Echo im Story-Takt
             StoryBaseNpc[n] = { rtnNow, npc->attitude, DlgNpcFields(npc) };
         return true;
     }
@@ -3208,7 +3473,7 @@ namespace GOTHIC_ENGINE {
                 zCPar_Symbol* sym = parser->GetSymbol(zSTRING(v.at(0).get<std::string>().c_str()));
                 const int k = v.at(1).get<int>();
                 const int ele = sym && sym->ele > 1 ? (int)sym->ele : 1;
-                const int val = v.at(2).get<int>();
+                int val = v.at(2).get<int>();   // u220 (P258): bei Ablauf-Zaehlern unten auf den Start gesetzt
                 if (!sym || sym->type != zPAR_TYPE_INT || (sym->flags & (zPAR_FLAG_CONST | zPAR_FLAG_CLASSVAR)) || k < 0 || k >= ele
                     || !StoryValueOk(val) || StoryIsHeroVar(sym) || DlgNeverSync(sym->name.ToChar())   // v31: Heldenwerte nie uebernehmen (auch von aelteren Fassungen)
                     || (e.contains("q") && DlgGuildVars.count(sym)))   // u85: Werte aus Gilden-Infos nicht ueber den Story-Abgleich
@@ -3218,6 +3483,21 @@ namespace GOTHIC_ENGINE {
                 // u207 (P241): Ablauf-Zaehler - vom Partner nur der Start, und nur, wenn hier noch nichts laeuft
                 if (CoopModStartVar(sym->name.ToChar()) && !(old == 0 && val != 0))
                     continue;
+                // u220 (P258, fuenfter Aufnahmeversuch Archolos: diesmal sprach der Client zuerst mit Jorn - zwischen zwei Abgleichen sprang sein
+                // Q101_CAPTAIN_CUTSCENEENABLE von 0 auf 6 (der Dialog setzt 1, der Ereignis-Takt zaehlt in Bruchteilen einer Sekunde weiter), der
+                // Host uebernahm 6 und ueberging den Anfang seines eigenen Ablaufs: Kapitaen-Szene und Trialog liefen beim Host nie, dort steht
+                // der echte Kapitaen): ein Ablauf-Zaehler beginnt hier immer beim Start 1 ("ein Gespraech bzw. Skript setzt 1", Profil)
+                if (CoopModStartVar(sym->name.ToChar()) && val != 1) {
+                    DialogLog("Story-Abgleich: %s von %s mit %d - hier beginnt der Ablauf bei 1 (Ablauf-Zaehler, P258)", sym->name.ToChar(), by.c_str(), val);
+                    val = 1;
+                }
+                // u224 (P260): nicht mitten im eigenen Gespraech - der Start wartet, bis es endet (DlgStartVarPulse)
+                if (CoopModStartVar(sym->name.ToChar()) && MyDialogNpcPtr) {
+                    DlgStartVarZurueckstellen(sym, k, by);   // u229 (P272): beendet das eigene Gespraech gleich
+                    continue;
+                }
+                if (CoopModStartVar(sym->name.ToChar()))   // u229 (P273): die eigene Kopie seines Ablaufs laeuft jetzt an
+                    DlgLateSeqBegin(GetCurrentMs(), sym->name.ToChar(), by);
                 // u199 (P213): Zaehler aus "deltaVars" - die Aenderung des Absenders (alter Wert im Paket) zum eigenen Wert zaehlen, damit ein
                 // eigener, noch nicht gesendeter Schritt erhalten bleibt; der Vergleichsstand rueckt nur um diese Aenderung (der eigene geht noch hinaus)
                 const bool delta = v.size() >= 4 && v.at(3).is_number_integer() && CoopModDeltaVar(sym->name.ToChar());
@@ -3635,6 +3915,10 @@ namespace GOTHIC_ENGINE {
             oCNpc* npc = li->data;
             if (StoryNpcSkip(npc))
                 continue;
+            // u231 (P276): die beiden Objekte eines Trialog-Tauschs ruhen - unter dem getauschten Namen sahe GT Tagesablauf und Haltung
+            // des anderen; nach dem Tausch vergleicht der naechste Takt wieder mit dem Stand davor
+            if (TriaPartner(npc))
+                continue;
             const std::string name = DialogNpcName(npc);
             if (name.empty())
                 continue;
@@ -3750,6 +4034,13 @@ namespace GOTHIC_ENGINE {
     }
 
     static void HostEvSend(json& j) {
+        // u229 (P273): Anfrage des Clients aus der eigenen Kopie eines Ablaufs, den der Host begann - so weit (ms) schaut der Host nach
+        // seinem eigenen Gegenstueck zurueck
+        if (!ServerThread && GetCurrentMs() < DlgLateSeqUntilMs && j.contains("f") && j["f"].is_string()) {
+            const std::string f = j["f"].get<std::string>();
+            if (f.size() > 3 && !f.compare(f.size() - 3, 3, "req"))
+                j["spaet"] = GetCurrentMs() - DlgLateSeqFromMs;
+        }
         DialogSend(j, SYNC_HOST_EVENT);
     }
 
@@ -3769,21 +4060,35 @@ namespace GOTHIC_ENGINE {
         return k;
     }
 
-    static bool HostEvTwinAllow(const std::string& key, int side) {
+    // u229 (P273): Eintraege bleiben 5 min (fuer spaete Kopien eines Ablaufs); gepaart wird sonst wie bisher nur binnen 3 s
+    static const long long HOST_EV_TWIN_MS = 3000, HOST_EV_KEEP_MS = 300000;
+
+    static bool HostEvTwinAllow(const std::string& key, int side, long long lookBackMs = 0) {
         const long long now = GetCurrentMs();
+        long long back = HOST_EV_TWIN_MS;
+        if (side == 0 && now < DlgLateSeqUntilMs)   // u229 (P273): eigene Kopie eines Ablaufs des Partners - seit seinem Start
+            back = (std::max)(back, now - DlgLateSeqFromMs);
+        if (lookBackMs > back)   // Anfrage aus der spaeten Kopie des Clients ("spaet")
+            back = lookBackMs;
+        if (back > HOST_EV_KEEP_MS)
+            back = HOST_EV_KEEP_MS;
         std::deque<std::pair<long long, int>>& open = HostEvTwins[key];
-        while (!open.empty() && now - open.front().first > 3000)
+        while (!open.empty() && now - open.front().first > HOST_EV_KEEP_MS)
             open.pop_front();
         for (auto it = open.begin(); it != open.end(); ++it)
-            if (it->second != side) {
+            if (it->second != side && now - it->first <= back) {
+                const long long age = now - it->first;
                 open.erase(it);
                 HostEvTwinDropped++;
+                if (age > HOST_EV_TWIN_MS)
+                    DialogLog("Host-Ereignis: %s - Gegenstueck von vor %.1f s aus dem Ablauf des %s gilt (P273)", key.c_str(), age / 1000.f,
+                        side == 0 ? "Clients" : "Hosts");
                 return false;
             }
         open.push_back(std::make_pair(now, side));
         if (HostEvTwins.size() > 512)
             for (auto i = HostEvTwins.begin(); i != HostEvTwins.end();) {
-                while (!i->second.empty() && now - i->second.front().first > 3000)
+                while (!i->second.empty() && now - i->second.front().first > HOST_EV_KEEP_MS)
                     i->second.pop_front();
                 i = i->second.empty() ? HostEvTwins.erase(i) : std::next(i);
             }
@@ -3864,14 +4169,22 @@ namespace GOTHIC_ENGINE {
         return ServerThread && !HostEvApplying && DialogSyncAktiv() && zCParser::GetParser() == parser;
     }
 
+    static oCNpc* HostEvStateNpc = NULL;   // NPC, dessen DoAIState gerade laeuft (oCNpc_States_DoAIState_Coop; u203, seit u228 auch fuer Todesskripte)
+
     // v41: Laeuft gerade ein Todesskript (SELF ist ein toter NPC, z. B. ZS_Dead)? Jeder Tod beim Client wird beim Host mit
     // eigenem ZS_Dead nachvollzogen (Angriffe, Verfolgungspunkt, Todesmeldung) - Spawns/Trigger daraus nicht noch einmal anfragen.
+    // u228 (P271, Aufnahme Archolos mit b350: der Client loeste die Kapitaens-Szene aus, seine Anfragen SHIP_CAPITAN_01 und SHIP_TRAPDOOR
+    // fuehrte der Host aus, 1 s spaeter loeste sein eigenes Q101_CAPTAIN_START beide noch einmal aus - die Falltuer ging auf und wieder zu,
+    // der Kapitaen kam nie herunter, der Prolog stand eine Stunde): SELF bleibt nach jedem Skript stehen. Kurz vorher war eine Ratte per
+    // Skript gestorben, LeGos Frame-Funktion lief mit SELF = tote Ratte und galt als Todesskript - die Doppel-Sperre (P202) ruht dort. Ein
+    // Todesskript laeuft im Zustand des Toten: oCNpc::DoDie startet ZS_Dead ueber StartAIState, das gleich DoAIState aufruft, ZS_Dead_Loop
+    // laeuft ebenso dort. Darum zaehlt SELF nur, wenn gerade sein eigener Zustand laeuft. Allgemein
     static bool HostEvInDeathScript() {
         if (CoopReplayDeathDepth > 0)
             return true;
         zCPar_Symbol* s = parser ? parser->GetSymbol(zSTRING("SELF")) : NULL;
         oCNpc* self = s ? (oCNpc*)s->offset : NULL;
-        return self && self != player && self->IsDead();
+        return self && self != player && self->IsDead() && self == HostEvStateNpc;
     }
 
     // u203 (Durchsicht der Analyse-Vorschlaege, LoA ZS_CIRCLE_GROTTE_LOOP): Tagesablauf-Zustaende der Welt-NPCs laufen auf beiden PCs (beim
@@ -3881,7 +4194,6 @@ namespace GOTHIC_ENGINE {
     // Client, Verfolgungspunkt), seine Einfuegungen, Ausloeser und Entfernungen gehen an alle. Beim Client sind Welt-Externals aus dem
     // Tagesablauf-Zustand eines vom Host gefuehrten NPCs darum wirkungslos. Nicht: Zustaende aus Gespraechen/Skripten (kein Tagesablauf),
     // eigener Held, Figuren, Begleiter, im Kampf vom Client gefuehrte NPCs. Allgemein (G1/G2).
-    static oCNpc* HostEvStateNpc = NULL;   // NPC, dessen DoAIState gerade laeuft (oCNpc_States_DoAIState_Coop)
     static int CoopTestRoutineSkipped = 0;
     bool CoopLeadIsMine(oCNpc* npc);       // CoopCombatLead.cpp
     bool CoopFollowActive();               // CoopFarSync.cpp
@@ -4253,6 +4565,65 @@ namespace GOTHIC_ENGINE {
             HostEvSend(j);
             DialogLog("Host-Ereignis: ein Skript toetet %s beim Client (Npc_ChangeAttribute) -> auch beim Host (P200)",
                 NpcToUniqueNameList[npc].ToChar());
+        }
+        return r;
+    }
+
+    // u223 (P259, Aufnahme Archolos 08.11. mit b336: Rupert fuehrt die Helden nach Silbach (ZS_GUIDE_PLAYER). EVENTSMANAGER_Q102 misst
+    // Npc_GetDistToNpc(HERO, Rupert) - ab 30 m warnt der Held, ab 35 m blendet die Mod ab und setzt Held und Rupert zurueck an die Hoehle
+    // (Q102_RUPERTDISTANCELIMIT_TELEPORT). Die Pruefung laeuft auf jedem PC mit dem eigenen Helden: Diego war weit weg, das Skript des
+    // Clients setzte alle 10-50 s Rupert zurueck - P200 fuehrte das beim Host aus, obwohl Gorn ihm folgte; 25 min kam keiner nach Silbach):
+    // Abstand zwischen dem eigenen Helden und einem NPC, dessen Zustand HERO als "den Spieler hier" meint (Profil "heroStates", P221 -
+    // Fuehren, Folgen, Arena ...): der naechste Spieler zaehlt. Ein Fuehrer braucht im Coop nur einen Spieler bei sich. Allgemein
+    bool CoopModHeroStatesAny();   // Mods\CoopMods.cpp
+    bool CoopModHeroState(const char* zs);
+    static CoopParserExternal2 OrigNpcGetDistToNpc = NULL;
+
+    static oCNpc* HostEvPeekAnyNpc(int below) {   // wie HostEvPeekNpc, auch der eigene Held und Figuren
+        zCParser* p = zCParser::GetParser();
+        if (!p)
+            return NULL;
+        const int* st = p->datastack.stack;
+        const int sp = p->datastack.sptr;
+        if (sp < below + 1 || sp > (int)(sizeof(p->datastack.stack) / sizeof(p->datastack.stack[0])))
+            return NULL;
+        const int idx = st[sp - 1 - below];
+        zCPar_Symbol* ns = idx > 0 ? p->GetSymbol(idx) : NULL;
+        return ns && ns->type == zPAR_TYPE_INSTANCE && ns->offset ? zDYNAMIC_CAST<oCNpc>((zCObject*)ns->offset) : NULL;
+    }
+
+    static int __cdecl CoopExtNpcGetDistToNpc() {
+        oCNpc* fuehrer = NULL;
+        zCParser* p = zCParser::GetParser();
+        if (p == parser && player && !PlayerNpcs.empty() && CoopModHeroStatesAny()) {
+            oCNpc* b = HostEvPeekAnyNpc(0), * a = HostEvPeekAnyNpc(1);
+            oCNpc* andere = a == player ? b : b == player ? a : NULL;
+            if (andere && andere != player && !PlayerNpcs.count(andere) && CoopModHeroState(andere->state.curState.name.ToChar()))
+                fuehrer = andere;
+        }
+        const int r = OrigNpcGetDistToNpc ? OrigNpcGetDistToNpc() : 0;
+        if (!fuehrer)
+            return r;
+        int eigen = 0;
+        p->GetParameter(eigen);   // Ergebnis des Originals
+        float best = (float)eigen;
+        oCNpc* wer = NULL;
+        for (auto& fp : PlayerNpcs) {
+            oCNpc* fig = fp.first;
+            if (!fig || fig == player || fig->IsDead() || fig->homeWorld != player->homeWorld)
+                continue;
+            const float d = fuehrer->GetDistanceToVob(*fig);
+            if (d < best) {
+                best = d;
+                wer = fig;
+            }
+        }
+        p->SetReturn((int)best);
+        static std::map<oCNpc*, long long> gemeldet;
+        if (wer && (eigen >= 1500 || best >= 1500) && CurrentMs > gemeldet[fuehrer] + 60000) {
+            gemeldet[fuehrer] = CurrentMs;
+            DialogLog("Abstand zu %s (%s): %d m zum naechsten Spieler %s statt %d m zum eigenen Helden - er fuehrt die Gruppe (P259)",
+                DialogNpcName(fuehrer).c_str(), fuehrer->state.curState.name.ToChar(), (int)(best / 100.f), wer->GetObjectName().ToChar(), eigen / 100);
         }
         return r;
     }
@@ -5021,6 +5392,7 @@ namespace GOTHIC_ENGINE {
         HostEvInstallOne("WLD_REMOVENPC", OrigWldRemoveNpc, &CoopExtWldRemoveNpc);
         HostEvInstallOne("WLD_SPAWNNPCRANGE", OrigWldSpawnNpcRange, &CoopExtWldSpawnNpcRange);   // u199 (P215)
         HostEvInstallOne("WLD_SETTIME", OrigWldSetTime, &CoopExtWldSetTime);   // u204 (P232)
+        HostEvInstallOne("NPC_GETDISTTONPC", OrigNpcGetDistToNpc, &CoopExtNpcGetDistToNpc);   // u223 (P259)
 #if ENGINE >= Engine_G2
         HostEvInstallOne("EXITSESSION", OrigExitSession, &CoopExtExitSession);          // u147 (P149)
 #endif
@@ -5326,8 +5698,9 @@ namespace GOTHIC_ENGINE {
         const std::string f = e.contains("f") && e["f"].is_string() ? e["f"].get<std::string>() : std::string();
         if (ServerThread && !relay) {   // Anfrage eines Clients
             // u195 (P202): Gegenstueck eines eigenen Ereignisses der letzten 3 s (Schleife auf beiden PCs) - nicht noch einmal
+            const long long spaet = e.contains("spaet") && e["spaet"].is_number_integer() ? e["spaet"].get<long long>() : 0;   // u229 (P273)
             auto twin = [&](const std::string& key) {
-                if (HostEvTwinAllow(key, 1))
+                if (HostEvTwinAllow(key, 1, spaet))
                     return true;
                 DialogLog("Host-Ereignis: Anfrage %s von %s hat der Host eben selbst ausgefuehrt - nicht noch einmal (P202)", key.c_str(), by.c_str());
                 return false;
@@ -5480,7 +5853,8 @@ namespace GOTHIC_ENGINE {
                 const std::string s = e.at("s").get<std::string>();
                 const std::string o = e.at("o").get<std::string>();
                 const bool svm = e.contains("svm") && e["svm"].is_number() && e["svm"].get<int>() != 0;
-                DialogPlayLine(n, by, s, o, svm);
+                const std::string w = e.contains("sp") && e["sp"].is_string() ? e["sp"].get<std::string>() : std::string();   // u220 (P257); u231 (P275): "sp", "w" ist die Welt
+                DialogPlayLine(n, by, s, o, svm, w);
                 break;
             }
             case SYNC_DIALOG_SKIP:
@@ -5534,8 +5908,14 @@ namespace GOTHIC_ENGINE {
         DialogLocks.clear();
         DialogEnds.clear();
         DialogFrozen.clear();
+        TriaTauschA = TriaTauschB = NULL;   // u220 (P257): die Namenslisten sind neu
+        if (!DlgStartVarWarten.empty())   // u224 (P260): geladen - der wartende Start gehoerte zum alten Stand
+            DialogLog("Story-Abgleich: %d wartende Ablauf-Starts verworfen (Welt geladen, P260)", (int)DlgStartVarWarten.size());
+        DlgStartVarWarten.clear();
         ChapterPending.clear();   // v94: nach dem Laden gilt der Bildschirm nicht mehr
         DialogLineQueue.clear();
+        DialogLineSpeaker.clear();   // u232 (P277)
+        DialogTriaMit.clear();       // u234 (P279)
         DialogLastInjectMs.clear();
         MyDialogNpcPtr = NULL;
         MyDialogNpc.clear();
@@ -5561,36 +5941,10 @@ namespace GOTHIC_ENGINE {
         MiWaiting.clear();        // u149 (P152)
     }
 
-    // --- Coop-Test per Taste (v32, Wunsch des Nutzers: "Simulation mit einem Hotkey") ---------------------
+    // --- Coop-Test per Taste (v32-u236: Shift+F11 Welten-Testlauf, Strg+Shift+F11 voller Lauf) ---------------------
     //
-    // Shift + CoopSimKey (Standard F11; F10/F12 = Schnellspeichern/-laden). v32-v36: vier Einzelschritte reihum. Seit v37 ein
-    // ganzer Testlauf mit 26 Schritten und Rueckmeldung des Partners (CoopSelfTest.cpp, D12b).
-    void CoopSelfTestToggle(bool worldsOnly);   // CoopSelfTest.cpp (u44: Shift+F11 Welten-Testlauf, mit Strg der volle Lauf)
-    static int CoopSimKey = 0;
-    static bool CoopSimKeyWas = true;
-    static int CoopSimStep = 0;
-
-    static bool CoopSimShiftDown() {
-        if (zinput->KeyPressed(KEY_LSHIFT) || zinput->KeyPressed(KEY_RSHIFT))
-            return true;
-        HWND fg = GetForegroundWindow();
-        DWORD pid = 0;
-        if (fg)
-            GetWindowThreadProcessId(fg, &pid);
-        return pid == GetCurrentProcessId() && (GetAsyncKeyState(VK_SHIFT) & 0x8000);
-    }
-
-    // u44: Strg dazu = voller Testlauf (144 Schritte); ohne Strg nur der Welten-Testlauf (CoopSelfTest.cpp CTInRun) - Nutzer:
-    // "die ersten 100 tests etwa sind überflüssig", "hast du die alten bestandenen tests entfernt?"
-    static bool CoopSimCtrlDown() {
-        if (zinput->KeyPressed(KEY_LCONTROL) || zinput->KeyPressed(KEY_RCONTROL))
-            return true;
-        HWND fg = GetForegroundWindow();
-        DWORD pid = 0;
-        if (fg)
-            GetWindowThreadProcessId(fg, &pid);
-        return pid == GetCurrentProcessId() && (GetAsyncKeyState(VK_CONTROL) & 0x8000);
-    }
+    // u237 (Nutzer 09.11.: "Die tests sollten auch nicht per hotkey erreichbar sein"): die Taste ist entfernt. Testlaeufe starten nur
+    // noch ueber die Kommandozeile der automatischen Laeufe (-cooptest:..., CoopAutoTest.cpp - nicht im oeffentlichen Bau).
 
     // u190 (P193): Die Instanz des eigenen Helden (PC_HERO) und HERO zeigen auf den eigenen Helden. Manche Mods holen den Helden selbst:
     // Legend of Ahssun setzt hero = Hlp_GetNpc(PC_HERO) in SCHLEIFE_ALL und INIT_GLOBAL, Gothic II tut das nie. Hlp_GetNpc liefert den
@@ -5632,24 +5986,89 @@ namespace GOTHIC_ENGINE {
         CoopHeroSymbolPulse();
     }
 
+    // u220 (P257, Aufnahme Archolos 08.11.: im Trialog mit Kapitaen Beckett und Jorn sprach beim Client der Kapitaen Jorns Zeilen, und
+    // Beckett sprang an andere Stellen): LeGos Trialoge (Archolos, viele Mods) lassen mehrere NPCs in einem Gespraech reden, indem
+    // _TRIA_COPY zwei NPC-Objekte im Speicher tauscht - Name, Stimme, Werte, Aussehen, Ruestung, Waffen und die Weltlage, nicht den
+    // Objektnamen. Das Gespraechs-Objekt (TRIA_SELF) traegt dann die Identitaet von TRIA_LAST und steht an dessen Stelle. GT kennt NPCs
+    // ueber ihr Objekt (NpcToUniqueNameList) - der Host sendete Jorns Lage und Zeilen unter dem Namen des Kapitaens. Solange der Tausch
+    // gilt (TRIA_RUNNING, TRIA_SELF != TRIA_LAST), tauscht GT die beiden Eintraege seiner Namenslisten mit; danach zurueck. Je Bild, allgemein
+    static bool TriaListenTauschen(oCNpc* a, oCNpc* b) {
+        auto fa = NpcToUniqueNameList.find(a), fb = NpcToUniqueNameList.find(b);
+        if (fa == NpcToUniqueNameList.end() || fb == NpcToUniqueNameList.end())
+            return false;
+        const string na = fa->second, nb = fb->second;
+        fa->second = nb;
+        fb->second = na;
+        UniqueNameToNpcList[na] = b;
+        UniqueNameToNpcList[nb] = a;
+        // u230 (P274, Aufnahme Archolos mit b352 - Nutzer: "es gibt immernoch den bug wo sich der kapitän teleportiert und die dialoge
+        // vertauscht sind"): beim Client tauschten Kapitaen und Jorn fuer die 8 s des Tauschs die Plaetze. Der Host sendet Lagen ueber
+        // BroadcastNpcs (Name -> LocalNpc), der Empfaenger wendet sie ueber SyncNpcs (Name -> RemoteNpc) an - beide merken sich das Objekt
+        // vom ersten Mal. Der Name "Jorn" sendete also weiter das alte Jorn-Objekt, das nach _TRIA_COPY an der Stelle des Kapitaens steht.
+        // Die Objekte beider Listen wechseln jetzt mit den Namen
+        auto zeiger = [&](const string& name, oCNpc* npc) {
+            auto l = BroadcastNpcs.find(name);
+            if (l != BroadcastNpcs.end() && l->second)
+                l->second->npc = npc;
+            auto r = SyncNpcs.find(name);
+            if (r != SyncNpcs.end() && r->second && r->second->npc)
+                r->second->npc = npc;
+        };
+        zeiger(na, b);
+        zeiger(nb, a);
+        return true;
+    }
+
+    static void TriaTauschPulse() {
+        static zCParser* p = NULL;
+        static zCPar_Symbol* sRun = NULL;
+        static zCPar_Symbol* sSelf = NULL;
+        static zCPar_Symbol* sLast = NULL;
+        if (p != parser) {
+            p = parser;
+            TriaTauschA = TriaTauschB = NULL;
+            auto intVar = [](const char* name) -> zCPar_Symbol* {
+                zCPar_Symbol* s = parser ? parser->GetSymbol(zSTRING(name)) : NULL;
+                return s && s->type == zPAR_TYPE_INT && !(s->flags & zPAR_FLAG_CONST) ? s : NULL;
+            };
+            sRun = intVar("TRIA_RUNNING");
+            sSelf = intVar("TRIA_SELF");
+            sLast = intVar("TRIA_LAST");
+        }
+        if (!sRun || !sSelf || !sLast)
+            return;   // keine LeGo-Trialoge in diesen Skripten
+        int run = 0, self = 0, last = 0;
+        sRun->GetValue(run, 0);
+        sSelf->GetValue(self, 0);
+        sLast->GetValue(last, 0);
+        oCNpc* a = run && self && last && self != last ? (oCNpc*)self : NULL;
+        oCNpc* b = a ? (oCNpc*)last : NULL;
+        if (a == TriaTauschA && b == TriaTauschB)
+            return;
+        if (TriaTauschA && TriaTauschB && TriaListenTauschen(TriaTauschA, TriaTauschB))
+            DialogLog("Trialog: Tausch zurueck - %s und %s wieder unter eigenem Namen (P257)", DialogNpcName(TriaTauschA).c_str(), DialogNpcName(TriaTauschB).c_str());
+        TriaTauschA = TriaTauschB = NULL;
+        if (a && b && TriaListenTauschen(a, b)) {
+            TriaTauschA = a;
+            TriaTauschB = b;
+            static int gemeldet = 0;
+            if (gemeldet < 40) {
+                gemeldet++;
+                DialogLog("Trialog: das Gespraechs-Objekt traegt jetzt %s (Tausch mit %s) - Namenslisten mitgetauscht (P257)",
+                    DialogNpcName(a).c_str(), DialogNpcName(b).c_str());
+            }
+        }
+    }
+
     void CoopDialogSyncPulse() {
         CoopHeroSymbolPulse();   // u190 (P193)
         MiKennPulse(false);   // u104: Kennzeichnung gespiegelter Missions-Gegenstaende (ohne Coop nur zurueck)
         DlgGuildNpcPendingApply();   // u152 (P156)
         if (!DialogSyncAktiv())
             return;
+        TriaTauschPulse();   // u220 (P257)
+        DlgStartVarPulse();   // u224 (P260)
         CoopMissionPulse();   // u96: Missions-Gegenstaende spiegeln
-        if (!CoopSimKey)
-            CoopSimKey = ReadConfigKey("CoopSimKey", "KEY_F11");
-        if (CoopSimKey && CoopKeyEdge(CoopSimKey, CoopSimKey == KEY_F11 ? VK_F11 : 0, CoopSimKeyWas) && CoopSimShiftDown()
-            && !MyDialogNpcPtr) {
-            try {
-                CoopSelfTestToggle(!CoopSimCtrlDown());
-            }
-            catch (std::exception& ex) {
-                CoopErrorLog("Coop-Test", ex.what(), "Schritt");
-            }
-        }
         HostEvInstall();   // v33
         TimeReqPulse();    // u204 (P232)
         HostEvTelePosPulse();   // u204 (P235)
@@ -6129,6 +6548,7 @@ namespace GOTHIC_ENGINE {
     void CoopDialogSyncPeerGone(const std::string&) {}
     void CoopDialogSyncWorldLoaded() {}
     void CoopDialogSyncPulse() {}
+    bool CoopDialogSzeneWartet(std::string*) { return false; }   // u224 (P260)
     void CoopTimeRequestReceive(json&, const std::string&) {}   // u204 (P232)
     bool CoopTestScriptThiscall(unsigned, void*, const void*) { return false; }   // u204 (P235)
     void CoopStorySendAllNpcs(const char*) {}

@@ -4,6 +4,34 @@ Projektversion (Veröffentlichung) und je Spiel/Mod die Coop-Fassung `uNN`. Vorg
 (github.com/corshaegar/Othello-Coop, 0.1.0–0.1.2, nur Othello). Die Fassungen dazwischen (u1–u61) stehen im Entwicklungsverlauf;
 hier beginnt der Verlauf mit u62.
 
+## 0.10.0 – Speichern nur gemeinsam, Coop-Tasten und Hilfe, Archolos-Prolog mit Trialogen (Gothic I u237, Gothic II u237, Othello u237, Legend of Ahssun u237, Archolos u237)
+
+Aus automatischen Testläufen mit Aufnahmen am 08. und 09.11.2026 in Archolos und Legend of Ahssun (Host und Client auf einem PC, beide Helden automatisch gespielt) und einem Welten-Testlauf in Gothic 2 mit u237.
+
+**Neu**
+
+- **Speichern nur gemeinsam** (u227, u236, u237): Beide PCs speichern im selben Moment – gemessen an den Dateizeiten der Spielstände innerhalb einer Zehntelsekunde, auch bei Auto-Sicherungen. Bisher speicherte der Partner erst, nachdem der Auslöser fertig war, und war er gerade beschäftigt, noch später – mit einem anderen Stand. Jetzt melden sich beide PCs laufend, ob sie mitspeichern können. Kann der Mitspieler gerade nicht (Dialog, Inventar offen, Laden), lehnt das Spiel das Speichern ab und nennt den Grund („Diego: Dialog“); die Auto-Sicherung wartet darauf.
+- **Coop-Tasten** (u226): Jede Coop-Taste ist unter Einstellungen › COOP › Coop-Tasten einstellbar – jede Taste, auch mit Shift, Strg oder Alt; belegt Gothic die Taste selbst, steht das dabei. Neu belegt: Hilfe (H, bzw. F1, wenn Gothic H belegt), Coop-Fenster (Shift+K), Teleport zum Mitspieler (Shift+T, mit der Rune im Inventar).
+- **Hilfe, Coop-Fenster, Einführung** (u226): ein Hilfe-Menü mit allen Tasten und dem Wichtigsten in Sätzen; das Coop-Fenster per Taste und unter Einstellungen › COOP (Hosten, Beitreten und Trennen auch im Spiel); eine kurze Einführung vor einem neuen Spiel (abschaltbar); Hinweise im Spiel (beim Hosten Port und Firewall, liegt der Mitspieler bewusstlos, die Wiederbeleben-Taste).
+- **Mitspieler-Anzeige** (u226): Name, Entfernung, Darstellung hinter Wänden und der Pfeil am Bildrand sind einstellbar (Einstellungen › COOP › Mitspieler-Anzeige). Hat man den Mitspieler im Fokus, steht sein Name nicht mehr doppelt.
+- **Aussehen wie ein NPC** (u222): kennt jede Figur von Gothic 2 (654), auch in Mods; zuerst die Figuren des laufenden Spiels.
+- **Kopfdrehung** (u235): NPCs schauen beim Partner in dieselbe Richtung wie bei dem, der sie führt.
+- **Zuschau-Fenster** (u225): zeichnet bei langsamen Bildern seltener neu – weniger Ruckeln.
+
+**Korrekturen**
+
+- **Archolos, Prolog auf dem Schiff** (u218, u221, u224, u228, u229): Szenen und Zwischensequenzen laufen auf beiden PCs zu Ende. Ein Gespräch des Partners löscht keine Szenenbefehle mehr; beginnt beim Partner eine Szene, endet das eigene Gespräch bzw. die Szene wartet darauf; Ablauf-Zähler beginnen beim Partner richtig; Todesskripte und Abläufe, die beide PCs spielen, lösen nichts doppelt aus. Der Kapitän blieb dadurch nicht mehr hinter dem Gitter stehen.
+- **Trialoge** (LeGo – Archolos und viele andere Mods; u220, u230–u235): In Gesprächen mit mehreren NPCs (auf dem Schiff Kapitän, Jorn und Timo) stehen beim Partner der richtige Sprecher und die richtige Reihenfolge, NPCs springen nicht mehr an andere Stellen, Zeilen der anderen Sprecher erscheinen, Überspringen trifft die richtige Zeile.
+- **Gespräche mit demselben NPC** (u220): Sprechen beide Spieler zugleich mit demselben NPC, stören sich die Gespräche nicht mehr.
+- **Geleit** (u223): Führt ein NPC die Gruppe, zählt für seine Abstandsprüfung der nächste Spieler, nicht nur der eigene Held.
+- **Einstellungen › COOP** (u227) auch in Mods ohne Gothics Grafik-Eintrag im Menü (z. B. Archolos).
+
+**Entfernt** (u237)
+
+- Die Liste der Coop-Sicherungen im Spiel (F9, F8) – sie steht im Menü unter Esc › „Spielstand wählen“.
+- Die Taste für den Weltprozess (Shift+F12) – er startet weiter von selbst.
+- Der Coop-Testlauf mit seinen Tasten (Shift+F11, F7), die Netzwerk-Statistik (O) und der Bearbeitungsmodus der Vorlage (`editmode`). Testläufe gehören nur noch zur Entwicklung.
+
 ## 0.9.1 – Archolos: Gespräche nach hängendem Abblenden (Gothic I u217, Gothic II u217, Othello u217, Legend of Ahssun u217, Archolos u217)
 
 Aus dem siebten und achten einstündigen automatischen Testlauf am 08.11.2026 (Archolos und Legend of Ahssun zugleich, Host und Client auf einem PC): kein Absturz, kein Hänger, abschließende Prüfrunden 0 Fehler.

@@ -243,6 +243,8 @@ namespace GOTHIC_ENGINE {
     void CoopCamDefaults();   // CoopCamera.cpp (v66): Kamera-Eintraege vorbelegen, damit das Menue sie schon im Hauptmenue zeigt
     void CoopDiffDefaults();  // CoopDifficulty.cpp (v67): Schwierigkeitsgrad ebenso
     void CoopTruheDefaults(); // CoopTruhe.cpp (u101): Taste des Coop-Inventars ebenso
+    void CoopKeysDefaults();  // CoopKeys.cpp (u226): alle Coop-Tasten und "Einfuehrung zeigen" ebenso
+    void CoopMarkDefaults();  // CoopPartnerMarker.cpp (u226): Mitspieler-Anzeige ebenso
 
     static void CoopSettingsDefaults() {
         static bool done = false;
@@ -268,6 +270,8 @@ namespace GOTHIC_ENGINE {
         CoopCamDefaults();
         CoopDiffDefaults();
         CoopTruheDefaults();
+        CoopKeysDefaults();
+        CoopMarkDefaults();
         if (written)
             LookLog("%d Coop-Eintraege in Gothic.ini [GOTHICCOOP] aus GothicCoopConfig.json vorbelegt", written);
     }
@@ -363,7 +367,25 @@ namespace GOTHIC_ENGINE {
     struct CoopLookFound {
         std::string inst, name, headMesh, bodyMesh;
         int bodyTex = -1, skin = -1, face = -1;
+        bool g2 = false;   // u222: aus der eingebauten Gothic-II-Tabelle, nicht aus dem laufenden Spiel
     };
+
+#if ENGINE >= Engine_G2
+    // u222 (Nutzer 08.11.: "es sollten ja nicht nur gorn und diego sein, sondern alle charaktere aus gothic 2 und wir koennen ja noch die
+    // aus dem jeweiligen spiel dazupacken" - in Archolos und LoA fand die Suche Gorn und Diego nicht, beide Helden hatten das Standard-
+    // aussehen): Aussehen aller Gothic-II-Figuren, erzeugt aus den Gothic-II-Skripten (tools\aussehen_g2.py). Die Figuren des laufenden
+    // Spiels (auch einer Mod) findet die Suche wie bisher in dessen Skripten; diese Tabelle gilt, wenn dort nichts besser passt
+    struct CoopLookG2Entry {
+        const char* inst;
+        const char* name;
+        const char* head;
+        int face;
+        const char* body;
+        int bodyTex;
+        int skin;
+    };
+#include "CoopLookG2.inc"
+#endif
 
     struct CoopLookVal {
         int kind;              // 0 Zahl, 1 Symbol (PUSHVAR/ARRAYVAR), 2 Instanz
@@ -529,6 +551,46 @@ namespace GOTHIC_ENGINE {
                 out = f;
             }
         }
+#if ENGINE >= Engine_G2
+        // u222: dann die Gothic-II-Figuren - nur wenn sie besser passen (gleich gut: die Figur des laufenden Spiels). Gleiches Aussehen unter
+        // mehreren Instanzen (Gorn in vier Kapiteln) zaehlt als ein Treffer
+        if (best < 4) {
+            int g2best = 0, g2matches = 0;
+            std::string zuletzt;
+            CoopLookFound g2out;
+            for (const CoopLookG2Entry& e : CoopLookG2) {
+                const std::string disp = LookUpper(e.name), inst = LookUpper(e.inst);
+                int score = 0;
+                if (disp == q) score = 4;
+                else if (inst == q) score = 3;
+                else if (!disp.empty() && disp.find(q) != std::string::npos) score = 2;
+                else if (inst.find(q) != std::string::npos) score = 1;
+                if (!score)
+                    continue;
+                const std::string aussehen = disp + "|" + e.head + "|" + std::to_string(e.face) + "|" + std::to_string(e.bodyTex);
+                if (aussehen != zuletzt)
+                    g2matches++;
+                zuletzt = aussehen;
+                if (score > g2best) {
+                    g2best = score;
+                    g2out = CoopLookFound();
+                    g2out.inst = e.inst;
+                    g2out.name = e.name;
+                    g2out.headMesh = e.head;
+                    g2out.face = e.face;
+                    g2out.bodyMesh = e.body;
+                    g2out.bodyTex = e.bodyTex;
+                    g2out.skin = e.skin;
+                    g2out.g2 = true;
+                }
+            }
+            if (g2best > best) {
+                best = g2best;
+                out = g2out;
+                matches = g2matches;
+            }
+        }
+#endif
         return best > 0;
     }
 
@@ -579,8 +641,8 @@ namespace GOTHIC_ENGINE {
         if (f.face >= 0 && f.face <= LookFaceMax()) IniSetInt("coopFace", f.face);
         if (f.bodyTex >= 0 && f.bodyTex <= LookBodyMax()) IniSetInt("coopBody", f.bodyTex);
         if (f.skin >= 0 && f.skin <= 3) IniSetInt("coopSkin", f.skin);
-        LookLog("Suche \"%s\": %d Treffer, uebernommen von %s (%s): Kopf %s%s, Gesicht %d, Statur %s%s, Koerper %d, Hautton %d",
-            text.c_str(), matches, f.inst.c_str(), f.name.empty() ? "-" : f.name.c_str(), f.headMesh.c_str(), head < 0 ? " (nicht in der Liste)" : "",
+        LookLog("Suche \"%s\": %d Treffer, uebernommen von %s (%s%s): Kopf %s%s, Gesicht %d, Statur %s%s, Koerper %d, Hautton %d",
+            text.c_str(), matches, f.inst.c_str(), f.name.empty() ? "-" : f.name.c_str(), f.g2 ? ", Gothic-II-Tabelle" : "", f.headMesh.c_str(), head < 0 ? " (nicht in der Liste)" : "",
             f.face, f.bodyMesh.c_str(), body < 0 ? " (nicht in der Liste)" : "", f.bodyTex, f.skin + 1);
         const int shown = LookRefreshChoices();
         if (shown < 5)
@@ -591,6 +653,8 @@ namespace GOTHIC_ENGINE {
             CoopLookChanged = true;
         }
         std::string who = f.name.empty() ? f.inst : f.name + " (" + f.inst + ")";
+        if (f.g2)   // u222
+            who += CoopTr(" aus Gothic II", " from Gothic II");
         if (CoopLangEn)
             return "Look of " + who + " applied" + (matches > 1 ? " - " + std::to_string(matches) + " matches, be more specific for others." : ".");
         return "Aussehen von " + who + " " + "\xFC" "bernommen" + (matches > 1 ? " - " + std::to_string(matches) + " Treffer, genauer eingeben f\xFC" "r andere." : ".");

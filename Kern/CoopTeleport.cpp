@@ -531,6 +531,26 @@ namespace GOTHIC_ENGINE {
         TpEnsureAtSave = GetCurrentMs() + 1000;
     }
 
+    // u226 (P264): Nutzer "am besten auch eine Taste fuer die Teleport Rune" - Taste aus Einstellungen > COOP > Coop-Tasten (Vorgabe
+    // Shift+T): wie das Wirken der Rune zum Mitspieler (auch ueber Welten, TpDo), ohne Aufladen. Nur mit der Rune im Inventar - jeder Held
+    // bekommt sie nach dem Laden (TpEnsureRune); nicht im Gespraech, nicht bewusstlos/tot.
+    void CoopTeleportKey() {
+        if (!player || IsLoadingLevel || player->IsDead() || player->IsUnconscious() || IsPlayerTalkingWithAnybody())
+            return;
+        if (TpRune() < 0) {
+            ChatLog(CoopTr("Teleport: die Teleport-Rune fehlt im Skript (COOP_ITEMS.D).", "Teleport: the teleport rune is missing from the scripts (COOP_ITEMS.D)."), zCOLOR(255, 200, 80, 255));
+            return;
+        }
+        if (!player->IsInInv(TpRuneIdx, 1)) {
+            ChatLog(CoopTr("Teleport: die Teleport-Rune ist nicht im Inventar (vielleicht im Coop-Inventar?).", "Teleport: the teleport rune is not in your inventory (maybe in the coop inventory?)."),
+                zCOLOR(255, 200, 80, 255));
+            TpLog("Taste %s - Rune nicht im Inventar", CoopKeyText(CK_RUNE).c_str());
+            return;
+        }
+        TpLog("Taste %s - zum Mitspieler", CoopKeyText(CK_RUNE).c_str());
+        TpPending = true;   // naechstes Spielbild (CoopTeleportPulse)
+    }
+
     // Plugin.cpp, Game_Loop
     void CoopTeleportPulse() {
         if (!player || IsLoadingLevel)
@@ -562,6 +582,7 @@ namespace GOTHIC_ENGINE {
     void CoopTeleportLoadEnd() {}
     void CoopTeleportSaveEnd() {}
     void CoopTeleportPulse() {}
+    void CoopTeleportKey() {}   // u226
     void CoopRuneLookInit() {}
     bool CoopTeleportAcross(const std::string&, std::string& why) { why = "Teleport-Rune in dieser Engine aus"; return false; }   // u39
     bool CoopTeleportAcrossBusy() { return false; }

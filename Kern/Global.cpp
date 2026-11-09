@@ -25,12 +25,11 @@ namespace GOTHIC_ENGINE {
 
     string FriendInstanceId = "ch";
     string MyNickname = "";
-    bool WorldEditMode = false;
+    bool WorldEditMode = false;   // u237: bleibt aus (der Bearbeitungsmodus der Vorlage ist entfernt, Plugin.cpp)
 
     int PlayersDamageMultipler = 50;
     int NpcsDamageMultipler = 100;
     int ToggleGameLogKey;
-    int ToggleGameStatsKey;
     int StartServerKey;
     int StartConnectionKey;
     int ReinitPlayersKey;

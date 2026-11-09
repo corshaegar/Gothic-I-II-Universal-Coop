@@ -1,6 +1,6 @@
 namespace GOTHIC_ENGINE {
-    bool displayNetworkStats = false;
-
+    // u237 (Nutzer 09.11.: "debug sachen nicht in der Release version"): die Netzwerk-Statistik der Vorlage (Taste O, Warteschlangen,
+    // eigene Lage und NPC-Listen in der Meldungszeile) ist entfernt. Es bleibt die Taste fuer die Meldungszeile (toggleGameLogKey, P).
     void GameStatsLoop() {
         PluginState = "GameStatsLoop";
 
@@ -8,40 +8,8 @@ namespace GOTHIC_ENGINE {
             return;
         }
 
-        if (zinput->KeyToggled(ToggleGameStatsKey)) {
-            displayNetworkStats = !displayNetworkStats;
-            GameChat->Clear();
-        }
-
         if (zinput->KeyToggled(ToggleGameLogKey)) {
             GameChat->ToggleShowing();
-        }
-
-        if (displayNetworkStats) {
-            GameChat->Clear();
-            ChatLog("readyToSendJsons:");
-            ChatLog(ReadyToSendJsons.size());
-            ChatLog("readyToBeReceivedPackets:");
-            ChatLog(ReadyToBeReceivedPackets.size());
-            ChatLog("possition:");
-            auto pos = player->GetPositionWorld();
-            ChatLog(string::Combine("x: %f y: %f z: %f", pos.n[0], pos.n[1], pos.n[2]));
-            if (ServerThread) {
-                ChatLog("broadcastNpcs:");
-                ChatLog(BroadcastNpcs.size());
-
-                for each (auto i in BroadcastNpcs) {
-                    ChatLog(i.first);
-                }
-            }
-            if (ClientThread) {
-                ChatLog("SyncNpcs:");
-                ChatLog(SyncNpcs.size());
-
-                for each (auto i in SyncNpcs) {
-                    ChatLog(i.first);
-                }
-            }
         }
     }
 }

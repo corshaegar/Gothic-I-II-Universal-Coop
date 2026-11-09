@@ -96,6 +96,64 @@ namespace GOTHIC_ENGINE {
         OthelloCompatLog("[%lld s, %s] Mitspieler-Markierung: %s", DiagSeconds(), DiagRole(), buf);
     }
 
+    // --- u226 (P263): Mitspieler-Anzeige einstellbar ---
+    // Nutzer 09.11.: "Der Name wird beim Mitspieler doppelt angezeigt dieser 'bug' besteht schon lange", "die Anzeige des Mitspielers
+    // auch customizable ... die Anzeige im Rand des Bildschirms soll standardmaessig aus sein". Doppelt: hat der eigene Held den
+    // Mitspieler im Fokus, schreibt Gothic selbst den Namen der Figur ueber sie (Fokusname, die Figur traegt den Spielernamen) - GT
+    // schrieb seinen darueber. Jetzt laesst GT den Namen weg, solange die Figur der Fokus ist. Einstellungen > COOP > Mitspieler-Anzeige
+    // (MENU_OPT_COOP_MARK, Gothic.ini [GOTHICCOOP]): coopMarkName 0/1 (Name ueber dem Kopf, Vorgabe an), coopMarkDist 0-2 (Entfernung nie /
+    // ab 25 m und hinter Waenden / immer, Vorgabe 1 wie bisher), coopMarkWalls 0/1 (hinter Waenden blass / gar nicht), coopMarkEdge 0/1
+    // (Pfeil am Bildrand, Vorgabe aus), coopMarkColor 0-4 (Gold, Weiss, Gruen, Hellblau, Rot), coopMarkMap 0/1 (Pfeil auf der Karte).
+    struct PmOptions {
+        int name = 1, dist = 1, walls = 0, edge = 0, color = 0, map = 1;
+    };
+    static PmOptions PmOpt;
+    static long long PmOptMs = 0;
+
+    void CoopMarkDefaults() {
+        if (!zoptions)
+            return;
+        const zSTRING sec("GOTHICCOOP");
+        static const char* keys[6] = { "coopMarkName", "coopMarkDist", "coopMarkWalls", "coopMarkEdge", "coopMarkColor", "coopMarkMap" };
+        static const int defs[6] = { 1, 1, 0, 0, 0, 1 };
+        for (int i = 0; i < 6; i++)
+            if (!zoptions->EntryExists(sec, keys[i]))
+                zoptions->WriteInt(sec, keys[i], defs[i], 0);
+    }
+
+    static void PmReadOptions() {
+        const long long now = GetCurrentMs();
+        if (PmOptMs && now < PmOptMs + 1000)
+            return;
+        const bool first = !PmOptMs;
+        PmOptMs = now;
+        if (!zoptions)
+            return;
+        CoopMarkDefaults();
+        const zSTRING sec("GOTHICCOOP");
+        PmOptions o;
+        o.name = zoptions->ReadInt(sec, "coopMarkName", 1) ? 1 : 0;
+        o.dist = zoptions->ReadInt(sec, "coopMarkDist", 1);
+        o.walls = zoptions->ReadInt(sec, "coopMarkWalls", 0) ? 1 : 0;
+        o.edge = zoptions->ReadInt(sec, "coopMarkEdge", 0) ? 1 : 0;
+        o.color = zoptions->ReadInt(sec, "coopMarkColor", 0);
+        o.map = zoptions->ReadInt(sec, "coopMarkMap", 1) ? 1 : 0;
+        if (o.dist < 0 || o.dist > 2) o.dist = 1;
+        if (o.color < 0 || o.color > 4) o.color = 0;
+        if (first || memcmp(&o, &PmOpt, sizeof(o)) != 0)
+            PmLog("Anzeige: Name %s, Entfernung %s, hinter W\xE4nden %s, Bildrand %s, Farbe %d, Karte %s (P263)", o.name ? "an" : "aus",
+                o.dist == 0 ? "nie" : o.dist == 1 ? "ab 25 m/verdeckt" : "immer", o.walls ? "aus" : "blass", o.edge ? "an" : "aus", o.color, o.map ? "an" : "aus");
+        PmOpt = o;
+    }
+
+    static zCOLOR PmOptColor(bool free, int alphaFree) {
+        static const unsigned char c[5][3] = { { 255, 235, 160 }, { 255, 255, 255 }, { 150, 255, 150 }, { 150, 210, 255 }, { 255, 140, 140 } };
+        const int i = PmOpt.color >= 0 && PmOpt.color < 5 ? PmOpt.color : 0;
+        if (!free)
+            return i == 0 ? zCOLOR(185, 185, 185, 150) : zCOLOR(c[i][0], c[i][1], c[i][2], 140);
+        return zCOLOR(c[i][0], c[i][1], c[i][2], alphaFree);
+    }
+
     // --- Othellos Karte ---
 
     struct PmAbiMap {
@@ -276,6 +334,9 @@ namespace GOTHIC_ENGINE {
     }
 
     static void PmMapPulse() {
+        PmReadOptions();
+        if (!PmOpt.map)
+            return;   // u226 (P263): Karte aus
         PmAbiMap* m = PmMapAbi();
         const char* lvl = NULL;
         if (!m || !PmMapOfThisWorld(m, &lvl))
@@ -539,6 +600,9 @@ namespace GOTHIC_ENGINE {
     static void PmDrawArrows() {
         if ((!ServerThread && !ClientThread) || !player || IsLoadingLevel || !zrenderer)
             return;
+        PmReadOptions();
+        if (!PmOpt.map)
+            return;   // u226 (P263): Karte aus
         PmAbiMap* m = PmMapAbi();
         if (!m) {
             PmDrawGameMapArrows();   // u28: ohne Othello Gothics eigene Karte
@@ -664,6 +728,15 @@ namespace GOTHIC_ENGINE {
         const int fy = screen->FontY();
 
         if (inView) {
+            if (!PmOpt.name)
+                return;   // u226 (P263): Name ueber dem Kopf aus
+            if (player->GetFocusNpc() == n) {   // u226 (P263): Gothic schreibt den Fokusnamen selbst - sonst stand der Name doppelt da
+                static int focusLogged = 0;
+                if (focusLogged++ < 3)
+                    PmLog("%s im Fokus - Gothic zeigt den Namen, GT laesst seinen weg (P263)", name.c_str());
+                PmShownAt[n] = std::make_pair(now, 0);
+                return;
+            }
             PmSight& s = PmSightCache[n];
             if (now - s.at > 150 || now < s.at) {
                 s.at = now;
@@ -672,13 +745,18 @@ namespace GOTHIC_ENGINE {
                 const zVEC3 chest(at.n[0], at.n[1] + 30.f, at.n[2]);
                 s.free = PmFreeSight(cp, eye) || PmFreeSight(cp, chest);
             }
+            if (!s.free && PmOpt.walls)
+                return;   // u226 (P263): hinter Waenden nicht zeigen
             zSTRING t(name.c_str());
-            if (!s.free || meters >= 25)
+            if (PmOpt.dist == 2 || (PmOpt.dist == 1 && (!s.free || meters >= 25)))
                 t = t + zSTRING(dist);
             const int w = screen->FontSize(t);
-            PmPrint((int)(nx * 8192.f) - w / 2, (int)(ny * 8192.f) - fy, t,
-                s.free ? zCOLOR(255, 235, 160, 255) : zCOLOR(185, 185, 185, 150));
+            PmPrint((int)(nx * 8192.f) - w / 2, (int)(ny * 8192.f) - fy, t, PmOptColor(s.free, 255));
             PmShownAt[n] = std::make_pair(now, 0);
+            return;
+        }
+        if (!PmOpt.edge) {   // u226 (P263): Pfeil am Bildrand - Vorgabe aus (Nutzer)
+            PmShownAt[n] = std::make_pair(now, 2);   // Coop-Testlauf: verarbeitet, ausserhalb des Bilds (Bildrand aus)
             return;
         }
 
@@ -729,7 +807,7 @@ namespace GOTHIC_ENGINE {
             x = X - screen->FontSize(label) / 2;
             y = Y - fy;
         }
-        PmPrint(x, y, label, zCOLOR(255, 235, 160, 230));
+        PmPrint(x, y, label, PmOptColor(true, 230));
         PmShownAt[n] = std::make_pair(now, 1);
     }
 
@@ -757,6 +835,7 @@ namespace GOTHIC_ENGINE {
             return;
         if (!player || IsLoadingLevel)
             return;
+        PmReadOptions();   // u226 (P263)
         PmMapPulse();
         if (PmHudOff())
             return;
@@ -787,5 +866,6 @@ namespace GOTHIC_ENGINE {
 #else   // Modul in dieser Engine nicht freigegeben (CoopModulesReport)
     void CoopPartnerMarkerWorldGone() {}
     void CoopPartnerMarkerPulse() {}
+    void CoopMarkDefaults() {}   // u226
 #endif
 }

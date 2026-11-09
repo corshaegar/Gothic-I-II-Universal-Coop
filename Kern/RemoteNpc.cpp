@@ -71,6 +71,7 @@ namespace GOTHIC_ENGINE {
 
         zVEC3* lastPositionFromServer = NULL;
         float lastHeadingFromServer = -1;
+        int lookXFromServer = -1, lookYFromServer = -1;   // u235 (P280): Kopfdrehung des Senders in Hundertsteln (-1 = keine)
         int lastHpFromServer = -1;
         int lastMaxHpFromServer = -1;
         int lastHpBaseFromServer = -1;     // v108: Grundwert des Maximums ("hb", Leben der Gegner)
@@ -416,6 +417,10 @@ namespace GOTHIC_ENGINE {
         void UpdateAngle(json update) {
             auto h = update["h"].get<float>();
             lastHeadingFromServer = h;
+            if (update.contains("lx") && update["lx"].is_number_integer() && update.contains("ly") && update["ly"].is_number_integer()) {   // u235 (P280)
+                lookXFromServer = update["lx"].get<int>();
+                lookYFromServer = update["ly"].get<int>();
+            }
             if (hasModel && npc && !SmoothOn()) {   // v52: mit Glaetten setzt UpdateNpcBasedOnLastDataFromServer je Bild
                 npc->ResetRotationsWorld();
                 npc->RotateWorldY(h);
@@ -1237,6 +1242,19 @@ namespace GOTHIC_ENGINE {
                 if (lastPositionFromServer) {
                     UpdateNpcPosition(dt);
                 }
+
+                // u235 (P280, Nutzer: "die köpfe nicht synchornisiert also die schauen in verschiedene richtungen"): Kopfdrehung wie beim
+                // Sender. Blick-Befehle der eigenen KI (EV_LOOKAT, setzen den Kopf jedes Bild neu - meist zum eigenen Helden) hier verwerfen
+                if (lookXFromServer >= 0 && lookXFromServer <= 100 && lookYFromServer >= 0 && lookYFromServer <= 100)
+                    if (oCAniCtrl_Human* ac = npc->GetAnictrl()) {
+                        zCEventManager* em = npc->GetEM(0);
+                        for (int i = em ? em->GetNumMessages() - 1 : -1; i >= 0; i--) {
+                            oCMsgConversation* m = zDYNAMIC_CAST<oCMsgConversation>(em->GetEventMessage(i));
+                            if (m && !m->IsDeleted() && m->subType == oCMsgConversation::EV_LOOKAT)
+                                m->Delete();
+                        }
+                        ac->SetLookAtTarget(lookXFromServer / 100.f, lookYFromServer / 100.f);
+                    }
 
                 // v108 (Test v107): kam das HP-Paket, bevor der NPC hier stand (z. B. frisch vom Host erzeugt), setzte dieser Takt nur
                 // die HP, nie das Maximum - Molerat 191/127 statt 191/191 ("Leben der Gegner" 150 %). Der erste Treffer des Clients

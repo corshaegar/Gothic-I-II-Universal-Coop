@@ -3,41 +3,22 @@
 
 namespace GOTHIC_ENGINE {
 
-    // --- Pruefebene 2 und 3: Schnappschuesse und gefuehrter Testablauf -----------------------
+    // --- Pruefebene 2: Schnappschuesse -------------------------------------------------------
     //
     // Schnappschuss (alle 5 s, sobald verbunden), system\GothicCoopSnapshot.log:
     //   H <ms> <Rolle> <Tag> <hh:mm> <eigene Kennung>                       Kopf
     //   S <ms> <Rolle> <Name> <x> <y> <z> <HP> <HPmax> <Waffenmodus> <tot> <bewusstlos> <KI-Zustand> <Animation Ebene 1>
+    //   Z <ms> <Rolle> <Art> <Update-Typ> <Gesamt>                          laufende Zaehler (je Schnappschuss)
     // Der Host schreibt alle NPCs, die er sendet, und die Coop-Figuren; der Client alle NPCs, fuer
     // die er Daten empfaengt, und die Figur des Hosts; beide sich selbst unter der eigenen Kennung.
     // Gleicher Name = gleicher NPC (NPC-Namen auf beiden Seiten identisch, siehe CoopDiag.cpp).
-    //
-    // Testablauf: Taste F7 (Konfiguration "testStepKey") schliesst den aktuellen Schritt ab und
-    // zeigt den naechsten im Chat. Je Schritt:
-    //   M <ms> <Rolle> <Schritt> <Text>                                     Marker
-    //   C <ms> <Rolle> <Schritt> <Art> <Update-Typ> <Anzahl>                Zaehler seit letztem Marker
-    //   Z <ms> <Rolle> <Art> <Update-Typ> <Gesamt>                          laufende Zaehler (je Schnappschuss)
     // Auswertung: _othello_backup\compare_sync.py (Host- und Client-Datei nebeneinander).
+    //
+    // u237 (Nutzer 09.11.: "Die tests sollten auch nicht per hotkey erreichbar sein"): der gefuehrte Testablauf mit der Taste F7
+    // (Konfiguration "testStepKey", Schritte im Chat, Marker M/C je Schritt) ist entfernt - Tests laufen ueber die automatischen Laeufe.
 
 #if COOP_BUILD(Trace)   // u3: bis u2 nur G1 - Freigabe je Engine in CoopCore.cpp
 
-    static const char* CoopTestSteps[] = {
-        "Beide verbunden und in Sichtweite?",
-        "Client: einen NPC ansprechen und den Dialog ganz durchspielen.",
-        "Client: mit einem Haendler handeln (etwas kaufen oder verkaufen).",
-        "Client: Waffe ziehen und einen NPC dreimal treffen.",
-        "Client: sich von einem NPC oder Monster treffen lassen.",
-        "Client: mit Bogen oder Armbrust auf ein Ziel schiessen.",
-        "Client: einen Zauber wirken.",
-        "Client: einen Gegenstand fallen lassen. Host: ihn aufheben.",
-        "Client: Ruestung und Nahkampfwaffe wechseln.",
-        "Client: einen Trank trinken.",
-        "Host: ein Monster oder einen NPC toeten. Client: die Leiche pluendern.",
-        "Host: schlafen und Zeit vorspulen.",
-    };
-    static const int CoopTestStepCount = sizeof(CoopTestSteps) / sizeof(CoopTestSteps[0]);
-    static int CoopTestStep = -1;                        // -1: noch nicht gestartet
-    static unsigned long CoopTraceLast[TRACE_KINDS][TRACE_TYPES];
     static long long CoopNextSnapshotMs = 0;
     static unsigned long CoopSnapshotLines = 0;
     static bool CoopSnapshotSessionWritten = false;
@@ -97,8 +78,7 @@ namespace GOTHIC_ENGINE {
                 if (p.second && !p.second->destroyed)
                     SnapNpc(now, role, zSTRING(p.first).ToChar(), p.second->npc);
         }
-        // Laufende Gesamtzaehler je Art und Update-Typ - damit lassen sich fuer jeden Zeitraum
-        // (z. B. einen Testschritt, egal auf welchem PC F7 gedrueckt wurde) beide Seiten vergleichen.
+        // Laufende Gesamtzaehler je Art und Update-Typ - damit lassen sich fuer jeden Zeitraum beide Seiten vergleichen.
         static const char* kinds[] = { "gesendet", "empfangen", "angewendet", "uebersprungen" };
         for (int k = 0; k < TRACE_KINDS; k++)
             for (int t = 0; t < TRACE_TYPES; t++)
@@ -106,52 +86,10 @@ namespace GOTHIC_ENGINE {
                     SnapLog("Z\t%lld\t%s\t%s\t%s\t%lu", now, role, kinds[k], CoopUpdateTypeName(t), CoopTraceCounts[k][t]);
     }
 
-    static void CoopTraceMarker() {
-        const long long now = GetCurrentMs();
-        const char* role = DiagRole();
-        if (CoopTestStep >= 0 && CoopTestStep < CoopTestStepCount) {
-            SnapLog("M\t%lld\t%s\t%d\t%s", now, role, CoopTestStep + 1, CoopTestSteps[CoopTestStep]);
-            std::string summary;
-            static const char* kinds[] = { "gesendet", "empfangen", "angewendet", "uebersprungen" };
-            for (int k = 0; k < TRACE_KINDS; k++) {
-                std::string part;
-                for (int t = 0; t < TRACE_TYPES; t++) {
-                    const unsigned long d = CoopTraceCounts[k][t] - CoopTraceLast[k][t];
-                    if (!d)
-                        continue;
-                    SnapLog("C\t%lld\t%s\t%d\t%s\t%s\t%lu", now, role, CoopTestStep + 1, kinds[k],
-                        CoopUpdateTypeName(t), d);
-                    char item[48];
-                    _snprintf(item, sizeof(item), "%s%s %lu", part.empty() ? "" : ", ", CoopUpdateTypeName(t), d);
-                    item[sizeof(item) - 1] = 0;
-                    part += item;
-                }
-                if (!part.empty())
-                    summary += std::string(summary.empty() ? "" : " | ") + kinds[k] + ": " + part;
-            }
-            OthelloCompatLog("[%lld s, %s] TEST Schritt %d fertig: %s | %s", DiagSeconds(), role,
-                CoopTestStep + 1, CoopTestSteps[CoopTestStep], summary.empty() ? "kein Sync-Verkehr" : summary.c_str());
-        }
-        memcpy(CoopTraceLast, CoopTraceCounts, sizeof(CoopTraceLast));
-        CoopTestStep++;
-        char msg[256];
-        if (CoopTestStep < CoopTestStepCount)
-            _snprintf(msg, sizeof(msg), "[Test] Schritt %d/%d: %s  (danach F7)", CoopTestStep + 1,
-                CoopTestStepCount, CoopTestSteps[CoopTestStep]);
-        else
-            _snprintf(msg, sizeof(msg), "[Test] Testablauf beendet - Spiel schliessen, Logs von beiden PCs schicken.");
-        msg[sizeof(msg) - 1] = 0;
-        ChatLog(string(msg), zCOLOR(120, 255, 120, 255));
-        CoopNextSnapshotMs = 0;                          // sofort einen Schnappschuss
-    }
-
     // Aus Game_Loop.
     void CoopTracePulse() {
         if (!ServerThread && !ClientThread)
             return;
-        static int stepKey = ReadConfigKey("testStepKey", "KEY_F7");
-        if (zinput->KeyToggled(stepKey))
-            CoopTraceMarker();
         if (CurrentMs >= CoopNextSnapshotMs && CoopSnapshotLines < 80000) {
             CoopNextSnapshotMs = CurrentMs + 5000;
             CoopWriteSnapshot();

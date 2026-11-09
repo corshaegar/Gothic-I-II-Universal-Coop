@@ -124,6 +124,7 @@ namespace GOTHIC_ENGINE {
             CoopMainMenuEscGuard();   // v59: Esc im Hauptmenue ohne Spiel = schwarzer Bildschirm - abfangen
             CoopVersionMenuPulse();   // v58: Fassung in den Versionszeilen (auch im Esc-Menue)
             CoopLangMenuPulse();      // v95: Menue-Texte Deutsch/English (COOP_MENU.D userString[2]/[3])
+            CoopKeysMenuPulse();      // u226: Coop-Tasten aufnehmen, Hilfe/Einfuehrung fuellen, Untermenue der Hilfe-/Fenster-Taste
             CoopSteamMenuPulse();     // v87: Steam-Menue (Freunde, Status)
             CoopIngameLoadListPulse(); // v91: Spielstand-Liste im Esc-Menue
             CoopMenuMousePulse();     // v57: Maus im Menue

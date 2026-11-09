@@ -1191,7 +1191,7 @@ namespace GOTHIC_ENGINE {
             WpLog("  Code 0xC0000417 = ungueltiger Parameter in der alten C-Laufzeit (msvcr100: Union/VDFS)");
         WpHidePlugins(WpCopyRoot(), "Weltprozess beendet");   // u41: falls er vor dem Umbenennen abbrach
         if (failed)
-            WpLog("  unerwartet beendet (%d. Mal) - %s", WpFails, WpFails >= 3 ? "kein Vorstart mehr bis Shift+F12" : "naechster Vorstart in 2 min");
+            WpLog("  unerwartet beendet (%d. Mal) - %s", WpFails, WpFails >= 3 ? "kein Vorstart mehr bis zum naechsten Spielstart" : "naechster Vorstart in 2 min");
         if (chat)
             ChatLog(string::Combine(CoopTr("Weltprozess beendet: %s", "World process stopped: %s"), string(why)), zCOLOR(255, 200, 80, 255));
         WpHost.active = false;
@@ -1207,7 +1207,7 @@ namespace GOTHIC_ENGINE {
             CoopConfig["coopWorldProcessVisible"].get<bool>();
     }
 
-    static void WpHostStart(bool manual) {
+    static void WpHostStart() {
         if (IsLoadingLevel)
             return;   // u39: auch im Hauptmenue (ab dem COOP-Menue)
         std::string why;
@@ -1304,12 +1304,9 @@ namespace GOTHIC_ENGINE {
         WpHost.pid = pi.dwProcessId;
         WpHost.startMs = CurrentMs;
         WpHost.idleWhy = CoopTr("startet", "starting");
-        WpLog("gestartet (Leerlauf, %s, Fenster %s): Prozess %lu (%s), %dx%d - %s", manual ? "Shift+F12" : player ? "Vorstart im Spiel" : "Vorstart im COOP-Menue",
+        WpLog("gestartet (Leerlauf, %s, Fenster %s): Prozess %lu (%s), %dx%d - %s", player ? "Vorstart im Spiel" : "Vorstart im COOP-Menue",
             visible ? "minimiert" : desk ? "auf eigenem Desktop GothicCoopWelt" : "versteckt", (unsigned long)pi.dwProcessId,
             inJob ? "im Job, endet mit dem Hauptspiel" : "nicht im Job - endet beim Beenden des Hauptspiels", w, h, cmd);
-        if (manual)   // u39: der Vorstart laeuft still im Hintergrund (nur Log)
-            ChatLog(CoopTr("Weltprozess gestartet - wartet im Hintergrund, bis ein Mitspieler in einer anderen Welt ist (Shift+F12 beendet ihn).",
-                "World process started - waits in the background until a player is in another world (Shift+F12 stops it)."), zCOLOR(160, 230, 160, 255));
     }
 
     static void WpHostSendTime() {
@@ -1375,8 +1372,8 @@ namespace GOTHIC_ENGINE {
         WpHostSendTime();
         WpLog("Auftrag: %s (%s) ist in %s - %s", nick.c_str(), id.c_str(), file.c_str(),
             idle ? ("Slot " + std::to_string(slot) + " laden, dann dorthin").c_str() : "noch beschaeftigt - nur die neue Welt");
-        ChatLog(string::Combine(CoopTr("Weltprozess l\xE4" "dt %s - gleich zeigt Shift+F5 dort %s.", "World process is loading %s - soon Shift+F5 shows %s there."),
-            string(CoopWorldShow(file).c_str()), string(nick.c_str())), zCOLOR(160, 230, 160, 255));
+        ChatLog(string((std::string(CoopTr("Weltprozess l\xE4" "dt ", "World process is loading ")) + CoopWorldShow(file) + CoopTr(" - gleich zeigt ", " - soon ") +
+            CoopKeyText(CK_CAM) + CoopTr(" dort ", " shows ") + nick + CoopTr(".", " there.")).c_str()), zCOLOR(160, 230, 160, 255));
     }
 
     // u38: Auftrag zu Ende (Mitspieler in meiner Welt, getrennt) - der Weltprozess bleibt in seiner Welt und ruht
@@ -1391,23 +1388,8 @@ namespace GOTHIC_ENGINE {
         WpLog("ruht (%s) - zeigte %s in %s, %lu Pakete weitergereicht", why, WpHost.nick.c_str(), WpHost.world.c_str(), WpHost.fed);
     }
 
-    // Plugin.cpp: Shift+F12 - beenden (kein Vorstart mehr) bzw. starten
-    void CoopWpHostToggle() {
-        if (WpHost.on) {
-            WpAutoOff = true;
-            WpHostStop(CoopTr("Shift+F12 - startet erst wieder mit Shift+F12", "Shift+F12 - starts again only with Shift+F12"), true, false);
-            return;
-        }
-        WpAutoOff = false;
-        WpFails = 0;
-        WpRetryMs = 0;
-        if (!ServerThread && !ClientThread) {
-            ChatLog(CoopTr("Weltprozess: erst Coop starten (Host oder Client) - er startet dann von selbst.",
-                "World process: start coop first (host or client) - it then starts by itself."), zCOLOR(255, 200, 80, 255));
-            return;
-        }
-        WpHostStart(true);
-    }
+    // u237 (Nutzer 09.11.: "Du sollst den Weltprozess nicht entfernen nur als Feature ueber hotkey"): Shift+F12 (beenden bzw. starten)
+    // ist entfernt - der Weltprozess startet wie bisher von selbst (Vorstart) und laeuft im Hintergrund
 
     // --- u46 (P87): NPCs der gespiegelten Welt fuer das Zuschau-Fenster ----------------------------------------------------
     //
@@ -1601,8 +1583,8 @@ namespace GOTHIC_ENGINE {
         nick = WpHost.nick;
         world = WpHost.world;
         if (!WpHost.on) {
-            state = WpAutoOff ? CoopTr("aus (Shift+F12 startet ihn)", "off (Shift+F12 starts it)")
-                : WpFails >= 3 ? CoopTr("aus - mehrmals abgebrochen (Log; Shift+F12 versucht es neu)", "off - failed several times (log; Shift+F12 retries)")
+            state = WpAutoOff ? std::string(CoopTr("aus (Fenster geschlossen - startet beim n\xE4" "chsten Spielstart)", "off (window closed - starts with the next game start)"))
+                : WpFails >= 3 ? std::string(CoopTr("aus - mehrmals abgebrochen (Log)", "off - failed several times (log)"))
                 : !WpAutoConfig() ? CoopTr("aus (coopWorldProcessAuto)", "off (coopWorldProcessAuto)")
                 : CoopTr("startet gleich", "starting soon");
             return false;
@@ -1654,8 +1636,8 @@ namespace GOTHIC_ENGINE {
                     WpHost.readyMs = CurrentMs;
                     WpLog("bereit nach %lld s Auftrag (%lld s seit dem Start des Weltprozesses)", (CurrentMs - WpHost.activeMs) / 1000,
                         (CurrentMs - WpHost.startMs) / 1000);
-                    ChatLog(string::Combine(CoopTr("Weltprozess bereit: %s in %s - Shift+F5 zeigt das Bild.", "World process ready: %s in %s - Shift+F5 shows the picture."),
-                        string(WpHost.nick.c_str()), string(CoopWorldShow(w).c_str())), zCOLOR(160, 230, 160, 255));
+                    ChatLog(string((std::string(CoopTr("Weltprozess bereit: ", "World process ready: ")) + WpHost.nick + CoopTr(" in ", " in ") + CoopWorldShow(w) +
+                        " - " + CoopKeyText(CK_CAM) + CoopTr(" zeigt das Bild.", " shows the picture.")).c_str()), zCOLOR(160, 230, 160, 255));
                 }
                 WpHost.phase = s;
                 WpHost.fig = fig;
@@ -1871,9 +1853,9 @@ namespace GOTHIC_ENGINE {
         if (WpHost.proc && WaitForSingleObject(WpHost.proc, 0) == WAIT_OBJECT_0) {
             DWORD code = 1;
             GetExitCodeProcess(WpHost.proc, &code);
-            if (code == 0) {   // u38: Fenster von Hand geschlossen (WpWndProc endet mit 0) - wie Shift+F12, kein Vorstart mehr
+            if (code == 0) {   // u38: Fenster von Hand geschlossen (WpWndProc endet mit 0) - kein Vorstart mehr in dieser Sitzung
                 WpAutoOff = true;
-                WpHostStop(CoopTr("Fenster geschlossen - startet erst wieder mit Shift+F12", "window closed - starts again only with Shift+F12"), true, false);
+                WpHostStop(CoopTr("Fenster geschlossen - startet erst beim n\xE4" "chsten Spielstart wieder", "window closed - starts again with the next game start"), true, false);
             }
             else
                 WpHostStop(CoopTr("abgest\xFC" "rzt", "crashed"), true, true);
@@ -1925,7 +1907,7 @@ namespace GOTHIC_ENGINE {
             WpCoopOffSinceMs = CurrentMs;
         if (!WpHost.on) {
             if (wanted && WpPrestartAllowed())
-                WpHostStart(false);
+                WpHostStart();
             return;
         }
         if (!wanted && CurrentMs > WpCoopOffSinceMs + 60000) {
@@ -1949,7 +1931,7 @@ namespace GOTHIC_ENGINE {
         if (!WpHost.on) {
             if (coop && WpPrestartAllowed() && CurrentMs >= WpSettleMs && player && ogame && !IsLoadingLevel && !IsSavingGame &&
                 !(MyselfId == "_player_"))
-                WpHostStart(false);
+                WpHostStart();
             return;
         }
         if (!coop && CurrentMs > WpCoopOffSinceMs + 30000) {
@@ -2647,9 +2629,6 @@ namespace GOTHIC_ENGINE {
 
 #else   // nicht G2A: Weltprozess noch nicht freigegeben
 
-    void CoopWpHostToggle() {
-        ChatLog(CoopTr("Weltprozess: in dieser Gothic-Fassung noch nicht freigegeben.", "World process: not yet available for this Gothic version."), zCOLOR(255, 200, 80, 255));
-    }
     bool CoopWpImage(unsigned int& handle, std::string& nick, std::string& world, std::string& state) {
         handle = 0;
         nick.clear();

@@ -147,12 +147,15 @@ Datei; das Log nennt beim Start, was gelesen wurde ("Mod-Profil ...").
 Ab u195: ein Paket fuer Gothic 2 und jede Mod darin (Legend of Ahssun, Gothic II Classic, ...): der Coop erkennt beim Start, was
 laeuft (Log: "Profil"), die Skripte liegen zusaetzlich in system\\GothicCoop\\Skripte\\g2 (die Skript-Weiche ergaenzt fehlende).
 Anleitung fuer Legend of Ahssun: GothicCoop-LIESMICH-LoA.txt.
+Ab u226: alle Coop-Tasten unter Einstellungen > COOP > Coop-Tasten (jede Taste, auch mit Shift/Strg/Alt), Hilfe im Spiel (H bzw.
+F1), Coop-Fenster (Shift+K), Teleport zum Mitspieler (Shift+T), kurze Einfuehrung vor einem neuen Spiel.
+Ab u237: gespeichert wird nur noch, wenn auch der Mitspieler gerade mitspeichern kann - sonst nennt die Meldungszeile den Grund
+(z. B. "Diego: Dialog"), Auto-Sicherung und Startstand warten darauf. So speichern beide immer gleichzeitig. Entfernt: die Liste
+der Coop-Sicherungen im Spiel (F9/F8 - sie steht unter Esc > Spielstand waehlen), die Taste fuer den Weltprozess (Shift+F12 - er
+startet weiter von selbst), der Coop-Testlauf mit seinen Tasten (Shift+F11, F7) und die Netzwerk-Statistik (O).
 
 Spielen: Hauptmenue > COOP > Figur waehlen > "Weiter: Verbinden" > "Spiel hosten" bzw. "Ueber IP beitreten"
 (Port 9955) oder ueber Steam. Protokoll: system\\GothicCoop.log.
-Testlauf: Shift+F11 erst am Host, nach dessen Ende am Client - nur auf einem Test-Spielstand (Uhrzeit +30 min, zwei
-Test-NPCs, Tagebuch-Thema "Coop-Test" und eine Sicherung "Coop-Test" in einem Auto-Slot bleiben). Ergebnis im Chat und in
-system\\GothicCoop.log (Zeilen "Coop-Test"), am Ende je Bereich OK/FEHLER/--.
 """
 
 

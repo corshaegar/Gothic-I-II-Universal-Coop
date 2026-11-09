@@ -2414,6 +2414,9 @@ namespace GOTHIC_ENGINE {
 
     void __fastcall zCCSCamera_OnTrigger_Coop(zCCSCamera* _this, void* vtable, zCVob* other, zCVob* instigator);
     CInvoke<void(__thiscall*)(zCCSCamera*, zCVob*, zCVob*)> Ivk_zCCSCamera_OnTrigger_Coop(CoopAddr::zCCSCamera_OnTrigger, &zCCSCamera_OnTrigger_Coop, COOP_IVK(World));
+    // u219: ausgeloeste Kamerafahrten, nach Namen (die Vobs gehen mit der Welt - kein Zeiger ueber einen Weltwechsel)
+    static std::set<std::string> CoopCamNamen;
+
     void __fastcall zCCSCamera_OnTrigger_Coop(zCCSCamera* _this, void* vtable, zCVob* other, zCVob* instigator) {
         if (MobChainNow(instigator)) {
             CoopMobSkipCams++;
@@ -2421,6 +2424,40 @@ namespace GOTHIC_ENGINE {
             return;
         }
         Ivk_zCCSCamera_OnTrigger_Coop(_this, other, instigator);
+        if (_this && !_this->GetObjectName().IsEmpty())
+            CoopCamNamen.insert(_this->GetObjectName().ToChar());
+    }
+
+    // u219 (Aufnahme Archolos 08.11.: die Schlussszene des Prologs laeuft ueber die Kamerafahrten SHIP_FINAL_01 bis 08, ausgeloest auf
+    // beiden PCs; dazwischen sprachen beide Testinstanzen den Kapitaen an, liefen und speicherten - die Szene kam nie zu Ende): laeuft gerade eine
+    // Kamerafahrt (zCCSCamera::started)? Wie das Spiel selbst, das in einer Kamerafahrt nicht speichert (u138). die Testinstanz schaut dann zu
+    // (BotInSequence). Hoechstens alle 250 ms neu nachgesehen
+    bool CoopKamerafahrtLaeuft(std::string* name) {
+        static long long naechste = 0;
+        static bool laeuft = false;
+        static std::string welche;
+        const long long jetzt = GetCurrentMs();
+        if (jetzt >= naechste) {
+            naechste = jetzt + 250;
+            laeuft = false;
+            welche.clear();
+            zCWorld* w = ogame ? ogame->GetGameWorld() : NULL;
+            for (auto it = CoopCamNamen.begin(); w && it != CoopCamNamen.end();) {
+                zCCSCamera* c = zDYNAMIC_CAST<zCCSCamera>(w->SearchVobByName(zSTRING(it->c_str())));
+                if (!c) {   // nicht in dieser Welt (mehr)
+                    it = CoopCamNamen.erase(it);
+                    continue;
+                }
+                if (c->started && !laeuft) {
+                    laeuft = true;
+                    welche = *it;
+                }
+                ++it;
+            }
+        }
+        if (name)
+            *name = welche;
+        return laeuft;
     }
 
     void __fastcall zCCSCamera_OnUntrigger_Coop(zCCSCamera* _this, void* vtable, zCVob* other, zCVob* instigator);

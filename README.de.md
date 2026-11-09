@@ -14,15 +14,15 @@ abgeglichen. Ein Union-Plugin auf Grundlage von [GothicCoop / Gothic Together](h
 
 ## Versionen
 
-Projektversion **0.9.1** – je Spiel/Mod die Coop-Fassung (sie zählt nur hoch, wenn sich an diesem Spiel etwas ändert):
+Projektversion **0.10.0** – je Spiel/Mod die Coop-Fassung (sie zählt nur hoch, wenn sich an diesem Spiel etwas ändert):
 
 | Spiel / Mod | Coop-Fassung |
 |---|---|
-| Gothic I | u217 |
-| Gothic II | u217 |
-| Othello | u217 |
-| Legend of Ahssun | u217 |
-| The Chronicles of Myrtana: Archolos | u217 |
+| Gothic I | u237 |
+| Gothic II | u237 |
+| Othello | u237 |
+| Legend of Ahssun | u237 |
+| The Chronicles of Myrtana: Archolos | u237 |
 
 **Beide PCs brauchen dieselbe Coop-Fassung** – beim Verbinden wird sie verglichen. Sie steht im Hauptmenü unten
 („GothicCoop uNN“). Änderungen je Version: [`CHANGELOG.md`](CHANGELOG.md).
@@ -85,6 +85,9 @@ Projektversion **0.9.1** – je Spiel/Mod die Coop-Fassung (sie zählt nur hoch,
 - **Teleport-Rune** zum Mitspieler (auch über Welten), Mitspieler-Markierung (Name über dem Kopf, Pfeil am Bildrand, auf der Karte).
 
 **Spielstände**
+- **Speichern nur gemeinsam** (u237): beide PCs speichern im selben Moment (gemessen: innerhalb einer Zehntelsekunde). Kann der
+  Mitspieler gerade nicht mitspeichern (Dialog, Inventar offen, Laden), lehnt das Spiel das Speichern ab und nennt den Grund
+  („Diego: Dialog“); die Auto-Sicherung wartet darauf.
 - **Gemeinsames Speichern und Laden:** der Host wählt, beide laden denselben Stand, jeder mit seinem Helden; fehlende Weltdateien
   werden geprüft übertragen. Vorschau beider PCs in der Liste. Wer einen Stand mit der Welt des Partners allein lädt (etwa nach
   einem Neustart), bekommt ebenfalls seinen eigenen Helden.
@@ -97,17 +100,21 @@ Projektversion **0.9.1** – je Spiel/Mod die Coop-Fassung (sie zählt nur hoch,
 - **COOP-Menü** im Hauptmenü: Figur, Aussehen (auch „wie ein NPC“) mit 3D-Vorschau, Verbinden über IP oder **Steam**
   (Freundesliste, Einladungen), Spielstand-Liste. Maus in allen Gothic-Menüs. Deutsch und Englisch.
 - Im Esc-Menü „Spielstand wählen“ und „Hauptmenü“ (zurück zum Startbildschirm ohne Neustart).
-- **Coop-Testlauf** (Shift+F11, nur auf einem Test-Spielstand): prüft beide Seiten automatisch und meldet OK/FEHLER je Bereich.
+- **Coop-Tasten** (neu in u226): jede Coop-Taste ist unter Einstellungen › COOP › Coop-Tasten einstellbar (jede Taste, auch mit
+  Shift/Strg/Alt); belegt Gothic die Taste selbst, steht das dabei. **Hilfe** im Spiel (H, bzw. F1, wenn Gothic H belegt) mit allen
+  Tasten, **Coop-Fenster** (Shift+K) zum Hosten, Beitreten und Trennen auch im Spiel, kurze **Einführung** vor einem neuen Spiel.
+- **Mitspieler-Anzeige** (u226): Name über dem Kopf, Entfernung, hinter Wänden und der Pfeil am Bildrand sind einstellbar
+  (Einstellungen › COOP › Mitspieler-Anzeige).
 
 ## Teststand
 
 | | Stand |
 |---|---|
-| **Gothic 2 Die Nacht des Raben** (2.6) | Hauptspiel der Entwicklung. Automatischer Testlauf auf einem PC (Host und Client) mit der Entwicklungs-DLL u200 (die Release-Pakete sind aus demselben Quelltext gebaut und nicht eigens getestet): Gilden, Coop-Inventar, Truhen, Türen, Mechanismen, Auslöser, Gegenstände der NPCs, Speichern und Laden Host 110 OK, Client 109 OK, 0 Fehler (7 bzw. 8 Schritte nur auf der anderen Seite); getrennte Welten und Weltprozess (u199) Host 60 OK, Client 55 OK, 0 Fehler. Lange automatische Läufe mit Prüfrunden (Vergleich beider Seiten), inzwischen bis zum Spielende (mit erhöhtem Leben, also kein echter Test der Kämpfe) – meist ohne Abweichung, gelegentlich einzelne Abweichungen. Die allgemeinen Änderungen aus u201 bis u217 sind in den Läufen von Legend of Ahssun und Archolos geprüft, nicht noch einmal in Gothic 2 selbst. Das Coop-Inventar ist vor allem automatisch geprüft; ein Spieltest mit zwei Personen über das echte Netz steht noch aus. |
+| **Gothic 2 Die Nacht des Raben** (2.6) | Hauptspiel der Entwicklung. Automatischer Testlauf auf einem PC (Host und Client) mit der Entwicklungs-DLL u200 (die Release-Pakete sind aus demselben Quelltext gebaut und nicht eigens getestet): Gilden, Coop-Inventar, Truhen, Türen, Mechanismen, Auslöser, Gegenstände der NPCs, Speichern und Laden Host 110 OK, Client 109 OK, 0 Fehler (7 bzw. 8 Schritte nur auf der anderen Seite); getrennte Welten und Weltprozess (u199) Host 60 OK, Client 55 OK, 0 Fehler. Lange automatische Läufe mit Prüfrunden (Vergleich beider Seiten), inzwischen bis zum Spielende (mit erhöhtem Leben, also kein echter Test der Kämpfe) – meist ohne Abweichung, gelegentlich einzelne Abweichungen. Die allgemeinen Änderungen aus u201 bis u217 sind in den Läufen von Legend of Ahssun und Archolos geprüft, nicht noch einmal in Gothic 2 selbst. Das Coop-Inventar ist vor allem automatisch geprüft; ein Spieltest mit zwei Personen über das echte Netz steht noch aus. Mit u237 (0.10.0): automatischer Welten-Testlauf auf einem PC (Verbinden, getrennte Welten, Weltprozess, gemeinsames Speichern und Laden, Teleport) Host 60 OK, Client 56 OK, 0 Fehler; „Speichern nur gemeinsam“ im Log nachvollzogen („kann gerade nicht mitspeichern: lädt / Dialog“, danach „kann wieder mitspeichern“). |
 | **Gothic 1** (1.08k, Steam/GOG) | Zuletzt getestet mit genau der Release-DLL von 0.6.0 (u197): Gilden, Coop-Inventar, Türen, Gegenstände der NPCs, Speichern und Laden Host 84 OK, Client 82 OK, je 1 Fehler im Testwerkzeug selbst (ein Diagnose-Schritt suchte den Apfel unter seinem Gothic-2-Namen, behoben in u198) – 31 bzw. 33 Schritte übersprungen, am Test-Spielstand stehen keine Truhe und kein passender Hebel oder Auslöser; getrennte Welten und Weltprozess Host 55 OK, Client 50 OK, 0 Fehler (4 bzw. 9 übersprungen). Die allgemeinen Änderungen aus u198 bis u217 (Beitritt nur mit demselben Spiel, Skripte des Clients, Begleiter, Zauber des Partners, Handel, Schlafen beim Client, Tote nach dem Weltwechsel, Laden, Absicherungen gegen Gesprächssperren) sind in Gothic 1 noch nicht getestet. Hebel und Auslöser sind in Gothic 1 noch nicht im Spiel geprüft. Von Hand zuletzt mit u44 gespielt; die Neuerungen seitdem (Coop-Inventar, Missions-Gegenstände, Mechanismen, Auslöser) noch nicht von Hand und nicht über das echte Netz. |
 | **Othello** 4.x (Gothic 1) | Zuletzt getestet mit genau der Release-DLL von 0.6.0 (u197), gestartet mit den Gothic-1-Skripten (die Skript-Weiche stellte beim Start auf Othello um): Gilden, Coop-Inventar, Truhen, Türen, Mechanismen, Auslöser, Gegenstände der NPCs, Speichern und Laden Host 99 OK, Client 97 OK, je 4 Fehler – 3 an einem Tor (siehe unten), 1 im Testwerkzeug selbst (behoben in u198); getrennte Welten und Weltprozess Host 55 OK, Client 50 OK, 0 Fehler. Die allgemeinen Änderungen aus u198 bis u217 sind in Othello noch nicht getestet. Von Hand zuletzt mit dem Othello-Coop v106 (= Othello-Coop 0.1.2) gespielt; seitdem sind die allgemeinen Änderungen dazugekommen. |
 | **Legend of Ahssun** 1.2.0 (Gothic 2) | Eigenes Profil in der Gothic-2-DLL – derselbe Coop wie für Gothic 2, kein eigenes Paket. Vor u199 wurden alle 3.914 eigenen Skript-Funktionen der Mod gelesen und jeder schwere Befund am Code geprüft, seit u200 auch alle Werte-Vorschläge, alle NPC-Zustände, die den Helden ansprechen, und alle Wächter der Welt-Inits. Voller automatischer Testlauf mit einem Spielstand der Mod (Entwicklungs-DLL u204): Host 240 OK, Client 236 OK, 0 Fehler – die tote Fleischwanze nach dem Betreten einer Welt ist behoben (u203); gemeinsames Laden, Weltwechsel, Weltprozess und Zuschau-Fenster darin bestanden. Dazu automatische Läufe in der Mod seit u170. Seit 0.8.0 (u211–u217): sieben einstündige automatische Testläufe am 08.11.2026 – kein Absturz, ein Hänger beim Weltwechsel im zweiten Lauf (danach kam in u213 eine Hänger-Diagnose, seitdem keiner mehr); vergrößerte Monster schweben beim Client nicht mehr über ihrem Platz (u214/u215); abschließende Prüfrunden der letzten fünf Läufe 0 Fehler (Host 31 OK, Client 25–31 OK). |
-| **The Chronicles of Myrtana: Archolos** (Gothic 2) | Neu in 0.8.0: eigenes Profil in der Gothic-2-DLL (erkannt an `Data\KM_Scripts.mod`), derselbe Coop wie für Gothic 2, kein eigenes Paket. Dafür behoben: ein Absturz beim ersten Speichern, der Prolog auf dem Schiff kam im Coop nicht zu Ende, Werte der Mod je PC (Abblenden, Abstands-Warnungen, Zähler der Zwischensequenzen). Geprüft in langen automatischen Testläufen auf einem PC (Host und Client, beide Helden automatisch gespielt): zusammen etwa 7 Stunden ohne Absturz; Prüfrunden ohne Fehler bis auf eine Sitzung (Waffenmodus und Animation von NPCs in der Nähe). Gespielt sind darin bisher der Prolog und Kapitel 1 bis Silbach (Ruperts Geleit). Seit 0.8.0 (u211–u217) dafür behoben: ein Absturz beim Laden von Spielständen, die während eines Abblendens gespeichert wurden, NPCs, die nach einem nie beendeten Abblenden nicht mehr mit dem Helden redeten (u217), vergrößerte Monster, die beim Client hoch über ihrem Platz schwebten; dazu eine Absicherung gegen eine Gesprächssperre nach abgebrochenen Gesprächen (aus den Mod-Skripten abgeleitet, in den Läufen nicht ausgelöst). Sieben einstündige automatische Testläufe am 08.11.2026: kein Absturz, abschließende Prüfrunden 0 Fehler (Host 25–31 OK, Client 25–31 OK). Von Hand noch nicht gespielt. |
+| **The Chronicles of Myrtana: Archolos** (Gothic 2) | Neu in 0.8.0: eigenes Profil in der Gothic-2-DLL (erkannt an `Data\KM_Scripts.mod`), derselbe Coop wie für Gothic 2, kein eigenes Paket. Dafür behoben: ein Absturz beim ersten Speichern, der Prolog auf dem Schiff kam im Coop nicht zu Ende, Werte der Mod je PC (Abblenden, Abstands-Warnungen, Zähler der Zwischensequenzen). Geprüft in langen automatischen Testläufen auf einem PC (Host und Client, beide Helden automatisch gespielt): zusammen etwa 7 Stunden ohne Absturz; Prüfrunden ohne Fehler bis auf eine Sitzung (Waffenmodus und Animation von NPCs in der Nähe). Gespielt sind darin bisher der Prolog und Kapitel 1 bis Silbach (Ruperts Geleit). Seit 0.8.0 (u211–u217) dafür behoben: ein Absturz beim Laden von Spielständen, die während eines Abblendens gespeichert wurden, NPCs, die nach einem nie beendeten Abblenden nicht mehr mit dem Helden redeten (u217), vergrößerte Monster, die beim Client hoch über ihrem Platz schwebten; dazu eine Absicherung gegen eine Gesprächssperre nach abgebrochenen Gesprächen (aus den Mod-Skripten abgeleitet, in den Läufen nicht ausgelöst). Sieben einstündige automatische Testläufe am 08.11.2026: kein Absturz, abschließende Prüfrunden 0 Fehler (Host 25–31 OK, Client 25–31 OK). Seit 0.9.1 (u218–u237) behoben: Szenen und Zwischensequenzen des Prologs auf dem Schiff (der Kapitän bleibt nicht mehr hinter dem Gitter), Trialoge (Sprecher, Reihenfolge und Plätze der NPCs beim Partner), Kopfdrehung gleich, beide PCs speichern im selben Moment – geprüft in automatischen Testläufen mit Aufnahmen am 09.11.2026. Von Hand noch nicht gespielt. |
 | **Andere Mods** | Gothic 1/2 mit anderen Mods lassen sich installieren; der Installer zeigt die Mods im Ordner an. Es läuft das Fundament des Coops; was eine Mod an Anpassungen braucht, kommt über eine Profil-Datei (siehe [Einstellungen](#einstellungen)). Nicht gezielt geprüft. |
 
 Bekannte Grenzen:
@@ -127,7 +134,7 @@ mit Patch 2.6) oder Gothic 1 mit Othello 4.x. Union 1.0m bringen Installer und Z
 
 ### Mit dem Installer (empfohlen)
 
-1. Unter [Releases](../../releases) `Gothic-I-II-Universal-Coop-0.9.1-Setup.exe` laden und starten.
+1. Unter [Releases](../../releases) `Gothic-I-II-Universal-Coop-0.10.0-Setup.exe` laden und starten.
 2. Den **Spielordner** wählen (den Ordner, in dem `system` liegt; Steam- und GOG-Ordner werden gesucht). Ein Spiel wählt man
    nicht: Der Installer erkennt am Inhalt Gothic 1, Othello, Gothic 2 und die Mods im Ordner (z. B. Legend of Ahssun) und zeigt,
    welche unterstützt sind. Er installiert den Coop der Engine mit den Skripten aller Varianten – wechselt die Mod später
@@ -141,7 +148,7 @@ Ohne Fenster: `Setup.exe /still /ordner:"<Spielordner>" [/spiel:g1|g2|othello|lo
 
 ### Mit der ZIP
 
-1. `Gothic-I-II-Universal-Coop-0.9.1.zip` laden – eine ZIP für alle Spiele.
+1. `Gothic-I-II-Universal-Coop-0.10.0.zip` laden – eine ZIP für alle Spiele.
 2. Den Inhalt **eines** ihrer Ordner in den Spielordner kopieren (dort, wo `system` liegt), vorhandene Dateien ersetzen:
    `Gothic 1 + Othello` für Gothic 1 (auch mit Othello), `Gothic 2 + Mods` für Gothic 2 (auch mit Legend of Ahssun und anderen Mods).
 3. `Union 1.0m (nur wenn Union fehlt)` nur, wenn im Spielordner noch kein Union ist (`system\Shw32.dll` fehlt) – nie bei Othello.
@@ -161,8 +168,9 @@ behält der Installer.
    angemeldet; Einladung über die Freundesliste).
 4. Spielstand laden oder **gemeinsames neues Spiel** – der Host wählt.
 
-Tasten: **Shift+F5** Zuschau-Fenster beim Mitspieler · **Shift+F11** Coop-Testlauf (nur auf einem Test-Spielstand – er ändert
-Uhrzeit, Tagebuch und legt eine Sicherung an) · **Shift+F12** Weltprozess aus/an.
+Tasten (Vorgaben – alle einstellbar unter Einstellungen › COOP › Coop-Tasten): **H** (bzw. F1) Hilfe · **Shift+K** Coop-Fenster ·
+**I** Coop-Inventar · **Shift+T** Teleport zum Mitspieler (Rune im Inventar) · **Shift+F5** Zuschau-Fenster beim Mitspieler ·
+**Shift+F4** Mitspieler wiederbeleben · **F6** Welt neu abgleichen. Ältere Stände: Esc › „Spielstand wählen“.
 
 ## Einstellungen
 

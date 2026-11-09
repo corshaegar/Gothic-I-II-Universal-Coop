@@ -76,7 +76,6 @@ namespace GOTHIC_ENGINE {
         MainThreadId = GetCurrentThreadId();
         CoopLegoNoteEntries();   // u170 (P177): Ziele der GT-Spruenge an den Eingaengen, bevor Skripte (LeGo) einhaken (CoopAudit.cpp)
         ToggleGameLogKey = ReadConfigKey("toggleGameLogKey", "KEY_P");
-        ToggleGameStatsKey = ReadConfigKey("toggleGameStatsKey", "KEY_O");
         StartServerKey = ReadConfigKey("startServerKey", "KEY_F1");
         StartConnectionKey = ReadConfigKey("startConnectionKey", "KEY_F2");
         ReinitPlayersKey = ReadConfigKey("reinitPlayersKey", "KEY_F3");
@@ -121,15 +120,8 @@ namespace GOTHIC_ENGINE {
                 OthelloCompatLog("%s", unlock.c_str());
             CoopOthelloSabotageCheck("Game_Init", true);
         }
-        if (CoopConfig.contains("editmode")) {
-            auto editModeValue = string(CoopConfig["editmode"].get<std::string>().c_str());
-            if (editModeValue.Compare("MARVIN")) {
-                WorldEditMode = true;
-                Thread  t;
-                ClientThread = &t;
-                ChatLog("World edit mode is activated!");
-            }
-        }
+        // u237 (Nutzer 09.11.: "debug sachen nicht in der Release version"): der Welt-Bearbeitungsmodus der Vorlage (GothicCoopConfig.json
+        // "editmode": "MARVIN" - NPCs mit F1/F4 einsetzen und entfernen, Abgleich aus) ist entfernt; WorldEditMode bleibt immer aus
     }
 
     // --- v39: Verbinden, Neuverbinden, Rollenwechsel -------------------------------------------------------------------
@@ -235,13 +227,15 @@ namespace GOTHIC_ENGINE {
             if (st == 4 && !CoopClientStop) {
                 CoopClientStop = 1;   // der Faden zerstoert jetzt seinen ENet-Host und meldet 5
                 CoopSaveSyncConnectionLost();   // v76: eigenen Helden merken - beim Wiederverbinden gilt er (Variante b)
-                ChatLog(CoopTr("Verbindung zum Host verloren - Shift+F2 verbindet neu, Shift+F1 startet einen Host.", "Lost connection to the host - Shift+F2 reconnects, Shift+F1 starts a host."), zCOLOR(255, 200, 80, 255));
+                ChatLog(string((std::string(CoopTr("Verbindung zum Host verloren - ", "Lost connection to the host - ")) + CoopKeyText(CK_JOIN) +
+                    CoopTr(" verbindet neu, ", " reconnects, ") + CoopKeyText(CK_HOST) + CoopTr(" startet einen Host.", " starts a host.")).c_str()), zCOLOR(255, 200, 80, 255));   // u226 (P268): eingestellte Tasten
                 OthelloCompatLog("[%lld s, %s] Netz: Verbindung zum Host verloren (%s)", DiagSeconds(), DiagRole(), player ? "im Spiel" : "im Hauptmenue");   // v71
             }
             else if (st == 3 || st == 5) {
                 CoopClientEnded();
                 if (st == 3 && !CoopPendingRole)
-                    ChatLog(CoopTr("Nicht verbunden - Shift+F2 versucht es erneut, Shift+F1 startet einen Host.", "Not connected - Shift+F2 tries again, Shift+F1 starts a host."), zCOLOR(255, 200, 80, 255));
+                    ChatLog(string((std::string(CoopTr("Nicht verbunden - ", "Not connected - ")) + CoopKeyText(CK_JOIN) + CoopTr(" versucht es erneut, ", " tries again, ") +
+                        CoopKeyText(CK_HOST) + CoopTr(" startet einen Host.", " starts a host.")).c_str()), zCOLOR(255, 200, 80, 255));
             }
         }
         if (ServerThread && CoopServerState == 5) {
@@ -311,16 +305,40 @@ namespace GOTHIC_ENGINE {
         CoopStartClient();
     }
 
+    void CoopKeysGamePulse();    // u226 (P268): CoopKeys.cpp - Hinweise im Spiel (Hilfe-Taste, Hosten/Firewall, Mitspieler bewusstlos)
+    void CoopKeysWorldGone();    // u226: CoopKeys.cpp - NPC-Zeiger der alten Welt verwerfen
+    void CoopKeysMenuKeyPulse(); // u226: CoopKeys.cpp - Hilfe-/Fenster-Taste am Tastenzustand, Menue ueber eigenen Tastencode
+
+    // u225 (P262): Bildzeit je Abschnitt von Game_Loop - CoopDiag.cpp schreibt alle 30 s die Zeile "Bildzeit"
+    void CoopFrameProfAdd(int abschnitt, double ms);
+    void CoopFrameProfFrame(double startMs, double gtMs);
+    static double FpNowMs() {
+        static LARGE_INTEGER f = {};
+        if (!f.QuadPart)
+            QueryPerformanceFrequency(&f);
+        LARGE_INTEGER t;
+        QueryPerformanceCounter(&t);
+        return (double)t.QuadPart * 1000.0 / (double)f.QuadPart;
+    }
+    struct FpFrame {
+        double start, mark;
+        FpFrame() { start = mark = FpNowMs(); }
+        void abschnitt(int a) { const double t = FpNowMs(); CoopFrameProfAdd(a, t - mark); mark = t; }
+        ~FpFrame() { CoopFrameProfFrame(start, FpNowMs() - start); }
+    };
+
     void Game_Loop() {
         PluginState = "GameLoop";
         if (IsLoadingLevel) {
             return;
         }
 
+        FpFrame fp;   // u225 (P262)
         CurrentMs = GetCurrentMs();
         GameChat->Render();
         GameStatsLoop();
         PacketProcessorLoop();
+        fp.abschnitt(0);          // Netz
         CoopSlotGuardPulse();     // u88 (P112): geloeschte Gegenstaende in NPC-Slots austragen, bevor die Engine sie anfasst (Helpers.cpp)
         CoopNpcLagePulse();       // u164 (P171): NPCs mit ungueltiger Lage (NaN) an ihren Ort setzen (Helpers.cpp)
         DamageProcessorLoop();
@@ -329,11 +347,19 @@ namespace GOTHIC_ENGINE {
         CoopDiagPulse();
         CoopDiagClientPulse();
         CoopDialogWatchPulse();   // 18.10.2026: haengende Dialoge (verlorenes EV_PROCESSINFOS) wieder anstossen
+        fp.abschnitt(1);          // Kampf
+        PluginState = "WorldSync";
         CoopWorldSyncPulse();     // v13: Weltbestand anfragen (Client) / senden (Host)
+        fp.abschnitt(2);          // Welt
+        PluginState = "DialogSync";
         CoopDialogSyncPulse();    // v26: eigener Dialog melden, NPCs in fremden Dialogen angehalten lassen
+        fp.abschnitt(3);          // Dialog
+        PluginState = "Tests";
         CoopLogShipPulse();       // v34/v35: Coop-Log zum Partner (Client -> Host und Host -> Client)
-        CoopSelfTestPulse();      // v37: Coop-Testlauf (Shift+F11)
+        CoopSelfTestPulse();      // v37: Coop-Testlauf (u237: nur Entwicklungsbau, Start ueber -cooptest)
         CoopAutoTestPulse();      // u49: automatischer Testlauf (-cooptest:host/client)
+        fp.abschnitt(4);          // Test
+        fp.abschnitt(5);          // Testinstanz
         CoopEnsureHookOrder();
         {   // u170 (P177): LeGo-Haken vor GT - kopierten GT-Sprung versetzen (CoopAudit.cpp)
             static long long nextLego = 0;
@@ -357,6 +383,7 @@ namespace GOTHIC_ENGINE {
             LastUpdateListOfVisibleNpcs = CurrentMs;
             PluginState = "GameLoop";
         }
+        fp.abschnitt(6);      // Listen
 
         PluginState = "Worlds";
         CoopWorldsPulse();    // u29: getrennte Welten - Meldungen, wer wo ist
@@ -371,8 +398,10 @@ namespace GOTHIC_ENGINE {
         CoopTruhePulse();     // u97: Coop-Truhe (Benutzen -> Fenster, Schliessen, Gegenstand im Inventar)
         PluginState = "PartnerMarker";
         CoopPartnerMarkerPulse();   // v104: Name ueber dem Kopf / Pfeil am Bildrand / Marke auf Othellos Karte
+        CoopKeysGamePulse();        // u226 (P268): Hinweise (Hilfe-Taste, Hosten/Firewall, Mitspieler bewusstlos)
         PluginState = "Camera";
         CoopCamPulse();       // v48: Zuschau-Fenster (Kamera je Bild, Automatik ausserhalb des Radius)
+        fp.abschnitt(7);      // Fern/Kamera
         PluginState = "Look";
         CoopLookPulse();      // v55: Name/Aussehen aus dem COOP-Menue uebernehmen
         if (CoopLookTakeChanged() && Myself)
@@ -420,6 +449,7 @@ namespace GOTHIC_ENGINE {
             for (auto const& key : npcsToErase) {
                 SyncNpcs.erase(key);
             }
+            fp.abschnitt(8);   // NPCs
 
             PluginState = "DisplayPing";
             if ((ServerThread || ClientThread) && !CoopRecordMode()) {   // v58: Fassung oben links, solange Coop laeuft (vorher nur "Ping:" beim Client); u171: nicht in Aufnahmen
@@ -458,11 +488,13 @@ namespace GOTHIC_ENGINE {
         PluginState = "KeysPressedChecks";
         if (!IsPlayerTalkingWithAnybody() && !WorldEditMode) {
             const bool shift = CoopShiftDown();   // v39: Coop-Tasten nur noch mit Shift
-            if (shift && zinput->KeyToggled(StartServerKey)) {
+            // u226 (P264): alle Coop-Tasten aus Einstellungen > COOP > Coop-Tasten (CoopKeys.cpp) - Vorgaben wie bisher
+            CoopKeysMenuKeyPulse();   // u226 (P265/P266): Hilfe- und Fenster-Taste - Menue ueber Gothics Menue-Taste
+            if (CoopKeyHit(CK_HOST)) {
                 CoopKeyHost();
             }
 
-            if (shift && zinput->KeyToggled(StartConnectionKey)) {
+            if (CoopKeyHit(CK_JOIN)) {
                 CoopKeyClient();
             }
 
@@ -472,12 +504,12 @@ namespace GOTHIC_ENGINE {
 
             CoopTruheKeyPulse(shift);   // u101: Taste fuers Coop-Inventar (COOP-Einstellungen, Vorgabe I) - oeffnen bzw. schliessen
 
-            if (shift && zinput->KeyToggled(KEY_F12)) {
-                CoopWpHostToggle();   // u33: Weltprozess starten/beenden (CoopWorldProcess.cpp)
+            if (CoopKeyHit(CK_RUNE)) {
+                CoopTeleportKey();   // u226 (P264): Teleport zum Mitspieler wie die Rune (Rune im Inventar)
             }
 
             // v51 (O1): nicht im Test-Modus - dort ist Shift+F3 Othellos Noclip (Helpers.cpp)
-            if (shift && zinput->KeyToggled(ReinitPlayersKey) && CoopReinitKeyAllowed(ReinitPlayersKey)) {
+            if (CoopKeyHit(CK_REINIT) && CoopReinitKeyAllowed(CoopKeyDik(CK_REINIT))) {
                 ChatLog("Respawning all coop friend NPCs.");
 
                 std::map<oCNpc*, string> PlayerNpcsCopy = PlayerNpcs;
@@ -487,42 +519,6 @@ namespace GOTHIC_ENGINE {
                         SyncNpcs[name]->ReinitCoopFriendNpc();
                     }
                 }
-            }
-        }
-
-        if (WorldEditMode) {
-            if (zinput->KeyToggled(StartServerKey)) {
-                if (player->GetObjectName() == "PC_HERO") {
-                    return;
-                }
-
-                auto currentNpc = player;
-                Myself->npc->SetAsPlayer();
-
-                ogame->spawnman->SpawnNpc(currentNpc, currentNpc->GetPositionWorld(), 0.f);
-                ChatLog(string::Combine("%s was added to the world!", string(currentNpc->GetObjectName())));
-            }
-
-            if (zinput->KeyToggled(RevivePlayerKey)) {
-                if (player->GetObjectName() == "PC_HERO") {
-                    return;
-                }
-
-                auto currentNpc = player;
-                Myself->npc->SetAsPlayer();
-
-                CoopDeleteNpc(ogame->spawnman, currentNpc);
-                ogame->GetGameWorld()->RemoveVob(currentNpc);
-
-                ChatLog(string::Combine("%s was removed from the world!", string(currentNpc->GetObjectName())));
-            }
-
-            if (zinput->KeyToggled(ToggleGameLogKey)) {
-                if (player->GetObjectName() == "PC_HERO") {
-                    return;
-                }
-
-                Myself->npc->SetAsPlayer();
             }
         }
 
@@ -577,6 +573,7 @@ namespace GOTHIC_ENGINE {
     }
 
     void Game_SaveBegin() {
+        CoopSaveSyncOnSaveBegin();   // u227 (P270): Partner speichert gleichzeitig mit (SAVE_REQ schon jetzt)
         CoopCamSuspendForSave();   // v44 (Vollbild-Kamera, Sperr-Bit +0x79C); v48: tut nichts mehr
         IsSavingGame = true;
         CoopDiffHpSaveBegin();     // v70: NPCs mit skalierten HP vor dem Speichern auf den Grundwert
@@ -617,6 +614,7 @@ namespace GOTHIC_ENGINE {
         CoopHitWorldGone();          // Bestrafungs-Merker, Schlag-Erlaubnisse/-Ergebnisse (CoopHitAuthority.cpp)
         CoopFigureHitsWorldGone();   // C20-Merker (Hooks.cpp)
         CoopPartnerMarkerWorldGone(); // v104: Sicht-Merker je Figur (CoopPartnerMarker.cpp)
+        CoopKeysWorldGone();          // u226: Merker "Mitspieler bewusstlos" je Figur (CoopKeys.cpp)
         CoopNpcLageWorldGone();      // u164 (P171): Versuche des Lage-Schutzes je NPC (Helpers.cpp)
         CoopSaveSyncStandHeroForget(); // u168 (P175): Lage des Helden des Stands gilt bis zum naechsten Laden (CoopSaveSync.cpp)
         CoopMsgItemsWorldGone();       // u169 (P176): gemerkte Gegenstaende laufender Nachrichten (Helpers.cpp)

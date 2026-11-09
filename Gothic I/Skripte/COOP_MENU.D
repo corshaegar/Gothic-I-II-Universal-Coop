@@ -596,7 +596,7 @@ instance MENUITEM_COOP_SETTINGS(C_MENU_ITEM_DEF)
 {
 	backpic = MENU_ITEM_BACK_PIC;
 	text[0] = "COOP-Einstellungen ...";
-	text[1] = "Kamera, Schwierigkeitsgrad, Abgleich, Steam und Sprache - der Host stellt vor dem Start ein.";
+	text[1] = "Kamera, Schwierigkeit, Tasten, Hilfe - der Host stellt vor.";
 	posx = COOPHUB_X;
 	posy = 5640;
 	dimx = COOPHUB_DX;
@@ -604,7 +604,7 @@ instance MENUITEM_COOP_SETTINGS(C_MENU_ITEM_DEF)
 	onselaction[0] = SEL_ACTION_STARTMENU;
 	onselaction_s[0] = "MENU_OPT_COOP";
 	flags = flags | IT_TXT_CENTER;
-	userString[2] = "COOP settings ..."; userString[3] = "Camera, difficulty, sync, Steam and language - the host sets them before starting.";
+	userString[2] = "COOP settings ..."; userString[3] = "Camera, difficulty, keys, help - the host decides.";
 };
 
 instance MENUITEM_COOP_STOP(C_MENU_ITEM_DEF)
@@ -1056,7 +1056,7 @@ instance MENUITEM_OPT_COOP(C_MENU_ITEM_DEF)
 {
 	backpic = MENU_ITEM_BACK_PIC;
 	text[0] = "COOP";
-	text[1] = "Coop-Kamera, Schwierigkeitsgrad, Abgleich (Quests, Tagebuch, Gegenstände, Spielstände), Steam, Sprache, Taste fürs Coop-Inventar.";
+	text[1] = "Coop: Kamera, Schwierigkeit, Abgleich, Tasten, Hilfe ...";
 	posx = 0;
 	posy = COOP_OPT_Y + MENU_OPT_DY * 6;
 	dimx = 8192;
@@ -1064,7 +1064,7 @@ instance MENUITEM_OPT_COOP(C_MENU_ITEM_DEF)
 	onselaction[0] = SEL_ACTION_STARTMENU;
 	onselaction_s[0] = "MENU_OPT_COOP";
 	flags = flags | IT_TXT_CENTER;
-	userString[2] = "COOP"; userString[3] = "Coop camera, difficulty, sync (quests, diary, items, saves), Steam, language, coop inventory key.";
+	userString[2] = "COOP"; userString[3] = "Coop: camera, difficulty, sync, keys, help ...";
 };
 
 instance MENU_OPT_COOP(C_MENU_DEF)
@@ -1075,12 +1075,14 @@ instance MENU_OPT_COOP(C_MENU_DEF)
 	items[2] = "MENUITEM_OPTCOOP_DIFF";
 	items[3] = "MENUITEM_OPTCOOP_SYNC";
 	items[4] = "MENUITEM_OPTCOOP_STEAM";
-	items[5] = "MENUITEM_OPTCOOP_LANG";
-	items[6] = "MENUITEM_OPTCOOP_LANG_CHOICE";
-	items[7] = "MENUITEM_OPTCOOP_INVKEY";
-	items[8] = "MENUITEM_OPTCOOP_INVKEY_CHOICE";
-	items[9] = "MENUITEM_OPTCOOP_BACK";
-	items[10] = "MENUITEM_OPTCOOP_VERSION";
+	items[5] = "MENUITEM_OPTCOOP_KEYS";
+	items[6] = "MENUITEM_OPTCOOP_MARK";
+	items[7] = "MENUITEM_OPTCOOP_WINDOW";
+	items[8] = "MENUITEM_OPTCOOP_HELP";
+	items[9] = "MENUITEM_OPTCOOP_LANG";
+	items[10] = "MENUITEM_OPTCOOP_LANG_CHOICE";
+	items[11] = "MENUITEM_OPTCOOP_BACK";
+	items[12] = "MENUITEM_OPTCOOP_VERSION";
 	defaultoutgame = 1;
 	defaultingame = 1;
 	flags = flags | MENU_SHOW_INFO;
@@ -1166,7 +1168,7 @@ instance MENUITEM_OPTCOOP_LANG(C_MENU_ITEM_DEF)
 	text[1] = "Sprache der Coop-Menüs und -Meldungen (links/rechts): Deutsch oder English.";
 	fontname = MENU_FONT_SMALL;
 	posx = 1000;
-	posy = COOP_OPT_Y + MENU_OPT_DY * 4 + 250;
+	posy = COOP_OPT_Y + MENU_OPT_DY * 7 + 100;
 	dimx = 3800;
 	dimy = 400;
 	onselaction[0] = SEL_ACTION_UNDEF;
@@ -1181,7 +1183,7 @@ instance MENUITEM_OPTCOOP_LANG_CHOICE(C_MENU_ITEM_DEF)
 	text[0] = "Deutsch|English";
 	fontname = MENU_FONT_SMALL;
 	posx = 5000;
-	posy = COOP_OPT_Y + MENU_OPT_DY * 4 + 250 + 25;
+	posy = COOP_OPT_Y + MENU_OPT_DY * 7 + 100 + 25;
 	dimx = MENU_SLIDER_DX;
 	dimy = MENU_CHOICE_DY;
 	onchgsetoption = "coopLang";
@@ -1191,37 +1193,66 @@ instance MENUITEM_OPTCOOP_LANG_CHOICE(C_MENU_ITEM_DEF)
 	
 };
 
-// u101: Taste fuers Coop-Inventar - Gothic.ini [GOTHICCOOP] coopInvKey 0-7 (GothicCoop belegt 1 = I vor)
-instance MENUITEM_OPTCOOP_INVKEY(C_MENU_ITEM_DEF)
+// u226 (P263-P267): Coop-Tasten (ersetzt die Auswahl coopInvKey - jede Taste, auch fuers Coop-Inventar) und Mitspieler-Anzeige
+// als ganze Zeilen, darunter Coop-Fenster (MENU_COOP, auch im Spiel) und Hilfe als halbe Knoepfe, dann die Sprache.
+instance MENUITEM_OPTCOOP_KEYS(C_MENU_ITEM_DEF)
 {
 	backpic = MENU_ITEM_BACK_PIC;
-	text[0] = "Coop-Inventar";
-	text[1] = "Taste, die das gemeinsame Coop-Inventar direkt öffnet bzw. schließt - auch ohne den Gegenstand.";
-	fontname = MENU_FONT_SMALL;
-	posx = 1000;
-	posy = COOP_OPT_Y + MENU_OPT_DY * 5 + 250;
-	dimx = 3800;
-	dimy = 400;
-	onselaction[0] = SEL_ACTION_UNDEF;
-	flags = flags | IT_EFFECTS_NEXT;
-	userString[2] = "Coop inventory"; userString[3] = "Key that opens or closes the shared coop inventory directly - also without the item.";
+	text[0] = "Coop-Tasten";
+	text[1] = "Jede Coop-Taste frei belegen - auch Inventar und Teleport.";
+	posx = 0;
+	posy = COOP_OPT_Y + MENU_OPT_DY * 4;
+	dimx = 8192;
+	dimy = 750;
+	onselaction[0] = SEL_ACTION_STARTMENU;
+	onselaction_s[0] = "MENU_OPT_COOP_KEYS";
+	flags = flags | IT_TXT_CENTER;
+	userString[2] = "Coop keys"; userString[3] = "Bind every coop key freely - also inventory and teleport.";
 };
 
-instance MENUITEM_OPTCOOP_INVKEY_CHOICE(C_MENU_ITEM_DEF)
+instance MENUITEM_OPTCOOP_MARK(C_MENU_ITEM_DEF)
 {
-	backpic = MENU_CHOICE_BACK_PIC;
-	type = MENU_ITEM_CHOICEBOX;
-	text[0] = "aus|I|J|K|U|G|T|V";
-	fontname = MENU_FONT_SMALL;
-	posx = 5000;
-	posy = COOP_OPT_Y + MENU_OPT_DY * 5 + 250 + 25;
-	dimx = MENU_SLIDER_DX;
-	dimy = MENU_CHOICE_DY;
-	onchgsetoption = "coopInvKey";
-	onchgsetoptionsection = "GOTHICCOOP";
-	flags = flags & ~IT_SELECTABLE;
+	backpic = MENU_ITEM_BACK_PIC;
+	text[0] = "Mitspieler-Anzeige";
+	text[1] = "Name, Entfernung, Pfeil am Rand, Farbe, Karte.";
+	posx = 0;
+	posy = COOP_OPT_Y + MENU_OPT_DY * 5;
+	dimx = 8192;
+	dimy = 750;
+	onselaction[0] = SEL_ACTION_STARTMENU;
+	onselaction_s[0] = "MENU_OPT_COOP_MARK";
 	flags = flags | IT_TXT_CENTER;
-	userString[2] = "off|I|J|K|U|G|T|V";
+	userString[2] = "Partner display"; userString[3] = "Name, distance, edge arrow, colour, map.";
+};
+
+instance MENUITEM_OPTCOOP_WINDOW(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_ITEM_BACK_PIC;
+	text[0] = "Coop-Fenster";
+	text[1] = "Hosten, beitreten, trennen - im Spiel auch per Taste.";
+	posx = 1000;
+	posy = COOP_OPT_Y + MENU_OPT_DY * 6;
+	dimx = 3000;
+	dimy = MENU_OPT_DY;
+	onselaction[0] = SEL_ACTION_STARTMENU;
+	onselaction_s[0] = "MENU_COOP";
+	flags = flags | IT_TXT_CENTER;
+	userString[2] = "Coop window"; userString[3] = "Host, join, disconnect - in game also by key.";
+};
+
+instance MENUITEM_OPTCOOP_HELP(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_ITEM_BACK_PIC;
+	text[0] = "Hilfe";
+	text[1] = "Alle Coop-Tasten und das Wichtigste auf einen Blick.";
+	posx = 4192;
+	posy = COOP_OPT_Y + MENU_OPT_DY * 6;
+	dimx = 3000;
+	dimy = MENU_OPT_DY;
+	onselaction[0] = SEL_ACTION_STARTMENU;
+	onselaction_s[0] = "MENU_COOP_HELP";
+	flags = flags | IT_TXT_CENTER;
+	userString[2] = "Help"; userString[3] = "All coop keys and the essentials at a glance.";
 };
 
 instance MENUITEM_OPTCOOP_BACK(C_MENU_ITEM_DEF)
@@ -1250,7 +1281,7 @@ instance MENU_OPT_COOP_CAM(C_MENU_DEF)
 	items[5] = "MENUITEM_COOP_WINPOS";
 	items[6] = "MENUITEM_COOP_WINPOS_CHOICE";
 	items[7] = "MENUITEM_COOP_CAMKEY";
-	items[8] = "MENUITEM_COOP_CAMKEY_CHOICE";
+	items[8] = "MENUITEM_COOP_CAMKEY_VAL";
 	items[9] = "MENUITEM_COOP_CAMDIST";
 	items[10] = "MENUITEM_COOP_CAMDIST_CHOICE";
 	items[11] = "MENUITEM_OPTCOOPCAM_NOTE";
@@ -1369,31 +1400,28 @@ instance MENUITEM_COOP_CAMKEY(C_MENU_ITEM_DEF)
 {
 	backpic = MENU_ITEM_BACK_PIC;
 	text[0] = "Taste";
-	text[1] = "Fenster an, nächster Mitspieler, aus. F6-F10 belegt GothicCoop schon.";
+	text[1] = "Enter, dann neue Taste: Fenster an, nächster Mitspieler, aus.";
 	posx = 1000;
 	posy = COOP_OPT_Y + MENU_OPT_DY * 3;
 	dimx = 4000;
 	dimy = 600;
-	onselaction[0] = SEL_ACTION_UNDEF;
-	flags = flags | IT_EFFECTS_NEXT;
-	userString[2] = "Key"; userString[3] = "Window on, next player, off. F6-F10 are already used by GothicCoop.";
+	onselaction[0] = SEL_ACTION_EXECCOMMANDS;
+	onselaction_s[0] = "COOP_KEY_CAM";   // u226 (P264): wie Coop-Tasten
+	userString[2] = "Key"; userString[3] = "Enter, then the new key: window on, next player, off.";
 };
 
-instance MENUITEM_COOP_CAMKEY_CHOICE(C_MENU_ITEM_DEF)
+// u226 (P264): Belegung (coopKeyCam) - GothicCoop schreibt sie hinein; Aendern ueber den Eintrag links (COOP_KEY_CAM).
+instance MENUITEM_COOP_CAMKEY_VAL(C_MENU_ITEM_DEF)
 {
 	backpic = MENU_CHOICE_BACK_PIC;
-	type = MENU_ITEM_CHOICEBOX;
-	text[0] = "Shift+F5|F5|F11|Shift+Einfg|Einfg|Shift+Pos1|Pos1|Shift+Ende|Ende";
 	fontname = MENU_FONT_SMALL;
+	text[0] = "Shift+F5";
+	type = MENU_ITEM_TEXT;
 	posx = 5000;
 	posy = COOP_OPT_Y + MENU_OPT_DY * 3 + MENU_CHOICE_YPLUS;
 	dimx = MENU_SLIDER_DX;
 	dimy = MENU_CHOICE_DY;
-	onchgsetoption = "camWindowKey";
-	onchgsetoptionsection = "GOTHICCOOP";
-	flags = flags & ~IT_SELECTABLE;
-	flags = flags | IT_TXT_CENTER;
-	userString[2] = "Shift+F5|F5|F11|Shift+Ins|Ins|Shift+Home|Home|Shift+End|End";
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT | IT_TXT_CENTER;
 };
 
 instance MENUITEM_COOP_CAMDIST(C_MENU_ITEM_DEF)
@@ -2299,6 +2327,1283 @@ instance MENUITEM_COOPSTEAM_BACK(C_MENU_ITEM_DEF)
 };
 
 instance MENUITEM_COOPSTEAM_VERSION(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = "GothicCoop";
+	type = MENU_ITEM_TEXT;
+	posx = 5300;
+	posy = 150;
+	dimx = 2800;
+	dimy = 300;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT | IT_TXT_CENTER;
+};
+
+// --- u226: Coop-Tasten, Mitspieler-Anzeige, Hilfe, Einführung -----------------------------------------------------------
+// Coop-Tasten (P264): je Aktion links der Name (wählbar, Befehl COOP_KEY_<Aktion>: GothicCoop nimmt die nächste gedrückte Taste
+// mit Shift/Strg/Alt auf, Entf schaltet aus), rechts die Belegung (GothicCoop schreibt sie hinein, mit Gothics eigener Belegung
+// in Klammern). Gothic.ini [GOTHICCOOP] coopKey<Aktion> = "[SHIFT+][CTRL+][ALT+]KEY_<Taste>". Beschriftungen und die zwei
+// Hinweiszeilen setzt GothicCoop je Sprache (nur userString[3] hier). Zeilen kurz halten: GD3D11 zeichnet die Schrift groesser.
+instance MENU_OPT_COOP_KEYS(C_MENU_DEF)
+{
+	backpic = MENU_BACK_PIC;
+	items[0] = "MENUITEM_OPTCOOPKEYS_HEADLINE";
+	items[1] = "MENUITEM_COOPKEYS_LBL_HELP";
+	items[2] = "MENUITEM_COOPKEYS_VAL_HELP";
+	items[3] = "MENUITEM_COOPKEYS_LBL_MENU";
+	items[4] = "MENUITEM_COOPKEYS_VAL_MENU";
+	items[5] = "MENUITEM_COOPKEYS_LBL_INV";
+	items[6] = "MENUITEM_COOPKEYS_VAL_INV";
+	items[7] = "MENUITEM_COOPKEYS_LBL_RUNE";
+	items[8] = "MENUITEM_COOPKEYS_VAL_RUNE";
+	items[9] = "MENUITEM_COOPKEYS_LBL_CAM";
+	items[10] = "MENUITEM_COOPKEYS_VAL_CAM";
+	items[11] = "MENUITEM_COOPKEYS_LBL_HOST";
+	items[12] = "MENUITEM_COOPKEYS_VAL_HOST";
+	items[13] = "MENUITEM_COOPKEYS_LBL_JOIN";
+	items[14] = "MENUITEM_COOPKEYS_VAL_JOIN";
+	items[15] = "MENUITEM_COOPKEYS_LBL_REVIVE";
+	items[16] = "MENUITEM_COOPKEYS_VAL_REVIVE";
+	items[17] = "MENUITEM_COOPKEYS_LBL_REINIT";
+	items[18] = "MENUITEM_COOPKEYS_VAL_REINIT";
+	items[19] = "MENUITEM_COOPKEYS_LBL_SYNC";
+	items[20] = "MENUITEM_COOPKEYS_VAL_SYNC";
+	items[21] = "MENUITEM_COOPKEYS_NOTE";
+	items[22] = "MENUITEM_COOPKEYS_NOTE2";
+	items[23] = "MENUITEM_COOPKEYS_RESET";
+	items[24] = "MENUITEM_COOPKEYS_BACK";
+	items[25] = "MENUITEM_OPTCOOPKEYS_VERSION";
+	defaultoutgame = 1;
+	defaultingame = 1;
+	flags = flags | MENU_SHOW_INFO;
+};
+
+instance MENUITEM_OPTCOOPKEYS_HEADLINE(C_MENU_ITEM_DEF)
+{
+	text[0] = "Coop-Tasten";
+	type = MENU_ITEM_TEXT;
+	posx = 0;
+	posy = MENU_TITLE_Y - 400;
+	dimx = 8192;
+	flags = flags & ~IT_SELECTABLE;
+	flags = flags | IT_TXT_CENTER;
+	userString[2] = "Coop keys";
+};
+
+instance MENUITEM_COOPKEYS_LBL_HELP(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_ITEM_BACK_PIC;
+	text[0] = "Coop-Hilfe";
+	text[1] = "Öffnet im Spiel die Hilfe mit allen Coop-Tasten.";
+	fontname = MENU_FONT_SMALL;
+	posx = 1000;
+	posy = 1250;
+	dimx = 3500;
+	dimy = 300;
+	onselaction[0] = SEL_ACTION_EXECCOMMANDS;
+	onselaction_s[0] = "COOP_KEY_HELP";
+	userString[3] = "Opens the help with all coop keys in game.";
+};
+
+instance MENUITEM_COOPKEYS_VAL_HELP(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 4600;
+	posy = 1250;
+	dimx = 3300;
+	dimy = 300;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPKEYS_LBL_MENU(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_ITEM_BACK_PIC;
+	text[0] = "Coop-Fenster";
+	text[1] = "Öffnet im Spiel das Coop-Fenster: hosten, beitreten, trennen.";
+	fontname = MENU_FONT_SMALL;
+	posx = 1000;
+	posy = 1580;
+	dimx = 3500;
+	dimy = 300;
+	onselaction[0] = SEL_ACTION_EXECCOMMANDS;
+	onselaction_s[0] = "COOP_KEY_MENU";
+	userString[3] = "Opens the coop window in game: host, join, disconnect.";
+};
+
+instance MENUITEM_COOPKEYS_VAL_MENU(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 4600;
+	posy = 1580;
+	dimx = 3300;
+	dimy = 300;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPKEYS_LBL_INV(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_ITEM_BACK_PIC;
+	text[0] = "Coop-Inventar";
+	text[1] = "Öffnet/schließt das Coop-Inventar - auch ohne Gegenstand.";
+	fontname = MENU_FONT_SMALL;
+	posx = 1000;
+	posy = 1910;
+	dimx = 3500;
+	dimy = 300;
+	onselaction[0] = SEL_ACTION_EXECCOMMANDS;
+	onselaction_s[0] = "COOP_KEY_INV";
+	userString[3] = "Opens/closes the coop inventory - also without the item.";
+};
+
+instance MENUITEM_COOPKEYS_VAL_INV(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 4600;
+	posy = 1910;
+	dimx = 3300;
+	dimy = 300;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPKEYS_LBL_RUNE(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_ITEM_BACK_PIC;
+	text[0] = "Teleport zum Mitspieler";
+	text[1] = "Teleport zum Mitspieler (die Coop-Rune muss im Inventar sein).";
+	fontname = MENU_FONT_SMALL;
+	posx = 1000;
+	posy = 2240;
+	dimx = 3500;
+	dimy = 300;
+	onselaction[0] = SEL_ACTION_EXECCOMMANDS;
+	onselaction_s[0] = "COOP_KEY_RUNE";
+	userString[3] = "Teleport to your partner (the coop rune must be carried).";
+};
+
+instance MENUITEM_COOPKEYS_VAL_RUNE(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 4600;
+	posy = 2240;
+	dimx = 3300;
+	dimy = 300;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPKEYS_LBL_CAM(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_ITEM_BACK_PIC;
+	text[0] = "Zuschau-Fenster";
+	text[1] = "Zuschau-Fenster: an, nächster Mitspieler, aus.";
+	fontname = MENU_FONT_SMALL;
+	posx = 1000;
+	posy = 2570;
+	dimx = 3500;
+	dimy = 300;
+	onselaction[0] = SEL_ACTION_EXECCOMMANDS;
+	onselaction_s[0] = "COOP_KEY_CAM";
+	userString[3] = "Watch window: on, next player, off.";
+};
+
+instance MENUITEM_COOPKEYS_VAL_CAM(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 4600;
+	posy = 2570;
+	dimx = 3300;
+	dimy = 300;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPKEYS_LBL_HOST(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_ITEM_BACK_PIC;
+	text[0] = "Hosten";
+	text[1] = "Startet im Spiel einen Host - der Mitspieler tritt bei.";
+	fontname = MENU_FONT_SMALL;
+	posx = 1000;
+	posy = 2900;
+	dimx = 3500;
+	dimy = 300;
+	onselaction[0] = SEL_ACTION_EXECCOMMANDS;
+	onselaction_s[0] = "COOP_KEY_HOST";
+	userString[3] = "Starts a host in game - your partner joins.";
+};
+
+instance MENUITEM_COOPKEYS_VAL_HOST(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 4600;
+	posy = 2900;
+	dimx = 3300;
+	dimy = 300;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPKEYS_LBL_JOIN(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_ITEM_BACK_PIC;
+	text[0] = "Beitreten / Pause als Client";
+	text[1] = "Verbindet mit dem Host bzw. hält als Client den Abgleich an.";
+	fontname = MENU_FONT_SMALL;
+	posx = 1000;
+	posy = 3230;
+	dimx = 3500;
+	dimy = 300;
+	onselaction[0] = SEL_ACTION_EXECCOMMANDS;
+	onselaction_s[0] = "COOP_KEY_JOIN";
+	userString[3] = "Connects to the host, or pauses the sync as client.";
+};
+
+instance MENUITEM_COOPKEYS_VAL_JOIN(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 4600;
+	posy = 3230;
+	dimx = 3300;
+	dimy = 300;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPKEYS_LBL_REVIVE(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_ITEM_BACK_PIC;
+	text[0] = "Mitspieler wiederbeleben";
+	text[1] = "Bewusstlosen Mitspieler wiederbeleben: hingehen, 10 s stehen.";
+	fontname = MENU_FONT_SMALL;
+	posx = 1000;
+	posy = 3560;
+	dimx = 3500;
+	dimy = 300;
+	onselaction[0] = SEL_ACTION_EXECCOMMANDS;
+	onselaction_s[0] = "COOP_KEY_REVIVE";
+	userString[3] = "Revive a knocked-out partner: walk over, stand 10 s.";
+};
+
+instance MENUITEM_COOPKEYS_VAL_REVIVE(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 4600;
+	posy = 3560;
+	dimx = 3300;
+	dimy = 300;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPKEYS_LBL_REINIT(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_ITEM_BACK_PIC;
+	text[0] = "Mitspieler-Figuren neu";
+	text[1] = "Mitspieler-Figuren neu anlegen, wenn eine hängt oder fehlt.";
+	fontname = MENU_FONT_SMALL;
+	posx = 1000;
+	posy = 3890;
+	dimx = 3500;
+	dimy = 300;
+	onselaction[0] = SEL_ACTION_EXECCOMMANDS;
+	onselaction_s[0] = "COOP_KEY_REINIT";
+	userString[3] = "Respawn partner figures if one is stuck or missing.";
+};
+
+instance MENUITEM_COOPKEYS_VAL_REINIT(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 4600;
+	posy = 3890;
+	dimx = 3300;
+	dimy = 300;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPKEYS_LBL_SYNC(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_ITEM_BACK_PIC;
+	text[0] = "Welt neu abgleichen";
+	text[1] = "Gleicht die Welt neu mit dem Host ab.";
+	fontname = MENU_FONT_SMALL;
+	posx = 1000;
+	posy = 4220;
+	dimx = 3500;
+	dimy = 300;
+	onselaction[0] = SEL_ACTION_EXECCOMMANDS;
+	onselaction_s[0] = "COOP_KEY_SYNC";
+	userString[3] = "Resyncs the world with the host.";
+};
+
+instance MENUITEM_COOPKEYS_VAL_SYNC(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 4600;
+	posy = 4220;
+	dimx = 3300;
+	dimy = 300;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPKEYS_NOTE(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 300;
+	posy = 4580;
+	dimx = 7592;
+	dimy = 280;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT | IT_TXT_CENTER;
+};
+
+instance MENUITEM_COOPKEYS_NOTE2(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 300;
+	posy = 4860;
+	dimx = 7592;
+	dimy = 280;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT | IT_TXT_CENTER;
+};
+
+instance MENUITEM_COOPKEYS_RESET(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_ITEM_BACK_PIC;
+	text[0] = "Vorgaben";
+	text[1] = "Alle Coop-Tasten auf die Vorgaben zurücksetzen.";
+	posx = 1000;
+	posy = MENU_BACK_Y;
+	dimx = 3000;
+	dimy = MENU_OPT_DY;
+	onselaction[0] = SEL_ACTION_EXECCOMMANDS;
+	onselaction_s[0] = "COOP_KEY_RESET";
+	flags = flags | IT_TXT_CENTER;
+	userString[2] = "Defaults"; userString[3] = "Reset all coop keys to the defaults.";
+};
+
+instance MENUITEM_COOPKEYS_BACK(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_ITEM_BACK_PIC;
+	text[0] = "ZURÜCK";
+	text[1] = "Zurück - die Tasten gelten schon.";
+	posx = 4192;
+	posy = MENU_BACK_Y;
+	dimx = 3000;
+	dimy = MENU_OPT_DY;
+	onselaction[0] = SEL_ACTION_BACK;
+	flags = flags | IT_TXT_CENTER;
+	userString[2] = "BACK"; userString[3] = "Back - the keys already apply.";
+};
+
+instance MENUITEM_OPTCOOPKEYS_VERSION(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = "GothicCoop";
+	type = MENU_ITEM_TEXT;
+	posx = 5300;
+	posy = 150;
+	dimx = 2800;
+	dimy = 300;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT | IT_TXT_CENTER;
+};
+
+// Mitspieler-Anzeige (P263): Gothic.ini [GOTHICCOOP] coopMarkName 0/1, coopMarkDist 0-2, coopMarkWalls 0/1, coopMarkEdge 0/1
+// (Pfeil am Bildrand, Vorgabe aus), coopMarkColor 0-4, coopMarkMap 0/1 (GothicCoop belegt vor, CoopPartnerMarker.cpp).
+instance MENU_OPT_COOP_MARK(C_MENU_DEF)
+{
+	backpic = MENU_BACK_PIC;
+	items[0] = "MENUITEM_OPTCOOPMARK_HEADLINE";
+	items[1] = "MENUITEM_COOPMARK_NAME";
+	items[2] = "MENUITEM_COOPMARK_NAME_CHOICE";
+	items[3] = "MENUITEM_COOPMARK_DIST";
+	items[4] = "MENUITEM_COOPMARK_DIST_CHOICE";
+	items[5] = "MENUITEM_COOPMARK_WALLS";
+	items[6] = "MENUITEM_COOPMARK_WALLS_CHOICE";
+	items[7] = "MENUITEM_COOPMARK_EDGE";
+	items[8] = "MENUITEM_COOPMARK_EDGE_CHOICE";
+	items[9] = "MENUITEM_COOPMARK_COLOR";
+	items[10] = "MENUITEM_COOPMARK_COLOR_CHOICE";
+	items[11] = "MENUITEM_COOPMARK_MAP";
+	items[12] = "MENUITEM_COOPMARK_MAP_CHOICE";
+	items[13] = "MENUITEM_COOPMARK_NOTE";
+	items[14] = "MENUITEM_OPTCOOP_BACK";
+	items[15] = "MENUITEM_OPTCOOPMARK_VERSION";
+	defaultoutgame = 1;
+	defaultingame = 1;
+	flags = flags | MENU_SHOW_INFO;
+};
+
+instance MENUITEM_OPTCOOPMARK_HEADLINE(C_MENU_ITEM_DEF)
+{
+	text[0] = "Mitspieler-Anzeige";
+	type = MENU_ITEM_TEXT;
+	posx = 0;
+	posy = MENU_TITLE_Y - 400;
+	dimx = 8192;
+	flags = flags & ~IT_SELECTABLE;
+	flags = flags | IT_TXT_CENTER;
+	userString[2] = "Partner display";
+};
+
+instance MENUITEM_COOPMARK_NAME(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_ITEM_BACK_PIC;
+	text[0] = "Name";
+	text[1] = "Name über der Figur. Im Blick zeigt ihn Gothic selbst.";
+	posx = 1000;
+	posy = COOP_OPT_Y + MENU_OPT_DY * 0;
+	dimx = 4000;
+	dimy = 600;
+	onselaction[0] = SEL_ACTION_UNDEF;
+	flags = flags | IT_EFFECTS_NEXT;
+	userString[2] = "Name"; userString[3] = "Name above the figure. In focus Gothic shows it itself.";
+};
+
+instance MENUITEM_COOPMARK_NAME_CHOICE(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_CHOICE_BACK_PIC;
+	type = MENU_ITEM_CHOICEBOX;
+	text[0] = "aus|an";
+	fontname = MENU_FONT_SMALL;
+	posx = 5000;
+	posy = COOP_OPT_Y + MENU_OPT_DY * 0 + MENU_CHOICE_YPLUS;
+	dimx = MENU_SLIDER_DX;
+	dimy = MENU_CHOICE_DY;
+	onchgsetoption = "coopMarkName";
+	onchgsetoptionsection = "GOTHICCOOP";
+	flags = flags & ~IT_SELECTABLE;
+	flags = flags | IT_TXT_CENTER;
+	userString[2] = "off|on";
+};
+
+instance MENUITEM_COOPMARK_DIST(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_ITEM_BACK_PIC;
+	text[0] = "Entfernung";
+	text[1] = "Entfernung hinter dem Namen - ab 25 m oder wenn verdeckt.";
+	posx = 1000;
+	posy = COOP_OPT_Y + MENU_OPT_DY * 1;
+	dimx = 4000;
+	dimy = 600;
+	onselaction[0] = SEL_ACTION_UNDEF;
+	flags = flags | IT_EFFECTS_NEXT;
+	userString[2] = "Distance"; userString[3] = "Distance after the name - from 25 m or when hidden.";
+};
+
+instance MENUITEM_COOPMARK_DIST_CHOICE(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_CHOICE_BACK_PIC;
+	type = MENU_ITEM_CHOICEBOX;
+	text[0] = "nie|ab 25 m|immer";
+	fontname = MENU_FONT_SMALL;
+	posx = 5000;
+	posy = COOP_OPT_Y + MENU_OPT_DY * 1 + MENU_CHOICE_YPLUS;
+	dimx = MENU_SLIDER_DX;
+	dimy = MENU_CHOICE_DY;
+	onchgsetoption = "coopMarkDist";
+	onchgsetoptionsection = "GOTHICCOOP";
+	flags = flags & ~IT_SELECTABLE;
+	flags = flags | IT_TXT_CENTER;
+	userString[2] = "never|from 25 m|always";
+};
+
+instance MENUITEM_COOPMARK_WALLS(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_ITEM_BACK_PIC;
+	text[0] = "Hinter Wänden";
+	text[1] = "Hinter einer Wand: Name blass oder gar nicht zeigen.";
+	posx = 1000;
+	posy = COOP_OPT_Y + MENU_OPT_DY * 2;
+	dimx = 4000;
+	dimy = 600;
+	onselaction[0] = SEL_ACTION_UNDEF;
+	flags = flags | IT_EFFECTS_NEXT;
+	userString[2] = "Behind walls"; userString[3] = "Behind a wall: show the name faded or not at all.";
+};
+
+instance MENUITEM_COOPMARK_WALLS_CHOICE(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_CHOICE_BACK_PIC;
+	type = MENU_ITEM_CHOICEBOX;
+	text[0] = "blass|ausblenden";
+	fontname = MENU_FONT_SMALL;
+	posx = 5000;
+	posy = COOP_OPT_Y + MENU_OPT_DY * 2 + MENU_CHOICE_YPLUS;
+	dimx = MENU_SLIDER_DX;
+	dimy = MENU_CHOICE_DY;
+	onchgsetoption = "coopMarkWalls";
+	onchgsetoptionsection = "GOTHICCOOP";
+	flags = flags & ~IT_SELECTABLE;
+	flags = flags | IT_TXT_CENTER;
+	userString[2] = "faded|hidden";
+};
+
+instance MENUITEM_COOPMARK_EDGE(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_ITEM_BACK_PIC;
+	text[0] = "Pfeil am Rand";
+	text[1] = "Nicht im Bild: Pfeil mit Namen am Bildrand zeigt die Richtung.";
+	posx = 1000;
+	posy = COOP_OPT_Y + MENU_OPT_DY * 3;
+	dimx = 4000;
+	dimy = 600;
+	onselaction[0] = SEL_ACTION_UNDEF;
+	flags = flags | IT_EFFECTS_NEXT;
+	userString[2] = "Edge arrow"; userString[3] = "Off screen: an arrow with the name at the edge shows the way.";
+};
+
+instance MENUITEM_COOPMARK_EDGE_CHOICE(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_CHOICE_BACK_PIC;
+	type = MENU_ITEM_CHOICEBOX;
+	text[0] = "aus|an";
+	fontname = MENU_FONT_SMALL;
+	posx = 5000;
+	posy = COOP_OPT_Y + MENU_OPT_DY * 3 + MENU_CHOICE_YPLUS;
+	dimx = MENU_SLIDER_DX;
+	dimy = MENU_CHOICE_DY;
+	onchgsetoption = "coopMarkEdge";
+	onchgsetoptionsection = "GOTHICCOOP";
+	flags = flags & ~IT_SELECTABLE;
+	flags = flags | IT_TXT_CENTER;
+	userString[2] = "off|on";
+};
+
+instance MENUITEM_COOPMARK_COLOR(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_ITEM_BACK_PIC;
+	text[0] = "Farbe";
+	text[1] = "Farbe von Name und Pfeil.";
+	posx = 1000;
+	posy = COOP_OPT_Y + MENU_OPT_DY * 4;
+	dimx = 4000;
+	dimy = 600;
+	onselaction[0] = SEL_ACTION_UNDEF;
+	flags = flags | IT_EFFECTS_NEXT;
+	userString[2] = "Colour"; userString[3] = "Colour of name and arrow.";
+};
+
+instance MENUITEM_COOPMARK_COLOR_CHOICE(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_CHOICE_BACK_PIC;
+	type = MENU_ITEM_CHOICEBOX;
+	text[0] = "Gold|Weiß|Grün|Hellblau|Rot";
+	fontname = MENU_FONT_SMALL;
+	posx = 5000;
+	posy = COOP_OPT_Y + MENU_OPT_DY * 4 + MENU_CHOICE_YPLUS;
+	dimx = MENU_SLIDER_DX;
+	dimy = MENU_CHOICE_DY;
+	onchgsetoption = "coopMarkColor";
+	onchgsetoptionsection = "GOTHICCOOP";
+	flags = flags & ~IT_SELECTABLE;
+	flags = flags | IT_TXT_CENTER;
+	userString[2] = "gold|white|green|light blue|red";
+};
+
+instance MENUITEM_COOPMARK_MAP(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_ITEM_BACK_PIC;
+	text[0] = "Auf der Karte";
+	text[1] = "Markierung des Mitspielers auf der Karte.";
+	posx = 1000;
+	posy = COOP_OPT_Y + MENU_OPT_DY * 5;
+	dimx = 4000;
+	dimy = 600;
+	onselaction[0] = SEL_ACTION_UNDEF;
+	flags = flags | IT_EFFECTS_NEXT;
+	userString[2] = "On the map"; userString[3] = "Marks your partner on the map.";
+};
+
+instance MENUITEM_COOPMARK_MAP_CHOICE(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_CHOICE_BACK_PIC;
+	type = MENU_ITEM_CHOICEBOX;
+	text[0] = "aus|an";
+	fontname = MENU_FONT_SMALL;
+	posx = 5000;
+	posy = COOP_OPT_Y + MENU_OPT_DY * 5 + MENU_CHOICE_YPLUS;
+	dimx = MENU_SLIDER_DX;
+	dimy = MENU_CHOICE_DY;
+	onchgsetoption = "coopMarkMap";
+	onchgsetoptionsection = "GOTHICCOOP";
+	flags = flags & ~IT_SELECTABLE;
+	flags = flags | IT_TXT_CENTER;
+	userString[2] = "off|on";
+};
+
+instance MENUITEM_COOPMARK_NOTE(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = "Gilt sofort, auch im laufenden Spiel.";
+	type = MENU_ITEM_TEXT;
+	posx = 0;
+	posy = COOP_OPT_Y + MENU_OPT_DY * 6 + 100;
+	dimx = 8192;
+	dimy = 350;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT | IT_TXT_CENTER;
+	userString[2] = "Applies immediately, also in game.";
+};
+
+instance MENUITEM_OPTCOOPMARK_VERSION(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = "GothicCoop";
+	type = MENU_ITEM_TEXT;
+	posx = 5300;
+	posy = 150;
+	dimx = 2800;
+	dimy = 300;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT | IT_TXT_CENTER;
+};
+
+// Coop-Hilfe (P265): Einstellungen > COOP > Hilfe, im Spiel per Taste (coopKeyHelp). 20 Zeilen - GothicCoop schreibt alle
+// Coop-Tasten mit Belegung und das Wichtigste hinein (je Zeile hoechstens ~50 Zeichen).
+instance MENU_COOP_HELP(C_MENU_DEF)
+{
+	backpic = MENU_BACK_PIC;
+	items[0] = "MENUITEM_COOPHELP_HEADLINE";
+	items[1] = "MENUITEM_COOPHELP_L00";
+	items[2] = "MENUITEM_COOPHELP_L01";
+	items[3] = "MENUITEM_COOPHELP_L02";
+	items[4] = "MENUITEM_COOPHELP_L03";
+	items[5] = "MENUITEM_COOPHELP_L04";
+	items[6] = "MENUITEM_COOPHELP_L05";
+	items[7] = "MENUITEM_COOPHELP_L06";
+	items[8] = "MENUITEM_COOPHELP_L07";
+	items[9] = "MENUITEM_COOPHELP_L08";
+	items[10] = "MENUITEM_COOPHELP_L09";
+	items[11] = "MENUITEM_COOPHELP_L10";
+	items[12] = "MENUITEM_COOPHELP_L11";
+	items[13] = "MENUITEM_COOPHELP_L12";
+	items[14] = "MENUITEM_COOPHELP_L13";
+	items[15] = "MENUITEM_COOPHELP_L14";
+	items[16] = "MENUITEM_COOPHELP_L15";
+	items[17] = "MENUITEM_COOPHELP_L16";
+	items[18] = "MENUITEM_COOPHELP_L17";
+	items[19] = "MENUITEM_COOPHELP_L18";
+	items[20] = "MENUITEM_COOPHELP_L19";
+	items[21] = "MENUITEM_COOPHELP_KEYS";
+	items[22] = "MENUITEM_COOPHELP_BACK";
+	items[23] = "MENUITEM_COOPHELP_VERSION";
+	defaultoutgame = 22;
+	defaultingame = 22;
+	flags = flags | MENU_SHOW_INFO;
+};
+
+instance MENUITEM_COOPHELP_HEADLINE(C_MENU_ITEM_DEF)
+{
+	text[0] = "Coop-Hilfe";
+	type = MENU_ITEM_TEXT;
+	posx = 0;
+	posy = MENU_TITLE_Y - 400;
+	dimx = 8192;
+	flags = flags & ~IT_SELECTABLE;
+	flags = flags | IT_TXT_CENTER;
+	userString[2] = "Coop help";
+};
+
+instance MENUITEM_COOPHELP_L00(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 500;
+	posy = 1350;
+	dimx = 7392;
+	dimy = 250;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPHELP_L01(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 500;
+	posy = 1585;
+	dimx = 7392;
+	dimy = 250;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPHELP_L02(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 500;
+	posy = 1820;
+	dimx = 7392;
+	dimy = 250;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPHELP_L03(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 500;
+	posy = 2055;
+	dimx = 7392;
+	dimy = 250;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPHELP_L04(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 500;
+	posy = 2290;
+	dimx = 7392;
+	dimy = 250;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPHELP_L05(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 500;
+	posy = 2525;
+	dimx = 7392;
+	dimy = 250;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPHELP_L06(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 500;
+	posy = 2760;
+	dimx = 7392;
+	dimy = 250;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPHELP_L07(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 500;
+	posy = 2995;
+	dimx = 7392;
+	dimy = 250;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPHELP_L08(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 500;
+	posy = 3230;
+	dimx = 7392;
+	dimy = 250;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPHELP_L09(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 500;
+	posy = 3465;
+	dimx = 7392;
+	dimy = 250;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPHELP_L10(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 500;
+	posy = 3700;
+	dimx = 7392;
+	dimy = 250;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPHELP_L11(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 500;
+	posy = 3935;
+	dimx = 7392;
+	dimy = 250;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPHELP_L12(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 500;
+	posy = 4170;
+	dimx = 7392;
+	dimy = 250;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPHELP_L13(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 500;
+	posy = 4405;
+	dimx = 7392;
+	dimy = 250;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPHELP_L14(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 500;
+	posy = 4640;
+	dimx = 7392;
+	dimy = 250;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPHELP_L15(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 500;
+	posy = 4875;
+	dimx = 7392;
+	dimy = 250;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPHELP_L16(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 500;
+	posy = 5110;
+	dimx = 7392;
+	dimy = 250;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPHELP_L17(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 500;
+	posy = 5345;
+	dimx = 7392;
+	dimy = 250;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPHELP_L18(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 500;
+	posy = 5580;
+	dimx = 7392;
+	dimy = 250;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPHELP_L19(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 500;
+	posy = 5815;
+	dimx = 7392;
+	dimy = 250;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPHELP_KEYS(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_ITEM_BACK_PIC;
+	text[0] = "Coop-Tasten";
+	text[1] = "Tasten ändern: Zeile wählen, neue Taste drücken.";
+	posx = 1000;
+	posy = MENU_BACK_Y;
+	dimx = 3000;
+	dimy = MENU_OPT_DY;
+	onselaction[0] = SEL_ACTION_STARTMENU;
+	onselaction_s[0] = "MENU_OPT_COOP_KEYS";
+	flags = flags | IT_TXT_CENTER;
+	userString[2] = "Coop keys"; userString[3] = "Change keys: pick a row, press the new key.";
+};
+
+instance MENUITEM_COOPHELP_BACK(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_ITEM_BACK_PIC;
+	text[0] = "ZURÜCK";
+	text[1] = "Zurück.";
+	posx = 4192;
+	posy = MENU_BACK_Y;
+	dimx = 3000;
+	dimy = MENU_OPT_DY;
+	onselaction[0] = SEL_ACTION_BACK;
+	flags = flags | IT_TXT_CENTER;
+	userString[2] = "BACK"; userString[3] = "Back.";
+};
+
+instance MENUITEM_COOPHELP_VERSION(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = "GothicCoop";
+	type = MENU_ITEM_TEXT;
+	posx = 5300;
+	posy = 150;
+	dimx = 2800;
+	dimy = 300;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT | IT_TXT_CENTER;
+};
+
+// Coop-Einführung (P267): vor einem neuen Spiel (Host bzw. allein), solange coopIntro 0 ist ("Vor jedem neuen Spiel zeigen").
+// "Weiter zum Spiel" (COOP_INTRO_OK) startet wie gewählt, ZURÜCK startet nichts. 14 Zeilen schreibt GothicCoop hinein.
+instance MENU_COOP_INTRO(C_MENU_DEF)
+{
+	backpic = MENU_BACK_PIC;
+	items[0] = "MENUITEM_COOPINTRO_HEADLINE";
+	items[1] = "MENUITEM_COOPINTRO_L00";
+	items[2] = "MENUITEM_COOPINTRO_L01";
+	items[3] = "MENUITEM_COOPINTRO_L02";
+	items[4] = "MENUITEM_COOPINTRO_L03";
+	items[5] = "MENUITEM_COOPINTRO_L04";
+	items[6] = "MENUITEM_COOPINTRO_L05";
+	items[7] = "MENUITEM_COOPINTRO_L06";
+	items[8] = "MENUITEM_COOPINTRO_L07";
+	items[9] = "MENUITEM_COOPINTRO_L08";
+	items[10] = "MENUITEM_COOPINTRO_L09";
+	items[11] = "MENUITEM_COOPINTRO_L10";
+	items[12] = "MENUITEM_COOPINTRO_L11";
+	items[13] = "MENUITEM_COOPINTRO_L12";
+	items[14] = "MENUITEM_COOPINTRO_L13";
+	items[15] = "MENUITEM_COOPINTRO_SHOW";
+	items[16] = "MENUITEM_COOPINTRO_SHOW_CHOICE";
+	items[17] = "MENUITEM_COOPINTRO_KEYS";
+	items[18] = "MENUITEM_COOPINTRO_SETTINGS";
+	items[19] = "MENUITEM_COOPINTRO_OK";
+	items[20] = "MENUITEM_COOPINTRO_BACK";
+	items[21] = "MENUITEM_COOPINTRO_VERSION";
+	defaultoutgame = 19;
+	defaultingame = 19;
+	flags = flags | MENU_SHOW_INFO;
+};
+
+instance MENUITEM_COOPINTRO_HEADLINE(C_MENU_ITEM_DEF)
+{
+	text[0] = "Coop - kurz erklärt";
+	type = MENU_ITEM_TEXT;
+	posx = 0;
+	posy = MENU_TITLE_Y - 400;
+	dimx = 8192;
+	flags = flags & ~IT_SELECTABLE;
+	flags = flags | IT_TXT_CENTER;
+	userString[2] = "Coop - in brief";
+};
+
+instance MENUITEM_COOPINTRO_L00(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 500;
+	posy = 1350;
+	dimx = 7392;
+	dimy = 260;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPINTRO_L01(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 500;
+	posy = 1600;
+	dimx = 7392;
+	dimy = 260;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPINTRO_L02(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 500;
+	posy = 1850;
+	dimx = 7392;
+	dimy = 260;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPINTRO_L03(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 500;
+	posy = 2100;
+	dimx = 7392;
+	dimy = 260;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPINTRO_L04(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 500;
+	posy = 2350;
+	dimx = 7392;
+	dimy = 260;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPINTRO_L05(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 500;
+	posy = 2600;
+	dimx = 7392;
+	dimy = 260;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPINTRO_L06(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 500;
+	posy = 2850;
+	dimx = 7392;
+	dimy = 260;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPINTRO_L07(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 500;
+	posy = 3100;
+	dimx = 7392;
+	dimy = 260;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPINTRO_L08(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 500;
+	posy = 3350;
+	dimx = 7392;
+	dimy = 260;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPINTRO_L09(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 500;
+	posy = 3600;
+	dimx = 7392;
+	dimy = 260;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPINTRO_L10(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 500;
+	posy = 3850;
+	dimx = 7392;
+	dimy = 260;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPINTRO_L11(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 500;
+	posy = 4100;
+	dimx = 7392;
+	dimy = 260;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPINTRO_L12(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 500;
+	posy = 4350;
+	dimx = 7392;
+	dimy = 260;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPINTRO_L13(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 500;
+	posy = 4600;
+	dimx = 7392;
+	dimy = 260;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
+instance MENUITEM_COOPINTRO_SHOW(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_ITEM_BACK_PIC;
+	text[0] = "Vor jedem neuen Spiel zeigen";
+	text[1] = "Die Einführung vor jedem neuen Spiel zeigen.";
+	fontname = MENU_FONT_SMALL;
+	posx = 1000;
+	posy = 5000;
+	dimx = 3800;
+	dimy = 400;
+	onselaction[0] = SEL_ACTION_UNDEF;
+	flags = flags | IT_EFFECTS_NEXT;
+	userString[2] = "Show before every new game"; userString[3] = "Show the introduction before every new game.";
+};
+
+instance MENUITEM_COOPINTRO_SHOW_CHOICE(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_CHOICE_BACK_PIC;
+	type = MENU_ITEM_CHOICEBOX;
+	text[0] = "Ja|Nein";
+	fontname = MENU_FONT_SMALL;
+	posx = 5000;
+	posy = 5000 + 25;
+	dimx = MENU_SLIDER_DX;
+	dimy = MENU_CHOICE_DY;
+	onchgsetoption = "coopIntro";
+	onchgsetoptionsection = "GOTHICCOOP";
+	flags = flags & ~IT_SELECTABLE;
+	flags = flags | IT_TXT_CENTER;
+	userString[2] = "Yes|No";
+};
+
+instance MENUITEM_COOPINTRO_KEYS(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_ITEM_BACK_PIC;
+	text[0] = "Coop-Tasten";
+	text[1] = "Alle Coop-Tasten ansehen und ändern.";
+	posx = 1000;
+	posy = 5650;
+	dimx = 3000;
+	dimy = MENU_OPT_DY;
+	onselaction[0] = SEL_ACTION_STARTMENU;
+	onselaction_s[0] = "MENU_OPT_COOP_KEYS";
+	flags = flags | IT_TXT_CENTER;
+	userString[2] = "Coop keys"; userString[3] = "See and change all coop keys.";
+};
+
+instance MENUITEM_COOPINTRO_SETTINGS(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_ITEM_BACK_PIC;
+	text[0] = "Einstellungen";
+	text[1] = "Kamera, Schwierigkeit, Abgleich, Anzeige, Sprache.";
+	posx = 4192;
+	posy = 5650;
+	dimx = 3000;
+	dimy = MENU_OPT_DY;
+	onselaction[0] = SEL_ACTION_STARTMENU;
+	onselaction_s[0] = "MENU_OPT_COOP";
+	flags = flags | IT_TXT_CENTER;
+	userString[2] = "Settings"; userString[3] = "Camera, difficulty, sync, display, language.";
+};
+
+instance MENUITEM_COOPINTRO_OK(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_ITEM_BACK_PIC;
+	text[0] = "Weiter";
+	text[1] = "Das neue Spiel starten.";
+	posx = 1000;
+	posy = MENU_BACK_Y;
+	dimx = 3000;
+	dimy = MENU_OPT_DY;
+	onselaction[0] = SEL_ACTION_EXECCOMMANDS;
+	onselaction_s[0] = "COOP_INTRO_OK";
+	flags = flags | IT_TXT_CENTER;
+	userString[2] = "Continue"; userString[3] = "Start the new game.";
+};
+
+instance MENUITEM_COOPINTRO_BACK(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_ITEM_BACK_PIC;
+	text[0] = "ZURÜCK";
+	text[1] = "Zurück - kein neues Spiel.";
+	posx = 4192;
+	posy = MENU_BACK_Y;
+	dimx = 3000;
+	dimy = MENU_OPT_DY;
+	onselaction[0] = SEL_ACTION_BACK;
+	flags = flags | IT_TXT_CENTER;
+	userString[2] = "BACK"; userString[3] = "Back - no new game.";
+};
+
+instance MENUITEM_COOPINTRO_VERSION(C_MENU_ITEM_DEF)
 {
 	fontname = MENU_FONT_SMALL;
 	text[0] = "GothicCoop";

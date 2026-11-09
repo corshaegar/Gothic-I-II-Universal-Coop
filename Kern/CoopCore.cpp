@@ -9,7 +9,7 @@ namespace GOTHIC_ENGINE {
     // OthelloCompatLog/DiagSeconds nicht (Plan Phase 1, Schritt 1). Hier steht nur engine-neutraler Code (Windows-Aufrufe,
     // keine Engine-Stelle); Othello-Eigenes bleibt in OthelloCompat.cpp.
 
-#define COOP_FASSUNG "u217"
+#define COOP_FASSUNG "u237"
 
     // Auswahl je Engine, z. B. Adressen: COOP_ENGINE_SWITCH(G1, G1A, G2, G2A). ENGINE wird erst an der Stelle des Gebrauchs
     // eingesetzt - in Mehr-Engine-Builds (MP x2/x4) bindet Interface.cpp Sources.h je Engine neu ein.
@@ -241,7 +241,7 @@ namespace GOTHIC_ENGINE {
 #define COOP_READY_Preview     COOP_READY_G1_G2A    // CoopPreview.cpp    3D-Vorschau (braucht Coop-GD3D11; u10: G2A mit g2a_avx2 coop6)
 #define COOP_READY_SavePreview COOP_READY_G1_G2A    // CoopSavePreview.cpp Vorschau der Spielstaende (H23; u15: G2A)
 #define COOP_READY_Save        COOP_READY_G1_G2A    // CoopSaveSync.cpp   gemeinsames Speichern/Laden (F, S; u15: G2A - 20 Slots, Trefferchancen, Heldenwerte)
-#define COOP_READY_SelfTest    COOP_READY_G1_G2A    // CoopSelfTest.cpp   Testlauf Shift+F11 (D12; u12: G2A - Schritte gesperrter Module "--")
+#define COOP_READY_SelfTest    COOP_READY_G1_G2A    // CoopSelfTest.cpp   Testlauf (u237: nur Entwicklungsbau, -cooptest) (D12; u12: G2A - Schritte gesperrter Module "--")
 #define COOP_READY_Steam       COOP_READY_G1_G2A    // CoopSteam.cpp      Coop ueber Steam (H28; u8: G2A, App 39510)
 #define COOP_READY_Teleport    COOP_READY_G1_G2A    // CoopTeleport.cpp   Teleport-Rune (N1; u17: G2A - SPL_TELEPORTXARDAS, Wirken in Spell_Cast)
 #define COOP_READY_Title       COOP_READY_G1_G2A    // CoopTitle.cpp      "Hauptmenue" im Esc-Menue (H26; u19: G2A, Esc-Eintraege auch ohne Mod)

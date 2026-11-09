@@ -205,6 +205,68 @@ namespace GOTHIC_ENGINE {
         }
     }
 
+    // u225 (P262, Nutzer 08.11.: "die Lags müssen sowohl bei archolos und LoA gelöst werden. einer der beiden hat immer FPS einbrüche"):
+    // Bildzeit je 30 s - Abstand der Bilder (das ganze Spiel) und GT-Anteil je Abschnitt von Game_Loop (Plugin.cpp, FpFrame). Zeigt,
+    // ob ein Einbruch von GT selbst (Testinstanz, Dialog, NPCs ...) kommt oder von Engine und Grafik. Allgemein
+    static const char* const FpNamen[] = { "Netz", "Kampf", "Welt", "Dialog", "Test", "Testinstanz", "Listen", "Fern/Kamera", "NPCs" };
+    static const int FpN = (int)(sizeof(FpNamen) / sizeof(FpNamen[0]));
+    static double FpSum[FpN] = {}, FpMax[FpN] = {}, FpJetzt[FpN] = {}, FpLangsam[FpN] = {};
+    static double FpGtSum = 0., FpGtMax = 0., FpAbstandMax = 0., FpLetzterStart = 0., FpFensterStart = 0.;
+    static int FpBilder = 0, FpUeber100 = 0;
+
+    void CoopFrameProfAdd(int abschnitt, double ms) {
+        if (abschnitt < 0 || abschnitt >= FpN)
+            return;
+        FpJetzt[abschnitt] += ms;
+    }
+
+    void CoopFrameProfFrame(double startMs, double gtMs) {
+        if (FpLetzterStart > 0.) {
+            const double abstand = startMs - FpLetzterStart;
+            FpAbstandMax = (std::max)(FpAbstandMax, abstand);
+            if (abstand > 100.)
+                FpUeber100++;
+        }
+        FpLetzterStart = startMs;
+        if (FpFensterStart <= 0.)
+            FpFensterStart = startMs;
+        FpBilder++;
+        FpGtSum += gtMs;
+        if (gtMs > FpGtMax) {
+            FpGtMax = gtMs;
+            for (int i = 0; i < FpN; i++)
+                FpLangsam[i] = FpJetzt[i];
+        }
+        for (int i = 0; i < FpN; i++) {
+            FpSum[i] += FpJetzt[i];
+            FpMax[i] = (std::max)(FpMax[i], FpJetzt[i]);
+            FpJetzt[i] = 0.;
+        }
+        const double fenster = startMs - FpFensterStart;
+        if (fenster < 30000. || FpBilder < 2)
+            return;
+        std::string teile, langsam;
+        for (int i = 0; i < FpN; i++) {
+            char b[64];
+            if (FpMax[i] >= 1.) {
+                _snprintf(b, sizeof(b), "%s%s %.1f/%.0f", teile.empty() ? "" : ", ", FpNamen[i], FpSum[i] / FpBilder, FpMax[i]);
+                teile += b;
+            }
+            if (FpLangsam[i] >= 1.) {
+                _snprintf(b, sizeof(b), "%s%s %.0f", langsam.empty() ? "" : ", ", FpNamen[i], FpLangsam[i]);
+                langsam += b;
+            }
+        }
+        OthelloCompatLog("[%lld s, %s] Bildzeit (P262): %d Bilder in %.0f s (%.1f/s), Abstand max %.0f ms, ueber 100 ms %d-mal | GT je Bild Mittel %.1f ms,"
+            " max %.0f ms (%s) | Abschnitte Mittel/max ms: %s", DiagSeconds(), DiagRole(), FpBilder, fenster / 1000., FpBilder * 1000. / fenster,
+            FpAbstandMax, FpUeber100, FpGtSum / FpBilder, FpGtMax, langsam.empty() ? "-" : langsam.c_str(), teile.empty() ? "alle unter 1 ms" : teile.c_str());
+        FpBilder = FpUeber100 = 0;
+        FpGtSum = FpGtMax = FpAbstandMax = 0.;
+        FpFensterStart = startMs;
+        for (int i = 0; i < FpN; i++)
+            FpSum[i] = FpMax[i] = FpLangsam[i] = 0.;
+    }
+
     // v52: Netz-Messung je 30 s - Raten aus den ENet-Summen des Netzfadens (Global.cpp), groesste Warteschlangen, Glaetten.
     static void DiagNetSummary() {
         static LONG prevSentB = 0, prevRecvB = 0, prevSentP = 0, prevRecvP = 0;

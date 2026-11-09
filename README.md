@@ -15,15 +15,15 @@ plugin based on [GothicCoop / Gothic Together](https://gitlab.com/gothiccoop/got
 
 ## Versions
 
-Project version **0.9.1** – for each game/mod the coop version (it only goes up when something changes for that game):
+Project version **0.10.0** – for each game/mod the coop version (it only goes up when something changes for that game):
 
 | Game / mod | Coop version |
 |---|---|
-| Gothic I | u217 |
-| Gothic II | u217 |
-| Othello | u217 |
-| Legend of Ahssun | u217 |
-| The Chronicles of Myrtana: Archolos | u217 |
+| Gothic I | u237 |
+| Gothic II | u237 |
+| Othello | u237 |
+| Legend of Ahssun | u237 |
+| The Chronicles of Myrtana: Archolos | u237 |
 
 **Both PCs need the same coop version** – it is compared when connecting. It is shown at the bottom of the main menu
 ("GothicCoop uNN"). Changes per version: [`CHANGELOG.md`](CHANGELOG.md) (in German).
@@ -88,6 +88,9 @@ Project version **0.9.1** – for each game/mod the coop version (it only goes u
   screen, on the map).
 
 **Saves**
+- **Saving only together** (u237): both PCs save at the same moment (measured: within a tenth of a second). If the partner
+  cannot save right now (dialogue, open inventory, loading), saving is refused and the reason is shown ("Diego: dialogue");
+  the auto-backup waits for it.
 - **Shared saving and loading:** the host chooses, both load the same save, each with their own hero; missing world files
   are transferred and verified. Preview of both PCs in the list. Loading a save that holds the partner's world on your own
   (for example after a restart) also gives you your own hero.
@@ -100,17 +103,21 @@ Project version **0.9.1** – for each game/mod the coop version (it only goes u
 - **COOP menu** in the main menu: character, appearance (also "like an NPC") with 3D preview, connecting via IP or **Steam**
   (friends list, invitations), save list. Mouse in all Gothic menus. German and English.
 - In the Esc menu "Choose save" and "Main menu" (back to the start screen without restarting).
-- **Coop test run** (Shift+F11, only on a test save): checks both sides automatically and reports OK or failure per area.
+- **Coop keys** (new in u226): every coop key can be changed under Settings › COOP › Coop keys (any key, also with
+  Shift/Ctrl/Alt); if Gothic uses the key itself, it says so. **Help** in the game (H, or F1 if Gothic uses H) with all keys,
+  **coop window** (Shift+K) for hosting, joining and disconnecting during the game, a short **introduction** before a new game.
+- **Partner display** (u226): name above the head, distance, behind walls and the arrow at the edge of the screen are adjustable
+  (Settings › COOP › Partner display).
 
 ## Test status
 
 | | Status |
 |---|---|
-| **Gothic 2 Night of the Raven** (2.6) | Main game of development. Automated test run on one PC (host and client) with the development DLL u200 (the release packages are built from the same source and were not tested separately): guilds, coop inventory, chests, doors, mechanisms, triggers, items of NPCs, saving and loading host 110 OK, client 109 OK, 0 errors (7 and 8 steps only on the other side); separate worlds and world process (u199) host 60 OK, client 55 OK, 0 errors. Long automated runs with check rounds (comparing both sides), by now up to the end of the game (with boosted health, so not a real test of the fights) – mostly without deviation, occasionally single deviations. The general changes of u201 to u217 were tested in the runs of Legend of Ahssun and Archolos, not again in Gothic 2 itself. The coop inventory has mainly been tested automatically; a play test with two people over a real network is still outstanding. |
+| **Gothic 2 Night of the Raven** (2.6) | Main game of development. Automated test run on one PC (host and client) with the development DLL u200 (the release packages are built from the same source and were not tested separately): guilds, coop inventory, chests, doors, mechanisms, triggers, items of NPCs, saving and loading host 110 OK, client 109 OK, 0 errors (7 and 8 steps only on the other side); separate worlds and world process (u199) host 60 OK, client 55 OK, 0 errors. Long automated runs with check rounds (comparing both sides), by now up to the end of the game (with boosted health, so not a real test of the fights) – mostly without deviation, occasionally single deviations. The general changes of u201 to u217 were tested in the runs of Legend of Ahssun and Archolos, not again in Gothic 2 itself. The coop inventory has mainly been tested automatically; a play test with two people over a real network is still outstanding. With u237 (0.10.0): automated worlds test on one PC (connecting, separate worlds, world process, saving and loading together, teleport) host 60 OK, client 56 OK, 0 errors; saving only together checked in the log ("cannot save right now: loading / dialogue", then "can save again"). |
 | **Gothic 1** (1.08k, Steam/GOG) | Last tested with exactly the release DLL of 0.6.0 (u197): guilds, coop inventory, doors, items of NPCs, saving and loading host 84 OK, client 82 OK, 1 error each in the test tool itself (a diagnosis step looked for the apple under its Gothic 2 name, fixed in u198) – 31 and 33 steps skipped, the test save has no chest and no suitable lever or trigger; separate worlds and world process host 55 OK, client 50 OK, 0 errors (4 and 9 skipped). The general changes of u198 to u217 (joining only with the same game, scripts of the client, companions, spells of the partner, trade, sleeping on the client, the dead after a world change, loading, safeguards against dialogue locks) have not been tested in Gothic 1 yet. Levers and triggers have not been tested in play in Gothic 1 yet. Last played by hand with u44; the additions since then (coop inventory, mission items, mechanisms, triggers) have not been tested by hand or over a real network. |
 | **Othello** 4.x (Gothic 1) | Last tested with exactly the release DLL of 0.6.0 (u197), started with the Gothic 1 scripts (the script switch changed to Othello at start): guilds, coop inventory, chests, doors, mechanisms, triggers, items of NPCs, saving and loading host 99 OK, client 97 OK, 4 errors each – 3 at one gate (see below), 1 in the test tool itself (fixed in u198); separate worlds and world process host 55 OK, client 50 OK, 0 errors. The general changes of u198 to u217 have not been tested in Othello yet. Last played by hand with Othello Coop v106 (= Othello Coop 0.1.2); the general changes have been added since. |
 | **Legend of Ahssun** 1.2.0 (Gothic 2) | Own profile in the Gothic 2 DLL – the same coop as for Gothic 2, no separate package. Before u199 all 3,914 of the mod's own script functions were read and every serious finding was checked against the code; since u200 also all value proposals, all NPC states that address the hero and all world-init guards. Full automated test run with a save of the mod (development DLL u204): host 240 OK, client 236 OK, 0 errors – the dead meatbug after entering a world is fixed (u203); loading together, world change, world process and watch window passed. Plus automated runs in the mod since u170. Since 0.8.0 (u211–u217): seven one-hour automated runs on 8 Nov 2026 – no crash, one hang during a world change in the second run (a hang diagnosis was added in u213, no hang since); enlarged monsters no longer fly above their place on the client (u214/u215); final check rounds of the last five runs 0 errors (host 31 OK, client 25–31 OK). |
-| **The Chronicles of Myrtana: Archolos** (Gothic 2) | New in 0.8.0: own profile in the Gothic 2 DLL (detected by `Data\KM_Scripts.mod`), the same coop as for Gothic 2, no separate package. Fixed for it: a crash on the first save, the prologue on the ship not finishing in co-op, and per-PC values of the mod (screen fades, distance warnings, cutscene counters). Tested in long automated test runs on one PC (host and client, both heroes played automatically): about 7 hours in total without a crash; check rounds without errors except in one session (weapon mode and animation of nearby NPCs). Played so far in these runs: the prologue and chapter 1 up to Silbach (Rupert's escort). Since 0.8.0 (u211–u217) fixed for it: a crash when loading saves made during a screen fade, NPCs that no longer talked to the hero after a screen fade that never ended (u217), enlarged monsters flying high above their place on the client; plus a safeguard against a dialogue lock after interrupted conversations (derived from the mod scripts, not triggered in the runs). Seven one-hour automated runs on 8 Nov 2026: no crash, final check rounds 0 errors (host 25–31 OK, client 25–31 OK). Not yet played by hand. |
+| **The Chronicles of Myrtana: Archolos** (Gothic 2) | New in 0.8.0: own profile in the Gothic 2 DLL (detected by `Data\KM_Scripts.mod`), the same coop as for Gothic 2, no separate package. Fixed for it: a crash on the first save, the prologue on the ship not finishing in co-op, and per-PC values of the mod (screen fades, distance warnings, cutscene counters). Tested in long automated test runs on one PC (host and client, both heroes played automatically): about 7 hours in total without a crash; check rounds without errors except in one session (weapon mode and animation of nearby NPCs). Played so far in these runs: the prologue and chapter 1 up to Silbach (Rupert's escort). Since 0.8.0 (u211–u217) fixed for it: a crash when loading saves made during a screen fade, NPCs that no longer talked to the hero after a screen fade that never ended (u217), enlarged monsters flying high above their place on the client; plus a safeguard against a dialogue lock after interrupted conversations (derived from the mod scripts, not triggered in the runs). Seven one-hour automated runs on 8 Nov 2026: no crash, final check rounds 0 errors (host 25–31 OK, client 25–31 OK). Since 0.9.1 (u218–u237) fixed for it: scenes and cutscenes of the prologue on the ship (the captain no longer stays behind the grate), trialogs (speaker, order and positions of the NPCs for the partner), heads turning the same way, both PCs saving at the same moment – checked in automated runs with recordings on 9 Nov 2026. Not yet played by hand. |
 | **Other mods** | Gothic 1/2 with other mods can be installed; the installer shows the mods in the folder. The coop's foundation runs; whatever adjustments a mod needs come from a profile file (see [Settings](#settings)). Not specifically tested. |
 
 Known limits:
@@ -130,7 +137,7 @@ patch 2.6) or Gothic 1 with Othello 4.x. Installer and ZIPs bring Union 1.0m for
 
 ### With the installer (recommended)
 
-1. Download `Gothic-I-II-Universal-Coop-0.9.1-Setup.exe` from [Releases](../../releases) and start it.
+1. Download `Gothic-I-II-Universal-Coop-0.10.0-Setup.exe` from [Releases](../../releases) and start it.
 2. Choose the **game folder** (the folder containing `system`; Steam and GOG folders are searched). There is no game to choose:
    the installer detects Gothic 1, Othello, Gothic 2 and the mods in the folder (e.g. Legend of Ahssun) by content and shows which
    are supported. It installs the coop for the engine with the scripts of all variants – if the mod changes later (GothicStarter,
@@ -144,7 +151,7 @@ Without a window: `Setup.exe /still /ordner:"<game folder>" [/spiel:g1|g2|othell
 
 ### With the ZIP
 
-1. Download `Gothic-I-II-Universal-Coop-0.9.1.zip` – one ZIP for all games.
+1. Download `Gothic-I-II-Universal-Coop-0.10.0.zip` – one ZIP for all games.
 2. Copy the contents of **one** of its folders into the game folder (where `system` is) and replace existing files:
    `Gothic 1 + Othello` for Gothic 1 (also with Othello), `Gothic 2 + Mods` for Gothic 2 (also with Legend of Ahssun and other mods).
 3. `Union 1.0m (nur wenn Union fehlt)` ("only if Union is missing"): only if the game folder has no Union yet (`system\Shw32.dll`
@@ -164,8 +171,9 @@ Simply install the new version on top (installer or ZIP). The installer keeps yo
    Steam; invitation through the friends list).
 4. Load a save or start a **shared new game** – the host chooses.
 
-Keys: **Shift+F5** watch window at the partner · **Shift+F11** coop test run (only on a test save – it changes the time of
-day and the diary and creates a backup) · **Shift+F12** world process off/on.
+Keys (defaults – all can be changed under Settings › COOP › Coop keys): **H** (or F1) help · **Shift+K** coop window ·
+**I** coop inventory · **Shift+T** teleport to the partner (rune in the inventory) · **Shift+F5** watch window at the partner ·
+**Shift+F4** revive the partner · **F6** resync the world. Older saves: Esc › "Choose save".
 
 ## Settings
 

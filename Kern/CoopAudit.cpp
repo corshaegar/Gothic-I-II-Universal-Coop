@@ -23,7 +23,7 @@ namespace GOTHIC_ENGINE {
     //  - alle GT-Haken aus den Quellen (33 statt einer festen Liste mit 12),
     //  - je von GT benutzter Funktion auch die Aenderungen im Rumpf (wer hat hineingepatcht),
     //  - 4. .rdata (vtable-Plaetze und Konstanten; Importtabelle ausgenommen),
-    //  - Fingerabdruck je Verursacher-Modul: der Coop-Testlauf (Shift+F11) vergleicht ihn mit dem Partner; weicht er ab,
+    //  - Fingerabdruck je Verursacher-Modul: der Coop-Testlauf (Entwicklungsbau) vergleicht ihn mit dem Partner; weicht er ab,
     //    schreiben beide ihre ganze Liste ins GT-Log (das geht ohnehin zum Partner) - Auswertung mit tools\auditnames.py.
 
 #if COOP_BUILD(Audit)   // u3: bis u2 nur G1 - Freigabe je Engine in CoopCore.cpp

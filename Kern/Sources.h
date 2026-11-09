@@ -8,6 +8,7 @@
 #include "Chat.cpp"
 #include "Utils.cpp"
 #include "CoopCore.cpp"        // u1: Fassung, Sprache, Spielordner, Profil (Othello/Vanilla), Log-Archiv, Hauptprotokoll - alle Engines
+#include "CoopKeys.h"          // u226: Coop-Tasten (Liste, CoopKeyHit) - Umsetzung in CoopKeys.cpp
 #include "CoopAddr.h"          // u2: Engine-Tabelle - jede feste Adresse mit Namen, Wert je Engine (G1, G1A, G2, G2A)
 #include "OthelloCompat.cpp"
 #include "Global.cpp"
@@ -48,12 +49,13 @@
 #include "OthelloHookOrder.cpp"
 #include "CoopDialogWatch.cpp"   // 18.10.2026: Dialog-Waechter (EV_PROCESSINFOS verloren)
 #include "CoopAudit.cpp"
-#include "CoopWorldProcess.cpp" // u33: Weltprozess - zweites Gothic beim Host, laedt die Welt eines Mitspielers (Shift+F12)
+#include "CoopWorldProcess.cpp" // u33: Weltprozess - zweites Gothic beim Host, laedt die Welt eines Mitspielers (startet von selbst; u237: ohne Shift+F12)
 #include "Mods\ModLoA.cpp"     // u187: Mod-Profil Legend of Ahssun (Fundament + Mod-Varianten, docs\MODULE.md)
 #include "Mods\ModArcholos.cpp" // u204: Mod-Profil The Chronicles of Myrtana: Archolos (ohne -game, erkannt an Data\KM_Scripts.mod)
 #include "Mods\CoopMods.cpp"   // u187: Verteiler der Mod-Profile (CoopModsInit)
 #include "Plugin.cpp"
 #include "CoopMenuLobby.cpp"   // v40: Mehrspieler im Hauptmenue (COOP_MENU.D, Haken auf zCMenu::HandleSelAction)
+#include "CoopKeys.cpp"        // u226: Coop-Tasten, Hilfe, Coop-Fenster im Spiel, Einfuehrung vor neuem Spiel, Hinweise (P264-P268)
 #include "CoopMenuInject.cpp"  // v81: COOP-Eintrag zur Laufzeit in Othellos MENU_MAIN / MENU_OPTIONS (vtable-Platz SetByScript)
 #include "CoopSavePreview.cpp" // v77: Vorschau in der Liste "Spielstand waehlen" (Bilder beider PCs, Kapitel, Tag, Aufgaben)
 #include "CoopMenuMouse.cpp"   // v57: Maus in Gothics Menues (Zeiger, Ueberfahren, Klick; GRawInput RegisterWrapCheck)
@@ -63,9 +65,10 @@
 #include "CoopDifficulty.cpp"  // v67: Schwierigkeitsgrad (Schaden, Leben der Gegner, Kampf-EP; Host gibt vor)
 #include "CoopTempo.cpp"       // u181: gemeinsames Spieltempo der Testinstanzen (Abgleich Host/Client, Anzeige "Zeitraffer x2")
 #include "CoopNewGame.cpp"     // v91: gemeinsames neues Spiel (Intro fuer beide ueberspringen, Platz neben dem Host, Diego)
-#include "CoopSelfTest.cpp"    // v37: Coop-Testlauf (Shift+F11); v107: 100 Schritte, am Ende - liest den Zustand aller Module
-#include "CoopShow.cpp"        // u171: Vorfuehrung fuer Aufnahmen (-coopaufnahme) - Host und Client gehen sichtbar durchs Menue
-#include "CoopAutoTest.cpp"    // u49: automatischer Testlauf auf einem PC (-cooptest:host / -cooptest:client, tools\cooptest_lauf.py)
+// u237 (Nutzer 09.11.: "debug sachen nicht in der Release version ... Dazu zaehlt auch zB ... die Tests"; Tests nur noch ueber die
+// automatischen Laeufe, nicht per Taste): Testlauf, Vorfuehrung und automatischer Testlauf gehoeren nur zum Entwicklungsbau. Der
+// oeffentliche Bau nimmt stattdessen die leeren Gegenstuecke aus CoopOhneTests.cpp
+#include "CoopOhneTests.cpp"   // u237: oeffentlicher Bau - ohne Testlauf, Vorfuehrung und automatischen Testlauf (nur leere Gegenstuecke)
 #include "UnionHooks.cpp"
 #pragma endregion
 

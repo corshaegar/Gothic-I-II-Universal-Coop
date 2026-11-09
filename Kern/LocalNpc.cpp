@@ -20,6 +20,7 @@ namespace GOTHIC_ENGINE {
         zCArray<int> pArrOverlays;
         zVEC3 lastPosition;
         float lastHeading = 0;
+        float lastLookX = 0.5f, lastLookY = 0.5f;   // u235 (P280): zuletzt gesendete Kopfdrehung
         int lastWeaponMode;
         int lastSyncHp = -1;
         int lastSyncMaxHp;
@@ -92,6 +93,7 @@ namespace GOTHIC_ENGINE {
             initialized = false;
             lastPosition = NULL;
             lastHeading = 0;
+            lastLookX = lastLookY = -1.f;   // u235 (P280): beim naechsten Mal mitsenden
             lastWeaponMode = 0;
             lastSyncHp = -1;
             lastSyncMaxHp = 0;
@@ -181,10 +183,18 @@ namespace GOTHIC_ENGINE {
 
         void SyncAngle() {
             float currentHeading = GetHeading(npc);
-            if (abs(currentHeading - lastHeading) > 3 && CurrentMs - lastHeadingSentMs >= SendIntervalMs(npc == player))
+            // u235 (P280, Nutzer: "die köpfe nicht synchornisiert also die schauen in verschiedene richtungen"): die Kopfdrehung
+            // (oCAniCtrl_Human lookTargetx/y, 0..1, 0,5 = geradeaus) geht mit - bisher drehte die KI jedes PCs den Kopf selbst, meist zum
+            // eigenen Helden
+            oCAniCtrl_Human* ac = hasModel ? npc->GetAnictrl() : NULL;
+            const float lx = ac ? ac->lookTargetx : 0.5f, ly = ac ? ac->lookTargety : 0.5f;
+            const bool kopf = ac && (fabsf(lx - lastLookX) > 0.03f || fabsf(ly - lastLookY) > 0.03f);
+            if ((abs(currentHeading - lastHeading) > 3 || kopf) && CurrentMs - lastHeadingSentMs >= SendIntervalMs(npc == player))
             {
                 addUpdate(SYNC_HEADING);
                 lastHeading = currentHeading;
+                lastLookX = lx;
+                lastLookY = ly;
                 lastHeadingSentMs = CurrentMs;
             }
         }
@@ -501,6 +511,8 @@ namespace GOTHIC_ENGINE {
                 case SYNC_HEADING:
                 {
                     j["h"] = lastHeading;
+                    j["lx"] = (int)(lastLookX * 100.f + 0.5f);   // u235 (P280): Kopfdrehung in Hundertsteln
+                    j["ly"] = (int)(lastLookY * 100.f + 0.5f);
                     break;
                 }
                 case SYNC_ANIMATION:

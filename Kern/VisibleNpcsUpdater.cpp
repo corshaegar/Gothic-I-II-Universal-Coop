@@ -22,7 +22,12 @@ namespace GOTHIC_ENGINE {
                     updatedBroadcastNpcs[npcUniqueName] = new LocalNpc(npc, npcUniqueName);
                 }
                 else {
-                    updatedBroadcastNpcs[npcUniqueName] = BroadcastNpcs[npcUniqueName];
+                    // u230 (P274): der Name gehoert jetzt einem anderen Objekt (Trialog: LeGos _TRIA_COPY tauscht zwei NPCs, GT ihre
+                    // Namen) - der Sender folgt dem Namen, sonst gingen Lage und Animation des alten Objekts unter diesem Namen hinaus
+                    LocalNpc* l = BroadcastNpcs[npcUniqueName];
+                    if (l && l->npc != npc)
+                        l->npc = npc;
+                    updatedBroadcastNpcs[npcUniqueName] = l;
                 }
             }
 

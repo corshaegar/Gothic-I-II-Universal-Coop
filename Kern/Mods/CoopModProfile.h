@@ -16,7 +16,8 @@
 //                     Abgleich schickt die Aenderung statt des Werts, damit gleichzeitige Schritte beider Spieler nicht verloren gehen.
 //                     Nie fuer Zaehler aus Schleifen, die auf beiden PCs laufen (dort zaehlte jeder Schritt doppelt). Schreibweise wie oben
 //   "startVars"       u207 (P241): Ablauf-Zaehler, die ein Skript-Takt auf jedem PC weiterschaltet (Zwischensequenzen mit dem eigenen
-//                     Helden) - nur der Start (0 -> Wert) geht an den Partner, danach zaehlt jeder PC selbst. Nicht in der Pruefrunde
+//                     Helden) - nur der Start (0 -> Wert) geht an den Partner, danach zaehlt jeder PC selbst; beim Empfaenger beginnt
+//                     der Ablauf immer bei 1 (u220, P258 - der Absender kann zwischen zwei Abgleichen schon weiter sein). Nicht in der Pruefrunde
 //                     "Alle Skript-Variablen gleich". Schreibweise wie oben
 //   "heroStates"     u199 (P221): KI-Zustaende von NPCs (ZS_...), deren Skripte HERO als "den Spieler hier" meinen (Beschwoerung um den
 //                     Helden, Hinrichtung, Arena-Regeln): waehrend des Zustands zeigt HERO auf den Spieler, gegen den der NPC kaempft,

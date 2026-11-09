@@ -309,6 +309,65 @@ namespace GOTHIC_ENGINE {
                 version ? "da" : "FEHLT", a.num);
     }
 
+    // u226 (P269, Aufnahme Archolos 09.11.: "Einstellungen anders als erwartet (MENUITEM_PERF fehlt, y 0 statt 5600) - COOP nicht
+    // eingehaengt" - dort gab es kein Einstellungen > COOP, auf das Hilfe, Einfuehrung und Hinweise verweisen): ohne Gothics PERF-Zeile
+    // kommt COOP vor ZURUECK (letzter Eintrag mit SEL_ACTION_BACK), eine Zeile unter den letzten waehlbaren Eintrag darueber (Abstand
+    // wie die Zeilen der Mod); ist dort kein Platz, rueckt ZURUECK eine Zeile tiefer. Allgemein (jede Mod mit eigenem Einstellungsmenue).
+    static bool InjectOptionsBeforeBack(zCMenu* menu, const char* why) {
+        InjectArray& a = InjectList(menu);
+        int back = -1;
+        for (int i = 0; i < a.num; i++)
+            if (a.items[i] && a.items[i]->m_parOnSelAction[0] == SEL_ACTION_BACK)
+                back = i;
+        if (back < 0) {
+            InjectLog("Einstellungen anders als erwartet (%s, kein Zur\xFC" "ck-Eintrag, %d Eintr\xE4ge) - COOP nicht eingeh\xE4ngt", why, a.num);
+            return false;
+        }
+        zCMenuItem* bk = a.items[back];
+        std::vector<int> ys;   // Zeilen der waehlbaren Eintraege ueber ZURUECK
+        for (int i = 0; i < a.num; i++) {
+            zCMenuItem* it = a.items[i];
+            if (it && i != back && (it->m_parItemFlags & IT_SELECTABLE) && it->m_parPosY < bk->m_parPosY)
+                ys.push_back(it->m_parPosY);
+        }
+        std::sort(ys.begin(), ys.end());
+        int dy = 0;
+        for (size_t k = 1; k < ys.size(); k++)
+            if (ys[k] - ys[k - 1] > 150 && (!dy || ys[k] - ys[k - 1] < dy))
+                dy = ys[k] - ys[k - 1];
+        if (!dy)
+            dy = INJECT_OPT_DY;
+        const int y = ys.empty() ? bk->m_parPosY : ys.back() + dy;
+        int moveBack = 0;
+        if (y + dy / 2 > bk->m_parPosY)
+            moveBack = y + dy - bk->m_parPosY;   // ZURUECK eine Zeile unter COOP
+        if (bk->m_parPosY + moveBack > 8192 - 450) {
+            InjectLog("Einstellungen anders als erwartet (%s) - kein Platz f\xFCr COOP \xFC" "ber Zur\xFC" "ck (y %d, Zur\xFC" "ck %d) - nicht eingeh\xE4ngt",
+                why, y, bk->m_parPosY);
+            return false;
+        }
+        zCMenuItem* coop = InjectCreate("MENUITEM_OPT_COOP");
+        if (!coop) {
+            InjectLog("MENUITEM_OPT_COOP fehlt im Men\xFC-Skript (COOP_MENU.D nicht geladen?) - Einstellungen unver\xE4ndert");
+            return false;
+        }
+        if (!InjectInsert(menu, back, coop)) {
+            InjectLog("Einstellungen: Eintrag lie\xDF sich nicht einf\xFCgen (%d/%d) - unver\xE4ndert", a.num, a.alloc);
+            return false;
+        }
+        coop->m_parPosY = y;
+        bk->m_parPosY += moveBack;
+        if (menu->defaultInGame >= back)
+            menu->defaultInGame++;
+        if (menu->defaultOutGame >= back)
+            menu->defaultOutGame++;
+        static int logged = 0;
+        if (logged++ < 5)
+            InjectLog("Einstellungen: %s - COOP vor \"Zur\xFC" "ck\" eingeh\xE4ngt (Platz %d, y %d, Zeilenabstand %d%s) - jetzt %d Eintr\xE4ge (P269)", why, back,
+                y, dy, moveBack ? ", Zur\xFC" "ck r\xFC" "ckt tiefer" : "", a.num);
+        return true;
+    }
+
     static void InjectOptions(zCMenu* menu) {
         if (InjectFind(menu, "MENUITEM_OPT_COOP") >= 0)
             return;
@@ -319,8 +378,10 @@ namespace GOTHIC_ENGINE {
         const int want = COOP_ENGINE_SWITCH(INJECT_OPT_Y + INJECT_OPT_DY * 6, INJECT_OPT_Y + INJECT_OPT_DY * 6, 2000 + INJECT_OPT_DY * 6,
             2000 + INJECT_OPT_DY * 6);
         if (perf < 0 || a.items[perf]->m_parPosY != want) {
-            InjectLog("Einstellungen anders als erwartet (MENUITEM_PERF %s, y %d statt %d) - COOP nicht eingeh\xE4ngt",
-                perf < 0 ? "fehlt" : "da", perf < 0 ? 0 : a.items[perf]->m_parPosY, want);
+            char why[96];
+            _snprintf(why, sizeof(why), "MENUITEM_PERF %s, y %d statt %d", perf < 0 ? "fehlt" : "da", perf < 0 ? 0 : a.items[perf]->m_parPosY, want);
+            why[sizeof(why) - 1] = 0;
+            InjectOptionsBeforeBack(menu, why);   // u226 (P269)
             return;
         }
         zCMenuItem* coop = InjectCreate("MENUITEM_OPT_COOP");

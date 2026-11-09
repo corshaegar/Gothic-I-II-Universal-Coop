@@ -63,6 +63,12 @@ Vorgaben fuer Coop-Schalter, Hinweise) ohne neue DLL ueber system\\GothicCoopMod
 dieselbe Datei; das Log nennt beim Start, was gelesen wurde ("Mod-Profil ...").
 Ab u195: ein Paket fuer Gothic 1 und Othello - system\\GothicCoop\\Skripte haelt beide Skriptsaetze, der Coop legt beim Start
 den passenden nach system\\Autorun (auch wenn Othello spaeter installiert oder entfernt wird; Log: "Skript-Weiche").
+Ab u226: alle Coop-Tasten unter Einstellungen > COOP > Coop-Tasten (jede Taste, auch mit Shift/Strg/Alt), Hilfe im Spiel (H bzw.
+F1), Coop-Fenster (Shift+K), Teleport zum Mitspieler (Shift+T), kurze Einfuehrung vor einem neuen Spiel.
+Ab u237: gespeichert wird nur noch, wenn auch der Mitspieler gerade mitspeichern kann - sonst nennt die Meldungszeile den Grund
+(z. B. "Diego: Dialog"), Auto-Sicherung und Startstand warten darauf. So speichern beide immer gleichzeitig. Entfernt: die Liste
+der Coop-Sicherungen im Spiel (F9/F8 - sie steht unter Esc > Spielstand waehlen), die Taste fuer den Weltprozess (Shift+F12 - er
+startet weiter von selbst), der Coop-Testlauf mit seinen Tasten (Shift+F11, F7) und die Netzwerk-Statistik (O).
 """
 
 SKRIPTE = ('COOP_MENU.D', 'COOP_ITEMS.D', 'PC_MULTIPLAYER_HERO.D')

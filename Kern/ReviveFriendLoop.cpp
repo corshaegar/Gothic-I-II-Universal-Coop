@@ -44,7 +44,7 @@ namespace GOTHIC_ENGINE {
             return;
         }
 
-        if (CoopShiftDown() && zinput->KeyToggled(RevivePlayerKey)) {   // v39: nur mit Shift
+        if (CoopKeyHit(CK_REVIVE)) {   // v39: nur mit Shift; u226 (P264): Taste aus Einstellungen > COOP > Coop-Tasten (Vorgabe Shift+F4)
             auto focusedNpc = player->GetFocusNpc();
             if (!focusedNpc || !IsCoopPlayer(focusedNpc->GetObjectName()))
             {

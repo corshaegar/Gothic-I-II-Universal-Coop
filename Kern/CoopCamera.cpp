@@ -52,7 +52,7 @@ namespace GOTHIC_ENGINE {
 #if COOP_BUILD(Camera)   // u3: bis u2 nur G1 - Freigabe je Engine in CoopCore.cpp
 
     // Tasten, die weder GT noch Othello/Gothic schon belegen: GT nimmt F6 (Abgleich), F7 (Testmarke), F8/F9 (Sicherungen),
-    // Shift+F1-F4 und Shift+F11 (Testlauf), Othello F10/F12 (Schnellspeichern/-laden); Gothic.ini [KEYS] belegt Entf und
+    // Shift+F1-F4 (bis u236 auch Shift+F11 fuer den Testlauf), Othello F10/F12 (Schnellspeichern/-laden); Gothic.ini [KEYS] belegt Entf und
     // Bild ab (Seitwaerts) - Einfg, Pos1 und Ende sind dort frei.
     struct CamKeyDef { const char* name; int key; bool shift; };
     static const CamKeyDef CamKeys[] = {
@@ -126,6 +126,43 @@ namespace GOTHIC_ENGINE {
     static int WinDistIdx = -1;           // v66: camWindowDist
     static long long WinOptNextMs = 0;
     static int WinEveryNth = 0;
+    // u225 (P261, Nutzer 08.11.: "die Lags müssen sowohl bei archolos und LoA gelöst werden. einer der beiden hat immer FPS einbrüche";
+    // Aufnahme LoA b340: beim Host fiel die Bildrate auf 4-10 Bilder/s, genau solange sein Zuschau-Fenster offen war - 21:04-21:07 und
+    // 21:08-21:10; das Fenster zeichnet die Welt um den Mitspieler jedes Bild ein zweites Mal, dort stand der Client in der Stadt):
+    // das Fenster richtet seine Bildrate nach dem Spiel - dauert ein Bild im Mittel laenger als 42 ms (unter 24 Bilder/s), zeichnet es
+    // nur jedes 2., 3. bzw. 4. Bild neu (ein Schritt je Sekunde); laeuft das Spiel 3 s lang wieder schneller als 36 ms je Bild, wieder
+    // oefter. camWindowEveryNth bleibt die Untergrenze. Allgemein
+    static int WinAdaptNth = 1;
+    static float WinBildMs = 0.f;
+    static long long WinBildLetzteMs = 0, WinAdaptSchrittMs = 0, WinSchnellSeitMs = 0;
+    static void WinBildzeitTakt() {
+        const long long now = GetCurrentMs();
+        if (WinBildLetzteMs && now > WinBildLetzteMs) {
+            const float d = (float)(std::min)(now - WinBildLetzteMs, 1000LL);
+            WinBildMs = WinBildMs <= 0.f ? d : WinBildMs * 0.9f + d * 0.1f;
+        }
+        WinBildLetzteMs = now;
+        const int alt = WinAdaptNth;
+        if (WinBildMs > 42.f) {
+            WinSchnellSeitMs = 0;
+            if (WinAdaptNth < 4 && now >= WinAdaptSchrittMs + 1000)
+                WinAdaptNth++;
+        }
+        else if (WinBildMs < 36.f) {
+            if (!WinSchnellSeitMs)
+                WinSchnellSeitMs = now;
+            if (WinAdaptNth > 1 && now >= WinSchnellSeitMs + 3000 && now >= WinAdaptSchrittMs + 1000)
+                WinAdaptNth--;
+        }
+        else
+            WinSchnellSeitMs = 0;
+        if (WinAdaptNth != alt) {
+            WinAdaptSchrittMs = now;
+            static int gemeldet = 0;
+            if (WinFig && gemeldet++ < 60)
+                CamLog("Zuschau-Fenster: Bild dauert im Mittel %.0f ms - jetzt jedes %d. Bild neu (P261)", WinBildMs, (std::max)(WinEveryNth, WinAdaptNth));
+        }
+    }
     static bool WinAutoOutside = false;   // v48: Automatik - Mitspieler gilt als ausserhalb des Radius
     static bool WinAutoOpened = false;    // v48: das Fenster hat die Automatik geoeffnet (nur dann schliesst sie es auch)
     static long long WinAutoSinceMs = 0;  // v48: seit wann der neue Zustand anliegt (Wechsel erst nach 1 s)
@@ -247,20 +284,15 @@ namespace GOTHIC_ENGINE {
 
     // Taste aus camWindowKey: mit Shift nur bei gedrueckter Shift-Taste, ohne Shift nur ohne. Bei "Kamera aus" bleibt sie dem
     // Spiel (nichts verbrauchen).
+    // u226 (P264): die Taste kommt aus Einstellungen > COOP > Coop-Tasten (coopKeyCam, Vorgabe aus camWindowKey) - jede Taste moeglich
     bool CoopCamKeyHit(bool shift) {
+        (void)shift;
         WinReadOptions();
         if (!zinput || WinMode == 2) {
             CamKeyWas = false;
             return false;
         }
-        const CamKeyDef& k = CamKeys[CamKeyIdx];
-        const bool mods = k.shift ? shift : !shift;
-        if (mods)
-            zinput->KeyToggled(k.key);   // Merker verbrauchen (die Taste gehoert in dieser Lage GT)
-        const bool down = zinput->KeyPressed(k.key) != 0;
-        const bool edge = down && !CamKeyWas;
-        CamKeyWas = down;
-        if (!edge || !mods)
+        if (!CoopKeyHit(CK_CAM))
             return false;
         const long long now = GetCurrentMs();
         if (now - CamKeyLastMs < 400)
@@ -632,12 +664,13 @@ namespace GOTHIC_ENGINE {
         // die Hoehe ist im Bildanteil gleich der Breite (Renderer)
         const float x = (WinPos == 1 || WinPos == 3) ? 0.012f : 1.0f - w - 0.012f;
         const float y = WinPos >= 2 ? 1.0f - w - 0.075f : 0.03f;
-        WinGdx(1, m, x, y < 0.f ? 0.f : y, w, WinEveryNth);
+        WinGdx(1, m, x, y < 0.f ? 0.f : y, w, (std::max)(WinEveryNth, WinAdaptNth));   // u225 (P261)
         WinSentOn = true;
     }
 
     // jedes Bild aus Game_Loop
     void CoopCamPulse() {
+        WinBildzeitTakt();   // u225 (P261)
         CoopCamKey();
         WinReadOptions();
         WinAutoPulse();   // v48
