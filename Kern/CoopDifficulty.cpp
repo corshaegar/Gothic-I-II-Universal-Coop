@@ -658,7 +658,16 @@ namespace GOTHIC_ENGINE {
                 DiffLog("%s%s", src, d.c_str());
             if (syncChanged || DiffHostChanged)
                 OthelloCompatLog("[%lld s, %s] Abgleich: %s%s", DiagSeconds(), DiagRole(), src, s.c_str());
-            if (on && player && DiffLastEffValid) {
+            // u238 (Nutzer 09.11.: "sehe ich noch die Coop einstellungen und hotkeys"): beim Verbinden kamen beide Zeilen jedes Mal -
+            // jetzt nur beim Client, wenn der Host die Werte waehrend des Spiels aendert (die ersten Werte des Hosts nach dem Verbinden
+            // stehen nur im Log), nie in automatischen Laeufen. Der Host stellt sie selbst ein
+            static bool hostWerteDa = false;   // die ersten Werte des Hosts nach dem Verbinden sind schon angekommen
+            if (!on || !DiffHostValid)
+                hostWerteDa = false;
+            const bool zeigen = hostWerteDa && on && player && DiffLastEffValid && ClientThread && !ServerThread && !CoopAutoLauf();
+            if (DiffHostValid)
+                hostWerteDa = true;
+            if (zeigen) {
                 if (diffChanged)
                     ChatLog(string::Combine(CoopTr("Schwierigkeitsgrad%s: %s", "Difficulty%s: %s"), string(ClientThread && !ServerThread ? " (Host)" : ""),
                         string(DiffDescribe(eff, CoopLangEn != 0).c_str())));

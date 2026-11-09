@@ -479,10 +479,28 @@ namespace GOTHIC_ENGINE {
         OthelloCompatLog("Teleport-Rune: eigenes Aussehen aktiv (%s, %s)", mesh.c_str(), tex.c_str());
     }
 
+    // u238: Rune ins Zauberbuch (wie Ausruesten im Inventar) - true, wenn sie dort ist
+    static bool TpEquip(oCItem* rune, const char* why) {
+        if (!rune || !player)
+            return false;
+        if (rune->HasFlag(ITM_FLAG_ACTIVE))
+            return true;
+        player->Equip(rune);
+        const bool ok = rune->HasFlag(ITM_FLAG_ACTIVE) != 0;
+        TpLog("%s: Rune %s", why, ok ? "ins Zauberbuch gelegt" : "nicht ins Zauberbuch (kein freier Platz?)");
+        return ok;
+    }
+
+    static bool TpEquipNachLaden = false;   // u238: die erste Pruefung nach dem Laden legt eine vorhandene Rune ins Zauberbuch
+
     static void TpEnsureRune(const char* why) {
         if (!player || player->IsDead() || TpRune() < 0 || CoopHeroSwapped())   // u149 (P152): nicht dem Tier
             return;
         if (oCItem* have = player->IsInInv(TpRuneIdx, 1)) {
+            if (TpEquipNachLaden) {   // u238 (Nutzer 09.11.: "fester bestandteil"): einmal je Laden ins Zauberbuch, wenn dort Platz ist
+                TpEquipNachLaden = false;
+                TpEquip(have, why);
+            }
             if (TpLookState != 1)
                 return;
             zCVisual* v = zCVisual::LoadVisual(zSTRING(TP_LOOK_VISUAL));   // u89 (P113): vorhandenes Modell oder neu geladen
@@ -502,6 +520,87 @@ namespace GOTHIC_ENGINE {
         oCItem* in = it ? player->PutInInv(it) : NULL;
         WorldSyncApplying--;
         TpLog("%s: keine Rune im Inventar - %s", why, in ? "eine angelegt" : "Anlegen FEHLGESCHLAGEN");
+        if (in)
+            TpEquip(in, why);   // u238 (Nutzer 09.11.: "fester bestandteil"): eine neue Rune gleich ins Zauberbuch, wenn dort Platz ist
+    }
+
+    // --- u238: genau eine Coop-Rune je Held, keine frei in der Welt ----------------------------------------------------
+    //
+    // Nutzer 09.11.: "die teleport rune ... soll auch fester bestandteil von G2 sein also egal ob mod oder nicht", "wenn irgendwo in
+    // der Welt quasi die Rune liegt, dass man die nicht doppelt hat oder wenn man es aufhebt dass man trotzdem immer nur eine
+    // Coop-Rune hat". Bis u237 prueft GT nur 3 s und 15 s nach dem Laden und nach dem Speichern, ob die Rune da ist; eine fallen
+    // gelassene blieb in der Welt liegen, wer sie aufhob, hatte zwei. Jetzt alle 2 s: fehlt sie, legt GT sie an (und ins
+    // Zauberbuch); sind es mehr, nimmt GT die uebrigen heraus - die im Zauberbuch bleibt. Liegt eine Coop-Rune frei in der Welt (nicht
+    // in der Hand eines NPCs), entfernt GT sie, sobald sie zwei Pruefungen hintereinander dort lag - jeder Held hat ja seine eigene.
+    // Jeder PC fuer sich (unter WorldSyncApplying, kein Abgleich), beim Partner verschwindet die Kopie ebenso. Allgemein (G1/G2, Mods).
+    static long long TpEineNextMs = 0, TpWeltNextMs = 0;
+    static std::set<oCItem*> TpFreiGesehen;   // in der letzten Pruefung frei in der Welt
+
+    static void TpEineRunePulse() {
+        if (!player || player->IsDead() || TpRune() < 0 || CoopHeroSwapped() || CoopWpIsWorld())
+            return;
+        const int n = player->inventory2.GetAmount(TpRuneIdx);
+        if (n <= 0) {
+            TpEnsureRune("Kontrolle");
+            return;
+        }
+        if (n == 1)
+            return;
+        std::vector<oCItem*> inv;
+        CoopForEachInvItem(inv);
+        std::vector<oCItem*> runen;
+        oCItem* behalten = NULL;
+        for (oCItem* it : inv)
+            if (it && it->GetInstance() == TpRuneIdx) {
+                runen.push_back(it);
+                if (!behalten && it->HasFlag(ITM_FLAG_ACTIVE))
+                    behalten = it;
+            }
+        if (runen.empty())
+            return;
+        if (!behalten)
+            behalten = runen[0];
+        int weg = 0;
+        WorldSyncApplying++;
+        for (oCItem* it : runen) {
+            const int a = CoopItemAmount(it);
+            const int nimm = it == behalten ? a - 1 : a;
+            if (nimm <= 0)
+                continue;
+            if (oCItem* r = player->RemoveFromInv(it, nimm)) {
+                ogame->GetGameWorld()->RemoveVob(r);
+                weg += nimm;
+            }
+        }
+        WorldSyncApplying--;
+        TpLog("%d Coop-Runen im Inventar - %d herausgenommen, eine bleibt (u238)", n, weg);
+    }
+
+    static void TpWeltRunenPulse() {
+        oCWorld* w = ogame ? ogame->GetGameWorld() : NULL;
+        if (!w || TpRune() < 0 || CoopWpIsWorld())
+            return;
+        std::set<zCVob*> slots;
+        CoopCollectSlotVobs(slots);
+        std::set<oCItem*> jetzt;
+        std::vector<oCItem*> weg;
+        for (zCListSort<oCItem>* l = CoopWorldItemListFirst(w); l; l = l->next) {
+            oCItem* it = l->data;
+            if (!it || it->GetInstance() != TpRuneIdx || !CoopItemLiegtFrei(it, &slots, true))
+                continue;
+            if (TpFreiGesehen.count(it))
+                weg.push_back(it);
+            else
+                jetzt.insert(it);
+        }
+        TpFreiGesehen = jetzt;
+        if (weg.empty())
+            return;
+        WorldSyncApplying++;
+        for (oCItem* it : weg)
+            w->RemoveVob(it);
+        WorldSyncApplying--;
+        TpLog("%d Coop-Rune(n) lag(en) frei in der Welt - entfernt, jeder Held hat seine eigene (u238)", (int)weg.size());
     }
 
     // u89: traegt die Rune das eigene Modell? Ueber den Namen (zCProgMeshProto::GetVisualName = Objektname) - GT haelt keinen
@@ -521,6 +620,8 @@ namespace GOTHIC_ENGINE {
         TpEnsureAt2 = now + 15000;
         TpPending = false;
         TpCasting = false;
+        TpFreiGesehen.clear();   // u238: Zeiger der alten Welt
+        TpEquipNachLaden = true;
     }
 
     // u7 (Testlauf u6, Schritt 97 in beiden Laeufen: Rune des Hosts ohne eigenes Aussehen): beim gemeinsamen Speichern nahm
@@ -532,8 +633,10 @@ namespace GOTHIC_ENGINE {
     }
 
     // u226 (P264): Nutzer "am besten auch eine Taste fuer die Teleport Rune" - Taste aus Einstellungen > COOP > Coop-Tasten (Vorgabe
-    // Shift+T): wie das Wirken der Rune zum Mitspieler (auch ueber Welten, TpDo), ohne Aufladen. Nur mit der Rune im Inventar - jeder Held
-    // bekommt sie nach dem Laden (TpEnsureRune); nicht im Gespraech, nicht bewusstlos/tot.
+    // Shift+T). u238 (Nutzer 09.11.: "mit teleport gemeint dass die Teleport Rune ausgeruestet wird und wenn nicht vorhanden dann wird
+    // sie vorher eingefuegt ins inventar"): bis u237 teleportierte die Taste sofort. Jetzt nimmt sie die Rune in die Hand: fehlt sie,
+    // legt GT sie an; nicht im Zauberbuch - ausruesten (Equip); dann ReadySpell mit ihrem Zauber - gewirkt wird wie jede Rune vom
+    // Spieler. Ist sie schon in der Hand, legt die Taste sie weg. Nicht im Gespraech, nicht bewusstlos/tot, nicht verwandelt.
     void CoopTeleportKey() {
         if (!player || IsLoadingLevel || player->IsDead() || player->IsUnconscious() || IsPlayerTalkingWithAnybody())
             return;
@@ -541,14 +644,37 @@ namespace GOTHIC_ENGINE {
             ChatLog(CoopTr("Teleport: die Teleport-Rune fehlt im Skript (COOP_ITEMS.D).", "Teleport: the teleport rune is missing from the scripts (COOP_ITEMS.D)."), zCOLOR(255, 200, 80, 255));
             return;
         }
-        if (!player->IsInInv(TpRuneIdx, 1)) {
-            ChatLog(CoopTr("Teleport: die Teleport-Rune ist nicht im Inventar (vielleicht im Coop-Inventar?).", "Teleport: the teleport rune is not in your inventory (maybe in the coop inventory?)."),
-                zCOLOR(255, 200, 80, 255));
-            TpLog("Taste %s - Rune nicht im Inventar", CoopKeyText(CK_RUNE).c_str());
+        if (CoopHeroSwapped()) {
+            ChatLog(CoopTr("Teleport: verwandelt geht das nicht.", "Teleport: not possible while transformed."), zCOLOR(255, 200, 80, 255));
             return;
         }
-        TpLog("Taste %s - zum Mitspieler", CoopKeyText(CK_RUNE).c_str());
-        TpPending = true;   // naechstes Spielbild (CoopTeleportPulse)
+        oCItem* rune = player->IsInInv(TpRuneIdx, 1);
+        if (!rune) {
+            TpEnsureRune("Taste");
+            rune = player->IsInInv(TpRuneIdx, 1);
+        }
+        if (!rune) {
+            ChatLog(CoopTr("Teleport: die Teleport-Rune liess sich nicht anlegen.", "Teleport: could not create the teleport rune."), zCOLOR(255, 200, 80, 255));
+            TpLog("Taste %s - Rune liess sich nicht anlegen", CoopKeyText(CK_RUNE).c_str());
+            return;
+        }
+        oCMag_Book* book = player->GetSpellBook();
+        if (player->GetWeaponMode() == NPC_WEAPON_MAG && book && TpCoopRuneItem(book->GetSelectedSpell())) {
+            player->UnreadySpell();
+            TpLog("Taste %s - Rune war in der Hand, weggelegt", CoopKeyText(CK_RUNE).c_str());
+            return;
+        }
+        if (!TpEquip(rune, "Taste")) {
+            ChatLog(CoopTr("Teleport: kein freier Platz im Zauberbuch - erst eine andere Rune ablegen.", "Teleport: no free slot in the spell book - unequip another rune first."),
+                zCOLOR(255, 200, 80, 255));
+            return;
+        }
+        if (player->GetWeaponMode() != NPC_WEAPON_NONE && player->GetWeaponMode() != NPC_WEAPON_MAG)
+            player->SetWeaponMode2(NPC_WEAPON_NONE);   // Waffe weg, dann die Rune
+        const int bereit = player->ReadySpell(rune->spell, 5);
+        TpLog("Taste %s - Rune in die Hand (Zauber %d, bereit %d, Waffenart %d)", CoopKeyText(CK_RUNE).c_str(), rune->spell, bereit, player->GetWeaponMode());
+        if (!bereit)
+            ChatLog(CoopTr("Teleport: die Rune liess sich gerade nicht in die Hand nehmen.", "Teleport: could not ready the rune right now."), zCOLOR(255, 200, 80, 255));
     }
 
     // Plugin.cpp, Game_Loop
@@ -573,6 +699,16 @@ namespace GOTHIC_ENGINE {
         if (TpEnsureAtSave && now >= TpEnsureAtSave && !IsSavingGame) {
             TpEnsureAtSave = 0;
             TpEnsureRune("nach dem Speichern");
+        }
+        // u238: genau eine Rune je Held (alle 2 s, erst nach der Pruefung 15 s nach dem Laden - davor setzen Laden und Uebernahme den
+        // Helden ein), keine frei in der Welt (alle 3 s)
+        if (!TpEnsureAt2 && !IsSavingGame && now >= TpEineNextMs) {
+            TpEineNextMs = now + 2000;
+            TpEineRunePulse();
+        }
+        if (!IsSavingGame && now >= TpWeltNextMs) {
+            TpWeltNextMs = now + 3000;
+            TpWeltRunenPulse();
         }
     }
 

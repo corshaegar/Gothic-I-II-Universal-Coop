@@ -151,7 +151,7 @@ namespace GOTHIC_ENGINE {
         { "HELP", "coopKeyHelp", "Coop-Hilfe", "Coop help" },
         { "MENU", "coopKeyMenu", "Coop-Fenster", "Coop window" },
         { "INV", "coopKeyInv", "Coop-Inventar", "Coop inventory" },
-        { "RUNE", "coopKeyRune", "Teleport zum Mitspieler", "Teleport to partner" },
+        { "RUNE", "coopKeyRune", "Teleport-Rune in die Hand", "Teleport rune to hand" },   // u238: nimmt die Rune in die Hand (bis u237: sofort teleportieren)
         { "CAM", "coopKeyCam", "Zuschau-Fenster", "Watch window" },
         { "HOST", "coopKeyHost", "Hosten", "Host" },
         { "JOIN", "coopKeyJoin", "Beitreten / Pause als Client", "Join / pause as client" },
@@ -545,7 +545,7 @@ namespace GOTHIC_ENGINE {
         l.push_back(std::string(CoopTr("Bewusstlos? Der Mitspieler belebt dich (", "Knocked out? Your partner revives you (")) + K(CK_REVIVE) + ").");
         l.push_back(std::string());
         l.push_back(std::string(CoopTr("Tasten: ", "Keys: ")) + K(CK_HELP) + CoopTr(" Hilfe, ", " help, ") + K(CK_MENU) + CoopTr(" Coop-Fenster,", " coop window,"));
-        l.push_back(K(CK_INV) + CoopTr(" Coop-Inventar, ", " coop inventory, ") + K(CK_RUNE) + CoopTr(" Teleport.", " teleport."));
+        l.push_back(K(CK_INV) + CoopTr(" Coop-Inventar, ", " coop inventory, ") + K(CK_RUNE) + CoopTr(" Teleport-Rune.", " teleport rune."));
         l.push_back(std::string());
         l.push_back(std::string(CoopTr("Mehr Hilfe: ", "More help: ")) + K(CK_HELP) + CoopTr(" im Spiel, Einstellungen > COOP.", " in game, Settings > COOP."));
     }
@@ -794,7 +794,8 @@ namespace GOTHIC_ENGINE {
     static long long HintDownScanMs = 0;
 
     void CoopKeysGamePulse() {
-        if (!player || IsLoadingLevel || CoopWpIsWorld())
+        // u238 (Nutzer 09.11.: "sehe ich noch die Coop einstellungen und hotkeys"): in automatischen Laeufen keine Tasten-Hinweise
+        if (!player || IsLoadingLevel || CoopWpIsWorld() || CoopAutoLauf())
             return;
         const long long now = GetCurrentMs();
         CoopKeysRead();

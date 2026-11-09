@@ -2469,8 +2469,8 @@ instance MENUITEM_COOPKEYS_VAL_INV(C_MENU_ITEM_DEF)
 instance MENUITEM_COOPKEYS_LBL_RUNE(C_MENU_ITEM_DEF)
 {
 	backpic = MENU_ITEM_BACK_PIC;
-	text[0] = "Teleport zum Mitspieler";
-	text[1] = "Teleport zum Mitspieler (die Coop-Rune muss im Inventar sein).";
+	text[0] = "Teleport-Rune in die Hand";
+	text[1] = "Nimmt die Teleport-Rune in die Hand (fehlt sie, kommt sie ins Inventar) - nochmal: weglegen.";
 	fontname = MENU_FONT_SMALL;
 	posx = 1000;
 	posy = 2240;
@@ -2478,7 +2478,7 @@ instance MENUITEM_COOPKEYS_LBL_RUNE(C_MENU_ITEM_DEF)
 	dimy = 300;
 	onselaction[0] = SEL_ACTION_EXECCOMMANDS;
 	onselaction_s[0] = "COOP_KEY_RUNE";
-	userString[3] = "Teleport to your partner (the coop rune must be carried).";
+	userString[3] = "Readies the teleport rune (added if missing) - press again: put away.";
 };
 
 instance MENUITEM_COOPKEYS_VAL_RUNE(C_MENU_ITEM_DEF)

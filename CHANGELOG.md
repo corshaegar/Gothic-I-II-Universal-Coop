@@ -4,6 +4,17 @@ Projektversion (Veröffentlichung) und je Spiel/Mod die Coop-Fassung `uNN`. Vorg
 (github.com/corshaegar/Othello-Coop, 0.1.0–0.1.2, nur Othello). Die Fassungen dazwischen (u1–u61) stehen im Entwicklungsverlauf;
 hier beginnt der Verlauf mit u62.
 
+## 0.10.1 – Teleport-Rune in die Hand, immer genau eine; Meldungszeile aufgeräumt (Gothic I u238, Gothic II u238, Othello u238, Legend of Ahssun u238, Archolos u238)
+
+**Neu**
+
+- **Teleport-Rune per Taste** (u238): Die Rune-Taste (Vorgabe Shift+T) nimmt die Teleport-Rune in die Hand – fehlt sie, kommt sie vorher ins Inventar und ins Zauberbuch; nochmal drücken legt sie weg. Gewirkt wird wie jede Rune. Bisher teleportierte die Taste sofort.
+- **Immer genau eine Coop-Rune** (u238): Jeder Held hat seine Teleport-Rune fest dabei, in Gothic 1 und in jedem Gothic 2, mit oder ohne Mod – nach jedem Laden auch im Zauberbuch, wenn dort Platz ist. Fehlt sie, kommt sie wieder; hebt man eine zweite auf, bleibt trotzdem nur eine. Eine Rune, die frei in der Welt liegt, verschwindet nach wenigen Sekunden.
+
+**Korrekturen**
+
+- **Meldungszeile** (u238): Die Zeile des Zuschau-Fensters mit der Taste kommt nur noch einmal je Sitzung statt bei jedem automatischen Wechsel; Schwierigkeitsgrad und Abgleich erscheinen nur noch, wenn der Host sie während des Spiels ändert (beim Verbinden stehen sie im Log).
+
 ## 0.10.0 – Speichern nur gemeinsam, Coop-Tasten und Hilfe, Archolos-Prolog mit Trialogen (Gothic I u237, Gothic II u237, Othello u237, Legend of Ahssun u237, Archolos u237)
 
 Aus automatischen Testläufen mit Aufnahmen am 08. und 09.11.2026 in Archolos und Legend of Ahssun (Host und Client auf einem PC, beide Helden automatisch gespielt) und einem Welten-Testlauf in Gothic 2 mit u237.

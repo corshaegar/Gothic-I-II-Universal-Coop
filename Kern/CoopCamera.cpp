@@ -404,8 +404,14 @@ namespace GOTHIC_ENGINE {
             if (WinEveryNth < 1) WinEveryNth = 1;
         }
         // K4: fuer %s nur Union-string-Objekte uebergeben, nie const char*
-        ChatLog(string::Combine(CoopTr("Zuschau-Fenster: %s (%s) - %s: n" "\xE4" "chster Mitspieler bzw. aus.", "Watch window: %s (%s) - %s: next player or off."),
-            string(name.c_str()), string(why), string(CamKeyName())));
+        // u238 (Nutzer 09.11.: "sehe ich noch die Coop einstellungen und hotkeys"): die Zeile kam bei jedem Wechsel der Automatik -
+        // jetzt nur beim ersten Mal je Sitzung (mit der Taste), in automatischen Laeufen nie; sonst nur ins Log
+        static bool erstesMal = true;
+        if (erstesMal && !CoopAutoLauf()) {
+            erstesMal = false;
+            ChatLog(string::Combine(CoopTr("Zuschau-Fenster: %s (%s) - %s: n" "\xE4" "chster Mitspieler bzw. aus.", "Watch window: %s (%s) - %s: next player or off."),
+                string(name.c_str()), string(why), string(CamKeyName())));
+        }
         CamLog("Zuschau-Fenster bei %s (%s, jedes %d. Bild neu)", name.c_str(), why, WinEveryNth);
         return true;
     }

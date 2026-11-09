@@ -716,6 +716,13 @@ namespace GOTHIC_ENGINE {
         CoopNpcLageTries.erase(npc);
     }
 
+    // u238 (Nutzer 09.11.: "im aktuellen g1 run sehe ich noch die Coop einstellungen und hotkeys"): laeuft dieses Gothic in einem
+    // automatischen Lauf (-cooptest:, auch Testlaeufe und Aufnahmen)? Dort keine Hinweise an Spieler in der Meldungszeile
+    bool CoopAutoLauf() {
+        static const bool a = strstr(GetCommandLineA(), "-cooptest:") != NULL;
+        return a;
+    }
+
     // v39 (Nutzer: "nur noch mit Shift+F1, Shift+F2, Shift+F3, Shift+F4, damit man nicht aus Versehen disconnected"):
     // Shift gedrueckt? Wie CoopSimShiftDown (CoopDialogSync.cpp): zinput, sonst Windows-Taste, wenn das Spielfenster vorn ist.
     bool CoopShiftDown() {

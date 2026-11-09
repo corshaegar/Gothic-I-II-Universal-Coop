@@ -153,6 +153,9 @@ Ab u237: gespeichert wird nur noch, wenn auch der Mitspieler gerade mitspeichern
 (z. B. "Diego: Dialog"), Auto-Sicherung und Startstand warten darauf. So speichern beide immer gleichzeitig. Entfernt: die Liste
 der Coop-Sicherungen im Spiel (F9/F8 - sie steht unter Esc > Spielstand waehlen), die Taste fuer den Weltprozess (Shift+F12 - er
 startet weiter von selbst), der Coop-Testlauf mit seinen Tasten (Shift+F11, F7) und die Netzwerk-Statistik (O).
+Ab u238: die Rune-Taste (Vorgabe Shift+T) nimmt die Teleport-Rune in die Hand - fehlt sie, kommt sie vorher ins Inventar; nochmal
+druecken legt sie weg. Jeder Held hat immer genau eine Coop-Rune (nach dem Laden auch im Zauberbuch); eine, die frei in der Welt
+liegt, verschwindet nach wenigen Sekunden. Die Meldungszeile bleibt frei von Test- und Einstellungszeilen.
 
 Spielen: Hauptmenue > COOP > Figur waehlen > "Weiter: Verbinden" > "Spiel hosten" bzw. "Ueber IP beitreten"
 (Port 9955) oder ueber Steam. Protokoll: system\\GothicCoop.log.
