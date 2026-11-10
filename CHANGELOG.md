@@ -1,272 +1,271 @@
-# Änderungen
+# Changes
 
-Jeder Abschnitt nennt die Projektversion und für jedes Spiel und jede Mod die Coop-Fassung (`uNN`); die neueste Version steht
-oben. Ganz unten folgt die Vorgeschichte: der Othello-Coop 0.1.0–0.1.2 (github.com/corshaegar/Othello-Coop) und die
-unveröffentlichten Fassungen u1–u61, aus denen 0.2.0 hervorging. So ist hier jede Änderung seit der allerersten Fassung festgehalten.
+> *Deutsche Fassung: [CHANGELOG.de.md](CHANGELOG.de.md).*
 
-## 0.10.3 – Szenen im Archolos-Prolog, Kämpfe in Othello (Gothic I u243, Gothic II u243, Othello u243, Legend of Ahssun u243, Archolos u243)
+Each section names the project version and, for each game and mod, the coop version (`uNN`); the newest version is at the top.
+At the very bottom you will find the history before the first release: the Othello Coop 0.1.0–0.1.2
+(github.com/corshaegar/Othello-Coop) and the unreleased versions u1–u61 that became 0.2.0. This way, every change since the very
+first version is recorded here.
 
-Gefunden in automatischen Testläufen am 09.11.2026 in Archolos und Othello (Host und Client auf einem PC).
+## 0.10.3 – Scenes in the Archolos prologue, fights in Othello (Gothic I u243, Gothic II u243, Othello u243, Legend of Ahssun u243, Archolos u243)
 
-**Korrekturen**
+Found in automated test runs on 9 Nov 2026 in Archolos and Othello (host and client on one PC).
 
-- **Kein Speichern mehr mitten in einer Szene** (u243): Wurde während einer Szene gespeichert – automatisch, gemeinsam mit dem Partner oder beim Beitritt des Partners –, stand das Spiel kurz still. Danach holten die Skripte der Mod die verpassten Schritte auf einen Schlag nach und übersprangen dabei Teile der Szene. In Archolos fiel so beim Host die Szene mit dem Kapitän auf dem Schiff aus, während sie beim Client lief. Wie Gothic im Einzelspielermodus wartet der Coop jetzt mit dem Speichern, solange eine Kamerafahrt oder eine Szene der Mod läuft. Im Test lief der Prolog vollständig durch.
-- **Unverwundbar nach einem Gespräch des Partners** (u242): Führte der Partner ein Gespräch, machte das Dialogskript des NPCs auch den eigenen Helden unverwundbar – und das blieb so. In Othello griffen Monster einen solchen Helden nicht an, sondern liefen weg; der Client traf in 9 von 10 Kämpfen nichts. In manchen Mods redeten NPCs dann nicht mehr mit ihm. Jetzt hebt der Coop die Unverwundbarkeit 10 Sekunden nach dem Ende des Gesprächs wieder auf. Im Test in Othello traf der Client in allen 13 Kämpfen.
-- **Doppelte Kamerafahrten** (u241): War der Client in einer Szene hinter dem Host zurück, konnte eine Kamerafahrt ein zweites Mal ablaufen. Der Host erkennt jetzt auch Schritte, die er selbst schon bis zu zwei Minuten vorher ausgeführt hat, und wiederholt sie nicht.
+**Fixes**
 
-## 0.10.2 – Speichern in Mods mit LeGo ohne Absturz, Archolos-Prolog bis zum Ende (Gothic I u240, Gothic II u240, Othello u240, Legend of Ahssun u240, Archolos u240)
+- **No more saving in the middle of a scene** (u243): When the game saved during a scene – automatically, together with the partner or when the partner joined – it froze for a moment. Afterwards the mod's scripts caught up on all the missed steps at once and skipped parts of the scene. In Archolos this cut the captain's scene on the ship for the host while it played on the client. Like Gothic in single player, the coop now holds off saving while a camera sequence or a scene of the mod is running. In the test, the prologue ran through completely.
+- **Invincible after the partner's conversation** (u242): When the partner talked to an NPC, the NPC's dialogue script also made your own hero invincible – and it stayed that way. In Othello, monsters did not attack such a hero but ran away; the client hit nothing in 9 of 10 fights. In some mods, NPCs no longer talked to that hero. The coop now removes the invincibility 10 seconds after the conversation ends. In the Othello test, the client landed hits in all 13 fights.
+- **Camera sequences playing twice** (u241): If the client was behind the host in a scene, a camera sequence could play a second time. The host now also recognizes steps it already carried out itself up to two minutes earlier and does not repeat them.
 
-Gefunden in automatischen Testläufen am 09.11.2026 in Archolos (Host und Client auf einem PC; der Client trat mitten im Prolog bei).
+## 0.10.2 – Saving in mods with LeGo without crashing, Archolos prologue to the end (Gothic I u240, Gothic II u240, Othello u240, Legend of Ahssun u240, Archolos u240)
 
-**Korrekturen**
+Found in automated test runs on 9 Nov 2026 in Archolos (host and client on one PC; the client joined in the middle of the prologue).
 
-- **Absturz beim Speichern in Archolos und anderen Mods mit LeGo** (u239): Mit 0.10.0 und 0.10.1 stürzte das Spiel bei jedem Speichern ab, wenn sich die Skripte einer Mod per LeGo in das Speichern einhängen (z. B. Archolos). Seit 0.10.0 setzt dort auch der Coop einen Hook, damit nur gemeinsam gespeichert wird. LeGo kopiert beim Spielstart den Sprung in den Coop an eine andere Stelle, wo er ins Leere zeigt. Solche Kopien korrigiert der Coop zwar seit 0.6.0 (damals für Legend of Ahssun), die neuen Stellen kannte er aber nicht. Jetzt erkennt er beim Spielstart selbst jede Stelle, an der er oder ein anderes Plugin einen Hook gesetzt hat. Geprüft in Archolos: der Spielstand zu Spielbeginn und gemeinsame Sicherungen.
-- **Archolos: Das Ende des Prologs hing** (u240): Manche Szenen spielt jeder PC für sich ab. Sie blieben stehen, wenn der Client dabei schon weiter war als der Host: Die Skripte des Clients töteten oder versetzten NPCs, auf die die Szene beim Host noch wartete – auf dem Schiff muss zum Beispiel erst Rupert ins Wasser springen. Die Kamera des Clients blieb in der letzten Einstellung hängen, beide Helden standen an Deck. Jetzt wartet der Host bis zu 30 Sekunden, ob seine eigene Szene denselben Schritt ausführt; erst wenn nicht, übernimmt er den Schritt des Clients. Im Test war der Client wieder voraus, das Ende des Prologs lief auf beiden PCs durch, und beide Helden kamen am Strand an.
+**Fixes**
 
-## 0.10.1 – Teleport-Rune per Taste in die Hand, immer genau eine; aufgeräumte Meldungszeile (Gothic I u238, Gothic II u238, Othello u238, Legend of Ahssun u238, Archolos u238)
+- **Crash when saving in Archolos and other mods with LeGo** (u239): With 0.10.0 and 0.10.1 the game crashed on every save if a mod's scripts hook into saving via LeGo (e.g. Archolos). Since 0.10.0 the coop places a hook there as well, so that saving only happens together. At game start, LeGo copies the jump into the coop to another location, where it points to nowhere. The coop has been correcting such copies since 0.6.0 (back then for Legend of Ahssun), but it did not know the new locations. Now it detects every location at game start where it or another plugin has placed a hook. Checked in Archolos: the save at the start of the game and joint saves.
+- **Archolos: the end of the prologue hung** (u240): Some scenes are played by each PC on its own. They got stuck when the client was further along than the host: the client's scripts killed or moved NPCs that the host's scene was still waiting for – on the ship, for example, Rupert first has to jump into the water. The client's camera stayed stuck in the last shot, and both heroes stood on deck. The host now waits up to 30 seconds to see whether its own scene performs the same step; only if it does not, it carries out the client's step. In the test, the client was ahead again, the end of the prologue ran through on both PCs, and both heroes reached the beach.
 
-**Neu**
+## 0.10.1 – Teleport rune to hand by key, always exactly one; tidier message line (Gothic I u238, Gothic II u238, Othello u238, Legend of Ahssun u238, Archolos u238)
 
-- **Teleport-Rune per Taste** (u238): Die Runen-Taste (standardmäßig Shift+T) nimmt die Teleport-Rune in die Hand. Fehlt sie, kommt sie vorher ins Inventar und ins Zauberbuch; ein zweiter Druck steckt sie wieder weg. Gewirkt wird sie wie jede andere Rune. Bisher teleportierte die Taste sofort.
-- **Immer genau eine Coop-Rune** (u238): Jeder Held trägt seine Teleport-Rune fest bei sich, in Gothic 1 und Gothic 2, mit und ohne Mod – nach jedem Laden auch im Zauberbuch, sofern dort Platz ist. Fehlt sie, kommt sie zurück; hebt man eine zweite auf, bleibt es trotzdem bei einer. Eine Rune, die frei in der Welt liegt, verschwindet nach wenigen Sekunden.
+**New**
 
-**Korrekturen**
+- **Teleport rune by key** (u238): The rune key (Shift+T by default) puts the teleport rune in your hand. If it is missing, it is first added to the inventory and the spell book; pressing the key again puts it away. It is cast like any other rune. Previously the key teleported immediately.
+- **Always exactly one coop rune** (u238): Every hero always carries their teleport rune – in Gothic 1 and Gothic 2, with and without mods – and after every load also in the spell book if there is room. If it is missing, it comes back; if you pick up a second one, you still have only one. A rune lying loose in the world disappears after a few seconds.
 
-- **Meldungszeile** (u238): Der Hinweis auf das Zuschau-Fenster und seine Taste erscheint nur noch einmal pro Sitzung statt bei jedem automatischen Wechsel. Schwierigkeitsgrad und Abgleich zeigt der Client nur noch an, wenn der Host sie während des Spiels ändert; die Werte beim Verbinden stehen nur im Log.
+**Fixes**
 
-## 0.10.0 – Nur noch gemeinsam speichern, Coop-Tasten und Hilfe, Archolos-Prolog mit Trialogen (Gothic I u237, Gothic II u237, Othello u237, Legend of Ahssun u237, Archolos u237)
+- **Message line** (u238): The hint about the watch window and its key now appears only once per session instead of at every automatic switch. The client shows difficulty and sync settings only when the host changes them during the game; the values at connection time only go to the log.
 
-Entstanden aus automatischen Testläufen mit Aufnahmen am 08. und 09.11.2026 in Archolos und Legend of Ahssun (Host und Client auf einem PC, beide Helden automatisch gesteuert) und einem Welten-Testlauf in Gothic 2 mit u237.
+## 0.10.0 – Saving only together, coop keys and help, Archolos prologue with trialogs (Gothic I u237, Gothic II u237, Othello u237, Legend of Ahssun u237, Archolos u237)
 
-**Neu**
+Based on automated test runs with recordings on 8 and 9 Nov 2026 in Archolos and Legend of Ahssun (host and client on one PC, both heroes controlled automatically) and a worlds test in Gothic 2 with u237.
 
-- **Nur noch gemeinsam speichern** (u227, u236, u237): Beide PCs speichern im selben Moment – laut den Dateizeiten der Spielstände innerhalb einer Zehntelsekunde, auch bei automatischen Sicherungen. Bisher speicherte der Partner erst, wenn der andere fertig war, und wenn er gerade beschäftigt war, sogar noch später – mit einem anderen Spielstand. Jetzt teilen sich beide PCs laufend mit, ob sie gerade mitspeichern können. Kann der Mitspieler gerade nicht (Dialog, offenes Inventar, Ladevorgang), lehnt das Spiel das Speichern ab und nennt den Grund (z. B. „Diego: Dialog“); die automatische Sicherung wartet so lange.
-- **Coop-Tasten** (u226): Alle Coop-Tasten lassen sich unter Einstellungen › COOP › Coop-Tasten frei belegen, auch mit Shift, Strg oder Alt; ist eine Taste schon von Gothic belegt, steht das dabei. Neu belegt sind Hilfe (H, oder F1, wenn Gothic H schon verwendet), Coop-Fenster (Shift+K) und Teleport zum Mitspieler (Shift+T, wenn die Rune im Inventar ist).
-- **Hilfe, Coop-Fenster, Einführung** (u226): Ein Hilfe-Menü zeigt alle Tasten und erklärt kurz das Wichtigste. Das Coop-Fenster öffnet sich per Taste oder unter Einstellungen › COOP (Hosten, Beitreten und Trennen auch während des Spiels). Vor einem neuen Spiel erscheint eine kurze Einführung (abschaltbar), und im Spiel gibt es Hinweise – beim Hosten zu Port und Firewall, und wenn der Mitspieler bewusstlos am Boden liegt, zur Taste fürs Wiederbeleben.
-- **Mitspieler-Anzeige** (u226): Name, Entfernung, Darstellung hinter Wänden und der Pfeil am Bildrand sind einstellbar (Einstellungen › COOP › Mitspieler-Anzeige). Hat man den Mitspieler im Fokus, steht sein Name nicht mehr doppelt da.
-- **Aussehen wie ein NPC** (u222): Die Auswahl kennt jetzt alle 654 Figuren von Gothic 2, auch in Mods; die Figuren des laufenden Spiels stehen vorn.
-- **Kopfdrehung** (u235): NPCs drehen den Kopf auf beiden PCs in dieselbe Richtung; bisher blickten sie beim Client meist zum eigenen Helden.
-- **Zuschau-Fenster** (u225): Bei niedriger Bildrate zeichnet es nur noch jedes zweite bis vierte Bild neu – das Spiel ruckelt weniger.
+**New**
 
-**Korrekturen**
+- **Saving only together** (u227, u236, u237): Both PCs save at the same moment – within a tenth of a second according to the file times of the saves, auto-saves included. Previously the partner only saved once the other player was done, and if busy, even later – with a different game state. Now both PCs keep telling each other whether they can save right now. If the partner cannot (dialogue, open inventory, loading), the game refuses to save and shows the reason (e.g. "Diego: dialogue"); the auto-save waits until saving is possible.
+- **Coop keys** (u226): All coop keys can be assigned freely under Settings › COOP › Coop keys, including combinations with Shift, Ctrl or Alt; if Gothic already uses a key, it says so. Newly assigned: help (H, or F1 if Gothic already uses H), coop window (Shift+K) and teleport to the partner (Shift+T, with the rune in the inventory).
+- **Help, coop window, introduction** (u226): A help menu shows all keys and briefly explains the essentials. The coop window opens by key or under Settings › COOP (hosting, joining and disconnecting also during the game). A short introduction appears before a new game (it can be turned off), and the game gives hints – when hosting, about port and firewall, and when the partner lies unconscious, about the key to revive them.
+- **Partner display** (u226): Name, distance, display behind walls and the arrow at the edge of the screen are adjustable (Settings › COOP › Partner display). With the partner in focus, their name no longer appears twice.
+- **Appearance "like an NPC"** (u222): The selection now knows all 654 characters of Gothic 2, also in mods; the characters of the running game come first.
+- **Head turning** (u235): NPCs turn their heads the same way on both PCs; previously, on the client they mostly looked at the client's own hero.
+- **Watch window** (u225): At a low frame rate it redraws only every second to fourth frame – less stutter.
 
-- **Archolos, Prolog auf dem Schiff** (u218, u221, u224, u228, u229): Szenen und Zwischensequenzen laufen auf beiden PCs bis zum Ende. Ein Gespräch des Partners löscht keine Befehle einer Szene mehr; beginnt beim Partner eine Szene, wird das eigene Gespräch beendet, oder die Szene wartet, bis es vorbei ist; Zähler, die den Ablauf einer Szene steuern, starten beim Partner richtig; Todesskripte und Szenen, die auf beiden PCs laufen, lösen nichts doppelt aus. Dadurch bleibt der Kapitän nicht mehr hinter dem Gitter stehen.
-- **Trialoge** (LeGo – Archolos und viele andere Mods; u220, u230–u235): In Gesprächen mit mehreren NPCs (auf dem Schiff: Kapitän, Jorn und Timo) sieht der Partner den richtigen Sprecher in der richtigen Reihenfolge. NPCs springen nicht mehr an andere Stellen, die Zeilen der anderen Sprecher erscheinen, und Überspringen trifft die richtige Zeile.
-- **Gespräche mit demselben NPC** (u220): Sprechen beide Spieler gleichzeitig mit demselben NPC, stören sich die Gespräche nicht mehr.
-- **Geleit** (u223): Führt ein NPC die Gruppe, misst er den Abstand zum nächsten Spieler statt nur zum Helden des eigenen PCs.
-- **Einstellungen › COOP** (u227): Der Eintrag erscheint jetzt auch in Mods, deren Menü keinen Grafik-Eintrag von Gothic hat (z. B. Archolos).
+**Fixes**
 
-**Entfernt** (u237)
+- **Archolos, prologue on the ship** (u218, u221, u224, u228, u229): Scenes and cutscenes run to the end on both PCs. A conversation of the partner no longer deletes a scene's commands; if a scene starts on the partner's side, your own conversation ends or the scene waits until it is over; counters that drive a scene start correctly on the partner's side; death scripts and scenes running on both PCs no longer trigger anything twice. As a result, the captain no longer stays behind the grate.
+- **Trialogs** (LeGo – Archolos and many other mods; u220, u230–u235): In conversations with several NPCs (on the ship: the captain, Jorn and Timo) the partner sees the right speaker in the right order. NPCs no longer jump to other spots, the lines of the other speakers appear, and skipping hits the right line.
+- **Conversations with the same NPC** (u220): If both players talk to the same NPC at the same time, the conversations no longer interfere with each other.
+- **Escort** (u223): When an NPC leads the group, it measures the distance to the nearest player instead of only to the hero of its own PC.
+- **Settings › COOP** (u227): The entry now also appears in mods whose menu has no graphics entry from Gothic (e.g. Archolos).
 
-- Die Liste der Coop-Sicherungen im Spiel (F9, F8) – die Sicherungen stehen im Menü unter Esc › „Spielstand wählen“.
-- Die Taste für den Weltprozess (Shift+F12) – er startet weiterhin von selbst.
-- Der Coop-Testlauf mit seinen Tasten (Shift+F11, F7), die Netzwerk-Statistik (O) und der Bearbeitungsmodus der Vorlage (`editmode`). Testläufe gibt es nur noch in der Entwicklungsfassung.
+**Removed** (u237)
 
-## 0.9.1 – Archolos: NPCs reden wieder nach hängender Abblendung (Gothic I u217, Gothic II u217, Othello u217, Legend of Ahssun u217, Archolos u217)
+- The list of coop saves in the game (F9, F8) – the saves are in the menu under Esc › "Choose save".
+- The key for the world process (Shift+F12) – it still starts by itself.
+- The coop test run with its keys (Shift+F11, F7), the network statistics (O) and the editing mode of the template (`editmode`). Test runs are only part of the development build now.
 
-Aus dem siebten und achten einstündigen automatischen Testlauf am 08.11.2026 (Archolos und Legend of Ahssun gleichzeitig, Host und Client auf einem PC): kein Absturz, kein Hänger, und die abschließenden Prüfrunden fanden keinen Fehler.
+## 0.9.1 – Archolos: NPCs talk again after a stuck screen fade (Gothic I u217, Gothic II u217, Othello u217, Legend of Ahssun u217, Archolos u217)
 
-**Korrekturen**
+From the seventh and eighth one-hour automated test runs on 8 Nov 2026 (Archolos and Legend of Ahssun at the same time, host and client on one PC): no crash, no hang, and the final check rounds found no errors.
 
-- **Abblendsperre** (u217): Archolos lässt kein Gespräch zu, solange das Bild abgeblendet ist (Skriptvariablen `SCREENFADED` und `FADESCREENSTATE`) – auch nicht die wichtigen Dialoge, mit denen NPCs die Geschichte voranbringen. Wurde mitten im Abblenden gespeichert und dieser Stand mit einer Fassung vor u211 geladen, wurde nie wieder aufgeblendet: Danach redete kein NPC mehr mit dem Helden, auch in jedem späteren Spielstand. Bleibt das Bild jetzt 60 Sekunden lang abgeblendet, ohne dass ein Dialog offen ist, blendet der Coop mit der Funktion der Mod selbst auf; das hebt auch die Bewegungssperre des Helden auf. Im Testlauf griff das nach dem Laden solcher Stände bei Host und Client; danach redeten die NPCs wieder, und Rupert führte die Helden weiter. Das gilt für alle Mods mit diesen Abblendfunktionen.
+**Fixes**
 
-## 0.9.0 – Stabilität: Absturz beim Laden, fliegende Monster, Hänger-Diagnose (Gothic I u216, Gothic II u216, Othello u216, Legend of Ahssun u216, Archolos u216)
+- **Screen fade lock** (u217): Archolos allows no conversation while the screen is faded out (script variables `SCREENFADED` and `FADESCREENSTATE`) – not even the important dialogues through which NPCs move the story forward. If the game was saved in the middle of a fade and that save was loaded with a version before u211, the screen never faded back in: from then on no NPC talked to the hero, in every later save too. If the screen now stays faded out for 60 seconds without a dialogue being open, the coop fades it back in with the mod's own function; this also lifts the hero's movement lock. In the test run this kicked in after loading such saves on host and client; afterwards the NPCs talked again, and Rupert led the heroes on. This applies to all mods with these fade functions.
 
-Grundlage sind ein langer Lauf in der Nacht (drei Abstürze beim Laden in Archolos, daraus entstand u211) und sechs einstündige automatische Testläufe am 08.11.2026 in Archolos und Legend of Ahssun (beide gleichzeitig, Host und Client auf einem PC, jeder Lauf ausgewertet). In den sechs Läufen gab es keinen Absturz und einen Hänger (im zweiten Lauf, Legend of Ahssun, beim Weltwechsel; danach kam die Hänger-Diagnose dazu, seitdem trat keiner mehr auf). Die Prüfrunden am Ende der letzten vier Läufe fanden keinen Fehler.
+## 0.9.0 – Stability: crash when loading, flying monsters, hang diagnosis (Gothic I u216, Gothic II u216, Othello u216, Legend of Ahssun u216, Archolos u216)
 
-**Korrekturen**
+Based on a long overnight run (three crashes when loading in Archolos, which led to u211) and six one-hour automated test runs on 8 Nov 2026 in Archolos and Legend of Ahssun (both at the same time, host and client on one PC, every run evaluated). The six runs had no crash and one hang (in the second run, Legend of Ahssun, during a world change; the hang diagnosis was added afterwards, and no hang has occurred since). The check rounds at the end of the last four runs found no errors.
 
-- **Absturz beim Laden** (u211): In Mods, die Funktionszeiger von Ikarus im Spielstand ablegen, stürzte das Spiel nach dem Laden ab, wenn der Skriptcode im neuen Prozess an einer anderen Adresse lag – in Archolos bei Spielständen, die während einer Abblendung gespeichert wurden (im Coop kann der Partner jederzeit ein gemeinsames Speichern auslösen). Der Coop speichert jetzt die Adresse des Skriptcodes im Spielstand und rechnet solche Zeiger beim Laden um. Das gilt für alle Mods.
-- **Fliegende Monster** (u212–u215): Beim Client schwebten vergrößerte Monster (Archolos: Goblin-Krieger, Lurker; Legend of Ahssun: alte Maulwurfsratten, Fleischwanzen) Hunderte Meter bis Kilometer über ihrem Platz. Ursache ist ein Fehler der Engine: Bei vergrößerten Modellen weit weg von der Kamera wächst die Bodenebene der Animation von Bild zu Bild, und die Bodenkorrektur hebt die Figur um genau diesen Betrag an. Der Coop hält den Wert jetzt fest (Gothic 2; in Gothic 1 berechnet er ihn bei NPCs des Hosts neu, sobald er zu groß geworden ist).
-- **Zauber des Partners** (u211): Wurde ein Zauber des Partners nachgespielt, während das Zauberbuch leer war, stürzte das Spiel ab, und ein abgebrochenes Nachspielen blieb danach hängen. Beides ist behoben.
-- **Gegenstände in NPC-Händen** (u211): Wird ein Gegenstand gelöscht, den ein NPC gerade benutzt, entfernt der Coop sofort den Verweis darauf.
-- **Hänger-Diagnose** (u213): Steht das Spiel 90 Sekunden still, schreibt der Coop den Call-Stack des Haupt-Threads, den Skript-Trace und den Spielzustand nach `system\GothicCoopStapel.log`. So lassen sich auch Hänger untersuchen, bei denen das Spiel nicht abstürzt.
-- **Gesprächssperre abgesichert** (u216): Archolos setzt zu Beginn eines Gesprächs beim Helden das Flag „unverwundbar im Gespräch“ und nimmt es nur beim regulären Ende wieder zurück; solange es gesetzt ist, beginnt kein NPC ein Gespräch mit ihm. Endet ein Gespräch anders (Laden mitten im Dialog, Abbruch), bliebe der Held gesperrt, auch im Spielstand. Der Coop setzt das Flag 10 Sekunden nach dem Gesprächsende und nach dem Laden zurück, außer die Mod braucht es gerade (offener Dialog, Benutzung eines interaktiven Objekts, gewollte Unsichtbarkeit). Gefunden beim Lesen der Mod-Skripte; in den Testläufen bisher nicht ausgelöst.
+**Fixes**
 
-## 0.8.0 – The Chronicles of Myrtana: Archolos, Schlafen beim Client, Tote beim Weltwechsel, Handel (Gothic I u210, Gothic II u210, Othello u210, Legend of Ahssun u210, Archolos u210)
+- **Crash when loading** (u211): In mods that store Ikarus function pointers in the save, the game crashed after loading if the script code was at a different address in the new process – in Archolos with saves made during a screen fade (in co-op the partner can trigger a joint save at any time). The coop now stores the address of the script code in the save and converts such pointers when loading. This applies to all mods.
+- **Flying monsters** (u212–u215): On the client, enlarged monsters (Archolos: goblin warriors, lurkers; Legend of Ahssun: old molerats, meatbugs) floated hundreds of meters to kilometers above their spot. The cause is an engine bug: for enlarged models far from the camera, the ground level of the animation grows from frame to frame, and the ground correction lifts the character by exactly that amount. The coop now keeps the value fixed (Gothic 2; in Gothic 1 it recalculates it for the host's NPCs once it has grown too large).
+- **Spells of the partner** (u211): Replaying a spell of the partner while the spell book was empty crashed the game, and an interrupted replay then got stuck. Both are fixed.
+- **Items in NPCs' hands** (u211): If an item that an NPC is currently using gets deleted, the coop immediately removes the reference to it.
+- **Hang diagnosis** (u213): If the game stands still for 90 seconds, the coop writes the call stack of the main thread, the script trace and the game state to `system\GothicCoopStapel.log`. This makes it possible to investigate hangs in which the game does not crash.
+- **Dialogue lock safeguard** (u216): At the start of a conversation, Archolos sets the flag "invincible in dialogue" on the hero and only clears it when the conversation ends normally; as long as it is set, no NPC starts a conversation with the hero. If a conversation ends any other way (loading in the middle of a dialogue, an interruption), the hero would stay locked, even in the save. The coop clears the flag 10 seconds after the conversation ends and after loading, unless the mod needs it at that moment (open dialogue, use of an interactive object, intended invisibility). Found by reading the mod's scripts; not triggered in the test runs so far.
 
-**Neu**
+## 0.8.0 – The Chronicles of Myrtana: Archolos, sleeping on the client, the dead after a world change, trade (Gothic I u210, Gothic II u210, Othello u210, Legend of Ahssun u210, Archolos u210)
 
-- **The Chronicles of Myrtana: Archolos** (u204–u210): Der Coop erkennt Archolos (an `Data\KM_Scripts.mod`) und bringt ein eigenes Mod-Profil mit: Werte, die pro PC oder pro Held getrennt bleiben, eigene Zähler für Zwischensequenzen, Abblendung und Abstandswarnungen der Mod für jeden PC sowie einen COOP-Eintrag im Hauptmenü der Mod. Behoben sind ein Absturz beim ersten Speichern (u205) und der Prolog auf dem Schiff, der im Coop nicht zu Ende kam (u207). Geprüft in langen automatischen Testläufen (zusammen etwa 7 Stunden ohne Absturz); gespielt wurden bisher der Prolog und Kapitel 1 bis zu Fabios Höhle.
-- **Schlafen beim Client** (u204): Schläft der Client oder stellt ein Skript bei ihm die Uhr, gilt die neue Uhrzeit für beide.
-- **Handel** (u201): Käufe und Verkäufe bei einem Händler gelten jetzt für beide – Ware und Gold des Händlers stimmen auf beiden PCs überein. Bisher konnte der Partner dieselbe Ware noch einmal kaufen. Gilt für Gothic 1 und 2 und alle Mods; im normalen Spiel noch nicht bestätigt.
-- **Mod-Profile: Objektzustände** (u201): Neuer Eintrag `vobSync` – ändern Mod-Skripte Sichtbarkeit, Kollision, Transparenz oder Aussehen benannter Objekte in der Welt, gilt das für beide Spieler in derselben Welt. Legend of Ahssun: Die Barrikade beim Ausheben des Nests (Kapitel 5) ist jetzt auch für den Partner offen; Orkgräber, gefällte Bäume, Blutspur und Folterbänke sehen bei beiden gleich aus.
+**New**
 
-**Korrekturen**
+- **The Chronicles of Myrtana: Archolos** (u204–u210): The coop detects Archolos (by `Data\KM_Scripts.mod`) and brings its own mod profile: values kept separate per PC or per hero, separate counters for cutscenes, screen fades and distance warnings of the mod for each PC, and a COOP entry in the mod's main menu. Fixed: a crash on the first save (u205) and the prologue on the ship not finishing in co-op (u207). Checked in long automated test runs (about 7 hours in total without a crash); played so far: the prologue and chapter 1 up to Fabio's cave.
+- **Sleeping on the client** (u204): If the client sleeps or a script on the client sets the clock, the new time applies to both.
+- **Trade** (u201): Buying and selling at a merchant now applies to both – the merchant's goods and gold match on both PCs. Previously the partner could buy the same goods again. Applies to Gothic 1 and 2 and all mods; not yet confirmed in normal play.
+- **Mod profiles: object states** (u201): New entry `vobSync` – if mod scripts change the visibility, collision, transparency or visual of named objects in the world, this applies to both players in the same world. Legend of Ahssun: the barricade when clearing out the nest (chapter 5) is now open for the partner too; orc graves, felled trees, a blood trail and torture racks look the same for both.
 
-- **Tote beim Weltwechsel** (u203): Nach dem Betreten einer Welt fehlten beim Partner manche Leichen (Legend of Ahssun: die tote Fleischwanze), und Tote, die der Host nach seinem Laden erzeugt hatte, trugen beim Partner einen anderen Namen.
-- **Gespräche mit NPCs, die erst aufstehen müssen** (u206, u210): Der Client konnte NPCs, die lehnen, sitzen oder Wache stehen, nicht ansprechen. Jetzt stehen sie auf; beim Client spielen sie dabei nur das Aufstehen selbst ab und folgen ansonsten weiter dem Stand des Hosts.
-- **Skript-Teleports über Ikarus** (u204): Versetzt ein Skript beim Client einen NPC des Hosts per Ikarus, geschieht das jetzt auch beim Host.
-- **Gleichzeitig geänderte Skriptwerte** (u204): Ändern beide PCs denselben Wert fast gleichzeitig (Archolos würfelt beim Tageswechsel über 100 Ereignisse aus), behält der Host seinen Wert.
-- **Legend of Ahssun** (u202): 15 weitere Einträge im Mod-Profil, gefunden bei der Durchsicht der Analyse.
-- **Absturzprotokoll** (u205, u210): Stack-Overflows stehen jetzt in `system\GothicCoopStapel.log`; bei gelöschten Gegenständen in NPC-Händen und bei verschwundenen Leichen nennt das Protokoll mehr Aufrufer.
+**Fixes**
 
-## 0.7.1 – Legend of Ahssun: weitere Werte pro PC und pro Held, mehr NPC-Zustände für den Spieler vor Ort (Gothic I u200, Gothic II u200, Othello u200, Legend of Ahssun u200)
+- **The dead after a world change** (u203): After entering a world, some corpses were missing on the partner's side (Legend of Ahssun: the dead meatbug), and dead NPCs that the host had created after loading had a different name on the partner's side.
+- **Talking to NPCs who first have to get up** (u206, u210): The client could not talk to NPCs who were leaning, sitting or standing guard. Now they get up; on the client they only play the getting-up itself and otherwise keep following the host's state.
+- **Script teleports via Ikarus** (u204): If a script on the client moves one of the host's NPCs via Ikarus, this now also happens on the host.
+- **Script values changed at the same time** (u204): If both PCs change the same value almost simultaneously (Archolos rolls more than 100 events at the change of day), the host keeps its value.
+- **Legend of Ahssun** (u202): 15 more entries in the mod profile, found while reviewing the analysis.
+- **Crash log** (u205, u210): Stack overflows now go to `system\GothicCoopStapel.log`; for deleted items in NPCs' hands and for vanished corpses, the log names more callers.
 
-Aus der weiteren Durchsicht der Analyse von Legend of Ahssun (Vorschläge zu Werten und alle NPC-Zustände, die den Helden betreffen). Am Code geprüft und im automatischen Testlauf, im normalen Spiel noch nicht bestätigt.
+## 0.7.1 – Legend of Ahssun: more values per PC and per hero, more NPC states that refer to the player on the spot (Gothic I u200, Gothic II u200, Othello u200, Legend of Ahssun u200)
 
-**Korrekturen**
+From the further review of the Legend of Ahssun analysis (value proposals and all NPC states that concern the hero). Checked against the code and in the automated test run, not yet confirmed in normal play.
 
-- **Legend of Ahssun** (u200): Der Traum sperrte auch beim Partner das Inventar; eine Antwort beim Thronwächter sperrte die Gespräche beider Spieler; die Kälte- und die Durstleiste sprangen zwischen den Werten beider Helden hin und her; Kochtalent, Wasserwissen, eine Infektion, einmalige EP beim Lesen und Menüzustände (Beten, Farben mischen, Tabak) wurden auf den Partner übertragen; offene Anzeigen, Glücksspiel-Einsätze, Taschendiebstahl und Effekte des Magus-Kampfs vermischten sich zwischen den PCs. All das ist behoben.
-- **Legend of Ahssun, NPCs** (u200): Hinterhalte, Wachen, Wartende, Führer, Begleittiere, Schlafende und ein Geist reagieren auf den Spieler, der vor Ort ist, nicht mehr immer auf den Host – der Geist traf bisher beide Helden. Begleiter und Beschwörungen folgen weiterhin ihrem eigenen Spieler.
-- **Legend of Ahssun, Welten** (u200): Wer die Goldmine in Kapitel 4 als Zweiter allein betrat, fand dort noch alle Bewohner lebend vor: Das Startskript der Welt übersprang den entsprechenden Teil, weil das Flag schon vom Partner gesetzt war. Solche Flags gehören jetzt zur Weltdatei (neuer Profil-Eintrag `worldVars`), ebenso das Inventar des Untoten Drachen.
-- **Legend of Ahssun, Zähler** (u200): Gute Taten, abgebautes Erz und 24 weitere Zähler aus Gesprächen (Respekt der Handwerker und Rekruten, Stimmen der Kämpfer, gewonnene Kämpfe …) gehen nicht mehr verloren, wenn beide Spieler gleichzeitig verschiedene Gespräche führen: Beide Schritte zählen.
+**Fixes**
 
-## 0.7.0 – Legend of Ahssun vollständig analysiert, Begleiter und Beschwörungen des Clients, Skript-Ereignisse beim Client sofort wirksam (Gothic I u199, Gothic II u199, Othello u199, Legend of Ahssun u199)
+- **Legend of Ahssun** (u200): The dream locked the inventory on the partner's side too; an answer at the throne guardian locked the conversations of both players; the cold and thirst bars jumped back and forth between the values of both heroes; cooking talent, water knowledge, an infection, one-time XP for reading and menu states (praying, mixing paints, tobacco) were carried over to the partner; open displays, gambling stakes, pickpocketing and effects of the Magus fight got mixed up between the PCs. All of this is fixed.
+- **Legend of Ahssun, NPCs** (u200): Ambushes, guards, waiting NPCs, guides, companion animals, sleepers and a ghost react to the player who is there, no longer always to the host – the ghost used to hit both heroes. Companions and summons still follow their own player.
+- **Legend of Ahssun, worlds** (u200): Whoever entered the gold mine in chapter 4 second and alone found all its inhabitants still alive: the world's start script skipped the relevant part because the partner had already set the flag. Such flags now belong to the world file (new profile entry `worldVars`), and so does the inventory of the Undead Dragon.
+- **Legend of Ahssun, counters** (u200): Good deeds, mined ore and 24 more counters from conversations (respect of the craftsmen and recruits, votes of the fighters, fights won …) are no longer lost when both players hold different conversations at the same time: both steps count.
 
-Die Änderungen aus der Analyse von Legend of Ahssun sind am Code der Mod geprüft, die so gekennzeichneten auch im automatischen Testlauf; im normalen Spiel hat sie noch niemand erlebt.
+## 0.7.0 – Legend of Ahssun fully analyzed, companions and summons of the client, script events on the client take effect immediately (Gothic I u199, Gothic II u199, Othello u199, Legend of Ahssun u199)
 
-**Neu**
+The changes from the Legend of Ahssun analysis were checked against the mod's code, and those marked accordingly also in the automated test run; nobody has experienced them in normal play yet.
 
-- **Legend of Ahssun vollständig gelesen** (u198, u199): Alle 3.914 eigenen Funktionen der Mod wurden vor dem nächsten Test gelesen (per Mustersuche in den Skripten und mit einem lokalen Sprachmodell), jeder schwere Befund wurde einzeln am Code geprüft. Daraus stammen die Änderungen unten; so wird künftig jede neue Mod geprüft.
-- **Begleiter und Beschwörungen des Clients** (u199): Sie folgen jetzt dem Client. Bisher liefen sie immer zum Host, weil die KI der NPCs beim Host läuft (Gothic 2: Beschwörungen; Legend of Ahssun: angeworbene Begleiter). Im Log steht dazu „Begleiter … gehoert zu FRIEND_n“.
-- **Spawns aus Skripten des Clients** (u199): Was Skripte des Clients mit `Wld_SpawnNpcRange` erscheinen lassen (Beschwörungen, Gräber, Fallen, Boss-Angriffe), erscheint jetzt bei beiden; bisher entstanden diese NPCs nur beim Client.
-- **Zauber des Partners** (u199): Wird ein Zauber des Partners nachgespielt, hat das keine Skriptwirkung mehr. Bisher erzeugte eine Beschwörung des Partners auf dem eigenen PC die feindliche Variante (Gothic 2), und Runen mit Dauerwirkung wirkten auch beim Partner.
-- **Mod-Profile: Zähler** (u199): Neuer Eintrag `deltaVars` – Zähler, die nur Skripte der Spieler erhöhen, gleicht der Coop als Änderung ab statt als festen Wert; zwei gleichzeitige Schritte zählen beide.
-- **Mod-Profile: „der Spieler vor Ort“** (u199): Neuer Eintrag `heroStates` – in den aufgeführten KI-Zuständen meint `HERO` den Spieler, gegen den der NPC kämpft, sonst den nächsten Spieler. Legend of Ahssun: Die Beschwörung im Sumpf, die Faustkampf-Arena, Kastor/Parcival und die Illusionen des Magus beziehen sich jetzt auf den Spieler vor Ort, bisher immer auf den Host (die Arena nahm sogar dem Host die Waffe ab, wenn der Client kämpfte). Der Mechanismus ist im automatischen Testlauf geprüft.
-- **Beitritt nur mit demselben Spiel** (u198): Beim Verbinden werden Engine und Mod mitgeschickt; ein Client mit einem anderen Spiel trennt die Verbindung, bevor er einen Spielstand lädt (bisher stürzte etwa ein Gothic-2-Client an einem Gothic-1-Host beim Laden ab).
+**New**
 
-**Korrekturen**
+- **Legend of Ahssun read completely** (u198, u199): All 3,914 of the mod's own functions were read before the next test (with a pattern search in the scripts and a local language model), and every serious finding was checked individually against the code. The changes below come from this; every new mod will be checked this way from now on.
+- **Companions and summons of the client** (u199): They now follow the client. Previously they always ran to the host because the NPC AI runs on the host (Gothic 2: summons; Legend of Ahssun: recruited companions). The log says "Begleiter … gehoert zu FRIEND_n".
+- **Spawns from the client's scripts** (u199): What the client's scripts spawn with `Wld_SpawnNpcRange` (summons, graves, traps, boss attacks) now appears for both; previously these NPCs only appeared on the client.
+- **Spells of the partner** (u199): Replaying a spell of the partner no longer has any script effect. Previously a summon by the partner created the hostile variant on your own PC (Gothic 2), and runes with a lasting effect also acted on the partner.
+- **Mod profiles: counters** (u199): New entry `deltaVars` – counters that only the players' scripts raise are synced as a change rather than as a fixed value; two simultaneous steps both count.
+- **Mod profiles: "the player on the spot"** (u199): New entry `heroStates` – in the listed AI states, `HERO` means the player the NPC is fighting, otherwise the nearest player. Legend of Ahssun: the summoning in the swamp, the fist-fighting arena, Kastor/Parcival and the Magus's illusions now refer to the player who is there, previously always to the host (the arena even took the host's weapon away when the client fought). The mechanism has been checked in the automated test run.
+- **Joining only with the same game** (u198): Engine and mod are sent along when connecting; a client with a different game disconnects before it loads a save (previously, for example, a Gothic 2 client crashed when loading at a Gothic 1 host).
 
-- **Abstürze beim Client** (u199): Skripte, die einen gerade eingefügten NPC oder Gegenstand sofort weiterverwenden, griffen beim Client ins Leere (Legend of Ahssun: Kapitel 5 beim Gespräch mit Argos, Tor im Tempel des Erwachens, Arena Runde 9). Der Client legt das Objekt jetzt sofort selbst an, und die spätere Nachricht des Hosts wird diesem Objekt zugeordnet (im automatischen Testlauf in Gothic 2 und Legend of Ahssun geprüft).
-- **Legend of Ahssun** (u199): Geben und Verkaufen von Gegenständen, der Schleifstein und das Zerlegen von Runen liefen beim Partner mit (sein ausgewählter Gegenstand war weg, die Bewegungssperre blieb hängen); der Segen am Schrein nahm dem Partner nach Ablauf Werte, die er nie bekommen hatte; Fluchpunkte, Rezepte, Lesepult-Boni, Charakterwerte und weitere Werte des eigenen Helden gehen nicht mehr auf den Partner über; löschen beide gleichzeitig Brände, zählen beide (Quest „Löscharbeit“).
-- **Gothic 2** (u199): Die Übung beim Goldhacken bleibt beim eigenen Helden.
-- **Doppelte Ereignisse** (u199): Fügen beide PCs binnen 3 Sekunden dasselbe ein, fasst der Host das jetzt auch dann zusammen, wenn die Skripte den Wegpunkt auf jedem PC anders auswürfeln.
-- **Testlauf** (u198, u199): Zwei Läufe, die kurz nacheinander starten, belegen nicht mehr denselben Port; der Engine-Vergleich hängt nicht mehr an der Schreibweise der Modulnamen; der Diagnoseschritt mit dem Apfel funktioniert in Gothic 1 und Othello.
+**Fixes**
 
-## 0.6.0 – Ein Coop für alle Spiele und Mods, Legend of Ahssun, Mod-Profile (Gothic I u197, Gothic II u197, Othello u197, Legend of Ahssun u197)
+- **Crashes on the client** (u199): Scripts that keep using an NPC or item they just inserted reached into nothing on the client (Legend of Ahssun: chapter 5 in the conversation with Argos, the gate in the Temple of Awakening, arena round 9). The client now creates the object itself right away, and the host's later message is matched to this object (checked in the automated test run in Gothic 2 and Legend of Ahssun).
+- **Legend of Ahssun** (u199): Giving and selling items, the grindstone and taking runes apart also ran on the partner's side (their selected item was gone, the movement lock stayed); the blessing at the shrine took values from the partner when it expired that they had never received; curse points, recipes, lectern bonuses, character values and other values of your own hero are no longer passed on to the partner; if both players put out fires at the same time, both count (quest "Löscharbeit").
+- **Gothic 2** (u199): Practice from mining gold stays with your own hero.
+- **Duplicate events** (u199): If both PCs insert the same thing within 3 seconds, the host now merges them even when the scripts roll a different waypoint on each PC.
+- **Test run** (u198, u199): Two runs started shortly after each other no longer use the same port; the engine comparison no longer depends on how module names are spelled; the diagnosis step with the apple works in Gothic 1 and Othello.
 
-**Neu**
+## 0.6.0 – One coop for all games and mods, Legend of Ahssun, mod profiles (Gothic I u197, Gothic II u197, Othello u197, Legend of Ahssun u197)
 
-- **Ein Coop für alle Spiele und Mods** (u195, u197): Der Installer fragt nicht mehr nach dem Spiel. Er erkennt am Inhalt des Ordners Gothic 1, Othello, Gothic 2 und die darin installierten Mods und zeigt schon vor der Installation, welche unterstützt werden. Installiert wird der Coop für die jeweilige Engine samt den Skripten aller Varianten. Wechselt die Mod später (über den GothicStarter, oder Othello kommt hinzu oder wird entfernt), stellt sich der Coop beim Start selbst um (im Log: „Skript-Weiche“). Statt einer ZIP pro Spiel gibt es eine Universal-ZIP mit einem Ordner pro Engine.
-- **Legend of Ahssun** (Gothic 2, u170–u197): Die Mod wird als zweite nach Othello unterstützt, mit eigenem Profil in der Gothic-2-DLL. Der vollständige automatische Testlauf läuft mit einem Spielstand der Mod durch. Nötig waren dafür unter anderem: der COOP-Eintrag im Hauptmenü von Mods, die Gothics Menüraster verwenden (u170); Hooks des Coops, die hinter denen von LeGo greifen, auch im Weltprozess (u170, u190); getrennte Werte pro PC für Skriptbibliotheken wie Ikarus, LeGo und Gothic Free Aim (u189, u195); die Behebung eines Absturzes beim Laden samt Reparatur beschädigter Spielstände (u196); eigene Übung, Talente, Rezepte und Erfolge für jeden Helden, auch beim Verbinden (u197).
-- **Mod-Profile** (u187, u194, u197): Mods, die mit `-game:<ini>` starten, erkennt der Coop jetzt grundsätzlich. Was eine Mod braucht, steht in einer Profildatei `system\GothicCoopMod-<Ini>.json` statt im Code: Werte pro PC (`perPcVars`), Werte, die mit dem eigenen Helden reisen (`heroVars`), und Vorgaben für Coop-Schalter (`configDefaults`). Eine Vorlage mit Erklärungen liegt jedem Paket bei.
-- **Ereignisse an NPCs des Hosts** (u195): Teleport, Tod durch ein Skript und Entfernen eines NPCs, die ein Dialog oder eine Skriptschleife beim Client auslöst, gelten jetzt auch beim Host (sofern beide in derselben Welt sind). Im automatischen Testlauf geprüft.
-- **Inventare von NPCs aus Gesprächen** (u163): Was ein Gespräch einem NPC ins Inventar legt oder herausnimmt (etwa die Händlerware beim Kapitelwechsel in Gothic 1), bekommt auch der Partner. In Spielständen, in denen der Client schon ein Kapitel gewechselt hat, kommt die Ware nicht nachträglich dazu.
-- **Bewegliche Teile, die selbst auf Berührung reagieren** (u167): Die Zielsteine und ein Tor im Schläfertempel (Gothic 1) und Vinos Kellertür (Gothic 2) bewegen sich jetzt auch beim Partner. Im automatischen Testlauf geprüft, im normalen Spiel noch nicht bestätigt.
+**New**
 
-**Korrekturen**
+- **One coop for all games and mods** (u195, u197): The installer no longer asks for the game. It detects Gothic 1, Othello, Gothic 2 and the mods installed there by the folder contents and shows before installing which ones are supported. It installs the coop for the respective engine together with the scripts of all variants. If the mod changes later (via the GothicStarter, or Othello is added or removed), the coop switches by itself at start (log: "Skript-Weiche"). Instead of one ZIP per game there is one universal ZIP with a folder per engine.
+- **Legend of Ahssun** (Gothic 2, u170–u197): The mod is supported as the second one after Othello, with its own profile in the Gothic 2 DLL. The full automated test run passes with a save of the mod. Needed for this, among other things: the COOP entry in the main menu of mods that use Gothic's menu grid (u170); coop hooks that act behind those of LeGo, also in the world process (u170, u190); separate values per PC for script libraries such as Ikarus, LeGo and Gothic Free Aim (u189, u195); a fix for a crash when loading, including the repair of damaged saves (u196); each hero's own practice, talents, recipes and achievements, also when connecting (u197).
+- **Mod profiles** (u187, u194, u197): The coop now generally detects mods started with `-game:<ini>`. What a mod needs is in a profile file `system\GothicCoopMod-<Ini>.json` instead of the code: values per PC (`perPcVars`), values that travel with your own hero (`heroVars`) and defaults for coop switches (`configDefaults`). A template with explanations comes with every package.
+- **Events on the host's NPCs** (u195): Teleporting, killing by script and removing an NPC, triggered by a dialogue or a script loop on the client, now also apply on the host (as long as both are in the same world). Checked in the automated test run.
+- **NPC inventories from conversations** (u163): Whatever a conversation puts into or takes out of an NPC's inventory (such as the merchant goods at a chapter change in Gothic 1), the partner gets as well. In saves in which the client has already changed chapters, the goods are not added afterwards.
+- **Movers that react to being touched** (u167): The target stones and a gate in the Sleeper temple (Gothic 1) and Vino's cellar door (Gothic 2) now also move for the partner. Checked in the automated test run, not yet confirmed in normal play.
 
-- **NPCs beim Client** (u179, u188, u193): NPCs, die der Host steuert, reagieren beim Client wieder, nachdem dort eine ihrer Reaktionen unterdrückt wurde – bisher nahmen sie danach keine Gespräche mehr an, und Torwachen übersahen den Helden. Feindlich werden sie beim Client nur noch, wenn der eigene Held angreift oder angegriffen wird, nicht schon, wenn sie etwas anderes beobachten.
-- **K.o. beim Trinken** (u161): Der Held wacht wieder auf; bisher blieb er liegen (gesehen in Gothic 1).
-- **Treffer** (u165): Zwei Treffer im selben Bild (etwa bei einem Sturz) spielt der Partner nicht mehr mit zu hohem Schaden nach.
-- **Laden und Übernahme** (u168, u178): Der Held des Clients wird nicht mehr an eine Kante gesetzt, von der er abstürzt. Ein Fehler mitten im Laden beendet Gothic, statt es mit halb geladener Welt stehen zu lassen.
-- **Haltungen pro Held** (u162): Die Haltung von NPCs zum Helden des Hosts, die aus Gilden-Quests stammt, kommt nicht mehr mit dem vollständigen Abgleich nach dem Laden zum Client.
-- **NPC mit ungültiger Position** (u164): Ein NPC mit ungültiger Position (NaN, etwa nachdem ein Kampf an den Client übergeben wurde) wird an seinen Platz zurückgesetzt, auch in bestehenden Spielständen.
-- **Kapitelbildschirm** (u182): Der Kapitelbildschirm des Partners erscheint sofort, auch mitten im eigenen Gespräch.
-- **Gothic 2** (u195): Die Ausbaustufe der Klaue Beliars und der Menüzustand an Herstellungsplätzen bleiben beim eigenen Helden.
-- **Uhr** (u186): Fristen und Wartezeiten des Coops hängen nicht mehr an der Uhrzeit des PCs; sprang die Uhr zurück, verschoben sich bisher alle um eine Stunde.
-- **Abstürze:** Pfeilschuss ohne Fernkampfwaffe in der Hand (u173, u177); Aufheben eines schon gelöschten Gegenstands (u186, Gothic 1); Tod der Figur des Clients beim Host (u186, Gothic 1, abgesichert); der Schutz für Gegenstände in NPC-Slots übersah Speicher, der schon neu belegt war (u166).
+**Fixes**
 
-## 0.5.0 – Trigger und Gegenstände der NPCs gemeinsam, eigener Held beim Laden, Gildenfortschritt pro Held (Gothic I u160, Gothic II u160, Othello u160)
+- **NPCs on the client** (u179, u188, u193): NPCs run by the host react again on the client after one of their reactions was suppressed there – previously they then refused conversations, and gate guards overlooked the hero. They only become hostile on the client when your own hero attacks or is attacked, not merely when they observe something else.
+- **Knocked out by drinking** (u161): The hero wakes up again; previously the hero stayed on the ground (seen in Gothic 1).
+- **Hits** (u165): Two hits in the same frame (e.g. from a fall) are no longer replayed by the partner with too much damage.
+- **Loading and taking over** (u168, u178): The client's hero is no longer placed on an edge from which the hero falls. An error in the middle of loading ends Gothic instead of leaving it with a half-loaded world.
+- **Attitudes per hero** (u162): NPCs' attitudes towards the host's hero from guild quests no longer reach the client with the full sync after loading.
+- **NPC with an invalid position** (u164): An NPC with an invalid position (NaN, e.g. after a fight was handed over to the client) is put back in its place, also in existing saves.
+- **Chapter screen** (u182): The partner's chapter screen appears immediately, even in the middle of your own conversation.
+- **Gothic 2** (u195): The upgrade level of the Claw of Beliar and the menu state at crafting spots stay with your own hero.
+- **Clock** (u186): The coop's deadlines and waiting times no longer depend on the PC's clock; when the clock jumped back, they all used to shift by an hour.
+- **Crashes:** firing an arrow without a ranged weapon in hand (u173, u177); picking up an item that had already been deleted (u186, Gothic 1); death of the client's character at the host (u186, Gothic 1, safeguarded); the protection for items in NPC slots missed memory that had already been reused (u166).
 
-**Neu**
+## 0.5.0 – Triggers and NPCs' items shared, own hero when loading, guild progress per hero (Gothic I u160, Gothic II u160, Othello u160)
 
-- **Trigger** (u146, u158): Trigger, die ein Pfeil oder Zauber trifft oder die ein Held oder NPC betritt, lösen jetzt auch beim Partner aus – etwa die Brücke auf Irdorath, das Haupttor des Alten Lagers, Fallen und Türen in der Krypta und im Adanos-Tempel, in Gothic 1 die Bodenplatten im Schläfertempel. Bisher lief die Kette nur auf dem PC, auf dem sie ausgelöst wurde. Im automatischen Testlauf geprüft, im normalen Spiel noch nicht bestätigt.
-- **Gegenstände der NPCs** (u156–u158): Was NPCs fallen lassen oder werfen (Waffen bei Tod oder Bewusstlosigkeit, Werkzeuge), liegt bei beiden an derselben Stelle. Bisher fiel es auf jedem PC für sich, unterschiedlich weit oder nur auf einer Seite. Pfeile und Bolzen bleiben pro PC getrennt: Sie stecken im Ziel oder verschwinden nach Sekunden.
-- **Gildenfortschritt pro Held, auch beim Laden** (u150, u152, u154, u160): Werte, Gespräche, Tagebuchthemen und Haltungen von NPCs aus Gilden-Quests und Beitritten bleiben beim eigenen Helden, auch nach gemeinsamem Laden und auch dann, wenn der Partner nie dabei war. Bisher bekam der Partner beim Laden den Gildenfortschritt des Hosts und kam danach unter Umständen nicht mehr in seine Gilde. Spielstände von vor u150 enthalten diese Angaben nicht.
-- **Spielende** (u147, nur Gothic 2): Nach dem Abspann landen beide im Hauptmenü, nicht nur derjenige, der das letzte Gespräch geführt hat.
+**New**
 
-**Korrekturen**
+- **Triggers** (u146, u158): Triggers hit by an arrow or spell, or entered by a hero or NPC, now also fire for the partner – for example the bridge on Irdorath, the main gate of the Old Camp, traps and doors in the crypt and in the Adanos temple, and in Gothic 1 the floor plates in the Sleeper temple. Previously the chain only ran on the PC on which it was triggered. Checked in the automated test run, not yet confirmed in normal play.
+- **NPCs' items** (u156–u158): Whatever NPCs drop or throw (weapons when dying or knocked out, tools) lies at the same spot for both. Previously it fell on each PC separately, at different distances or only on one side. Arrows and bolts stay separate per PC: they stick in the target or disappear after a few seconds.
+- **Guild progress per hero, also when loading** (u150, u152, u154, u160): Values, conversations, diary topics and NPC attitudes from guild quests and joining stay with your own hero, also after loading together and even if the partner was never there. Previously the partner got the host's guild progress when loading and then possibly could not get into their own guild any more. Saves from before u150 do not contain this information.
+- **End of the game** (u147, Gothic 2 only): After the credits both players end up in the main menu, not just the one who held the last conversation.
 
-- **Eigener Held beim Laden** (u159): Wer selbst einen Spielstand lädt, in dem die Welt des Partners liegt (etwa nach einer Übernahme oder beim Neustart), bekommt jetzt seinen eigenen Helden statt einer Kopie des Partner-Helden.
-- **Hebel** (u145, u147): Ziehen beide gleichzeitig am selben Hebel, löst er nur einmal aus; bisher setzten sich Reihenfolge-Rätsel zurück, und Tore gingen auf und gleich wieder zu. Ein Schloss an einem beweglichen Teil (die letzte Tür auf Irdorath) wird jetzt auch beim Partner gefunden.
-- **NPC-Namen und Tote** (u150–u152): Gleichnamige NPCs, etwa mehrere Goblins einer Gruppe, wurden nach dem Laden auf den beiden PCs vertauscht; ein Tod traf dann beim Partner das falsche Tier. Falsche Tote aus älteren Spielständen und Leichen, die beim Host noch leben, stehen wieder auf.
-- **Verwandlung** (u149): Während einer Verwandlung oder Beherrschung gibt es keine gemeinsame Sicherung mehr (bisher wurde das Tier zum Helden des Spielstands), und der Abgleich der Missionsgegenstände nimmt dem Partner nichts mehr weg.
-- **Figur des Partners** (u144): Sie fällt nicht mehr endlos, wenn unter ihr kein Boden ist.
-- **Missionsgegenstände** (u160, vor allem Gothic 1): Ein Gegenstand, dessen Infozeilen alle belegt sind, wird nicht mehr zweimal pro Sekunde neu gekennzeichnet.
-- **Abstürze:** Laden mitten im Gespräch (u155); Zauberwechsel eines NPCs (u146); Weltprozess im ersten Bild nach einem Weltwechsel, jetzt allgemein abgefangen (u148); Gothic-1-Client beim Laden mit eigenen Gildenthemen (u153).
+**Fixes**
 
-## 0.4.1 – Türen gemeinsam (Gothic I u143, Gothic II u143, Othello u143)
+- **Own hero when loading** (u159): Anyone who loads a save on their own that holds the partner's world (e.g. after a takeover or a restart) now gets their own hero instead of a copy of the partner's hero.
+- **Levers** (u145, u147): If both pull the same lever at once, it fires only once; previously sequence puzzles reset, and gates opened and immediately closed again. A lock on a mover (the last door on Irdorath) is now also found on the partner's side.
+- **NPC names and the dead** (u150–u152): NPCs with the same name, such as several goblins of a group, were swapped between the two PCs after loading; a death then hit the wrong animal on the partner's side. Wrong dead from older saves and corpses that are still alive on the host get back up.
+- **Transformation** (u149): During a transformation or mind control there is no joint save any more (previously the animal became the hero of the save), and the sync of mission items no longer takes anything away from the partner.
+- **Partner's character** (u144): It no longer falls endlessly when there is no ground below it.
+- **Mission items** (u160, mainly Gothic 1): An item whose info lines are all taken is no longer re-marked twice per second.
+- **Crashes:** loading in the middle of a conversation (u155); an NPC switching spells (u146); the world process in the first frame after a world change, now caught generally (u148); Gothic 1 client when loading with its own guild topics (u153).
 
-- **Türen** (u143): Öffnen, Schließen und Aufschließen durch einen Helden gelten jetzt für beide. 0.4.0 führte Türen schon auf, tatsächlich griff der Abgleich dort aber nie: Die Engine ruft bei Türen die Funktion, an der er hing, gar nicht auf. NPCs benutzen Türen weiterhin auf jedem PC für sich; ob eine Tür offen oder zu ist, kann also abweichen, wenn ein NPC hindurchgeht.
+## 0.4.1 – Doors shared (Gothic I u143, Gothic II u143, Othello u143)
 
-## 0.4.0 – Mechanismen gemeinsam, Weltwechsel ohne doppelte NPCs, Drachen auf beiden PCs (Gothic I u142, Gothic II u142, Othello u142; nur Tag `v0.4.0`, kein eigenes Release)
+- **Doors** (u143): Opening, closing and unlocking by a hero now apply to both. 0.4.0 already listed doors, but in fact the sync never took effect there: for doors, the engine never calls the function it was attached to. NPCs still use doors on each PC separately, so whether a door is open or closed can differ when an NPC walks through.
 
-**Neu**
+## 0.4.0 – Mechanisms shared, world change without duplicate NPCs, dragons on both PCs (Gothic I u142, Gothic II u142, Othello u142; tag `v0.4.0` only, no separate release)
 
-- **Mechanismen gemeinsam** (u137): Hebel, Steinplatten und Portale wirken jetzt für beide (Türen erst ab 0.4.1), samt den Skripten und Kamerafahrten dahinter. Bisher blieb zum Beispiel ein Portal beim Partner zu; nach dem Laden war es für beide wieder zu, der eingesetzte Gegenstand aber trotzdem weg. Feuerstellen bleiben pro PC getrennt (u138).
+**New**
 
-**Korrekturen**
+- **Mechanisms shared** (u137): Levers, stone plates and portals now work for both (doors only from 0.4.1), including the scripts and camera sequences behind them. Previously, for example, a portal stayed closed on the partner's side; after loading it was closed again for both, yet the item used on it was gone anyway. Fireplaces stay separate per PC (u138).
 
-- **Weltwechsel** (u140, u141, Gothic 2): Wer eine Welt als Zweiter betrat, bekam die Weltdatei des Partners – und trotzdem lief das Startskript der Welt noch einmal. Im Minental standen dann NPCs doppelt, und die doppelten wurden nicht abgeglichen. Die Flags kommen jetzt mit der Weltdatei, und was das Startskript setzt, bekommt auch der Partner. Spielstände, in denen schon doppelte NPCs stehen, bleiben so.
-- **Drachen** (u139, u140): Das Gespräch macht einen Drachen sterblich, das galt aber nur auf dem PC des Sprechenden. Schutz, Gilde und Typ der NPCs werden jetzt abgeglichen. Spielstände, in denen ein Drache dadurch unsterblich blieb, werden beim Laden repariert.
-- **Abstürze:** Speichern bei offenem Zuschau-Fenster ohne `AtmosphericScattering` (u135, Gothic 2, Renderer coop9); Kastell im Minental, Raum mit Gilde -1 (u136, Gothic 2); Laden eines Spielstands, der während einer Kamerafahrt entstanden war (u138); ein Gegenstand, den eine laufende Nachricht noch brauchte, war schon gelöscht, vor allem beim Client in Gothic 1 und Othello (u142, abgefangen); Kamera des Weltprozesses im ersten Bild nach einem Weltwechsel (u142).
+**Fixes**
 
-## 0.3.1 – Gothic 1 und Othello automatisch geprüft, Korrekturen am Weltprozess (Gothic I u134, Gothic II u134, Othello u134)
+- **World change** (u140, u141, Gothic 2): Whoever entered a world second got the partner's world file – and still the world's start script ran once more. NPCs then stood in the Valley of Mines twice, and the duplicates were not synced. The flags now come with the world file, and whatever the start script sets, the partner gets too. Saves that already contain duplicate NPCs stay that way.
+- **Dragons** (u139, u140): The conversation makes a dragon mortal, but that only applied on the PC of the player who talked. Protection, guild and type of NPCs are now synced. Saves in which a dragon stayed immortal because of this are repaired when loading.
+- **Crashes:** saving with the watch window open without `AtmosphericScattering` (u135, Gothic 2, renderer coop9); castle in the Valley of Mines, room with guild -1 (u136, Gothic 2); loading a save that was made during a camera sequence (u138); an item still needed by a running message had already been deleted, mostly on the client in Gothic 1 and Othello (u142, caught); camera of the world process in the first frame after a world change (u142).
 
-Erstmals läuft der automatische Testlauf (Host und Client auf einem PC) auch in Gothic 1 und Othello; die Ergebnisse stehen im [README](README.de.md#teststand). Gefunden und behoben wurde dabei:
+## 0.3.1 – Gothic 1 and Othello tested automatically, fixes to the world process (Gothic I u134, Gothic II u134, Othello u134)
 
-- **Weltprozess** (allgemein, u134): Stand der Partner in der anderen Welt still, bekam der Weltprozess des Hosts keinen Auftrag, und das Zuschau-Fenster blieb leer. Schon eine kurze Pause im Netzverkehr setzte die Wartezeit zurück.
-- **Othello** (u134): Weltprozess und Testinstanz legen ihre Spielstände im selben Ordner ab wie das Hauptspiel (`SAVES_OTHELLOZ`, bisher fest `Saves`). Der Testlauf prüft getrennte Welten jetzt auch unter Othello.
-- **Gothic 1, Othello** (u134): Das Flag „Mine schon betreten“ gehört zum Weltstand des jeweiligen PCs und wird nicht mehr abgeglichen.
+For the first time, the automated test run (host and client on one PC) also runs in Gothic 1 and Othello; the results are in the [README](README.md#test-status). Found and fixed along the way:
 
-## 0.3.0 – Coop-Inventar, gemeinsame Missionsgegenstände, Gilden pro Held (Gothic I u106, Gothic II u106, Othello u106; nur Tag `v0.3.0`, kein eigenes Release)
+- **World process** (general, u134): If the partner stood still in the other world, the host's world process got no job and the watch window stayed empty. Even a short pause in network traffic reset the waiting time.
+- **Othello** (u134): The world process and the test instance store their saves in the same folder as the main game (`SAVES_OTHELLOZ`, previously always `Saves`). The test run now also checks separate worlds under Othello.
+- **Gothic 1, Othello** (u134): The flag "mine already entered" belongs to the world state of each PC and is no longer synced.
 
-**Neu**
+## 0.3.0 – Coop inventory, shared mission items, guilds per hero (Gothic I u106, Gothic II u106, Othello u106; tag `v0.3.0` only, no separate release)
 
-- **Coop-Inventar** (u97–u103): eine gemeinsame Truhe. Die Taste (standardmäßig I, Einstellungen › COOP) öffnet sie direkt, ohne dass sich der Held bewegen muss; beide können sie gleichzeitig offen haben. Der Inhalt liegt beim Host und im Spielstand, Gegenstände daraus zählen bei Quests.
-- **Gemeinsame Missionsgegenstände** (u96, u104, u106): Bekommt einer einen, hat ihn der Partner auch; gibt einer ihn ab, verliert ihn auch der Partner. Im Namen steht „(gemeinsam)“, die Beschreibung erklärt es.
-- **Gilden pro Held** (u85): Gilden-Dialoge teilen nur Helden derselben Gilde (samt Belohnung); das Aufnahmegespräch gilt beim Partner nie als schon geführt.
-- **Auto-Sicherung** (u105): jetzt auch alle 3 Minuten.
-- **Weltwechsel unter Othello** (u64, nur Othello): Die Änderungen des Othello-Coops v107–v114 sind übernommen – der Coop lädt die neue Welt selbst, wenn Union den Wechsel nicht meldet, und drei Menü-Hooks sind unter Othello abgeschaltet.
+**New**
 
-**Korrekturen** (allgemein)
+- **Coop inventory** (u97–u103): a shared chest. The key (I by default, Settings › COOP) opens it directly without the hero having to move; both players can have it open at the same time. The contents are kept on the host and in the save, and items from it count for quests.
+- **Shared mission items** (u96, u104, u106): If one player gets one, the partner has it too; if one hands it in, the partner loses it as well. The name says "(shared)", and the description explains it.
+- **Guilds per hero** (u85): Guild dialogues are only shared between heroes of the same guild (including the reward); for the partner, the admission dialogue never counts as already held.
+- **Auto-save** (u105): now also every 3 minutes.
+- **World change under Othello** (u64, Othello only): The changes of the Othello Coop v107–v114 are included – the coop loads the new world itself if Union does not report the change, and three menu hooks are switched off under Othello.
 
-- **Abstürze und Hänger:** Absturz beim Beenden über das Esc-Menü (u79); gelöschte Gegenstände in NPC-Slots und beim Ablegen (u88–u90); gelöschtes Schwert in der Hand nach der Übernahme eines Spielstands (u91, u93); ein hängender Dialog blockiert das Laden nicht mehr (u100); nach dem Tod an der Weltgrenze von Gothic 2 lädt der Coop über das Hauptmenü, statt endlos zu warten (u91).
-- **Spieluhr:** Der Host schickt die Uhrzeit alle 10 statt alle 60 Sekunden (u69); die Uhr des Clients und des Weltprozesses läuft sekundengenau mit der des Hosts, und Tagesabläufe stellen sich bei großen Zeitsprüngen neu ein (u83).
-- **NPCs beim Client:** Kleine Abweichungen werden weich ausgeglichen statt mit einem Sprung, große Abstände sauber neu gesetzt, damit niemand hängen bleibt (u72, u74).
-- **Gegenstände und Truhen:** Verspätete Löschungen werden nachgeholt, sodass bis zum nächsten Laden keine Geistergegenstände mehr herumliegen (u70); Truhen in der Welt geben Gegenstände sauber heraus (u98).
-- **Story-Videos:** Das Überspringen für beide klappt auch, wenn die interne Nummer des Videos zehnstellig ist (u87).
+**Fixes** (general)
 
-## 0.2.0 – Erste Veröffentlichung als Gothic-I-II-Universal-Coop (Gothic I u62, Gothic II u62, Othello u62)
+- **Crashes and hangs:** crash when quitting via the Esc menu (u79); deleted items in NPC slots and while putting items down (u88–u90); a deleted sword in the hand after taking over a save (u91, u93); a hanging dialogue no longer blocks loading (u100); after dying at the world border of Gothic 2, the coop loads via the main menu instead of waiting forever (u91).
+- **Game clock:** The host sends the time every 10 instead of every 60 seconds (u69); the clocks of the client and of the world process run in step with the host's to the second, and daily routines readjust after large time jumps (u83).
+- **NPCs on the client:** Small deviations are evened out smoothly instead of with a jump, and large distances are set cleanly, so nobody gets stuck (u72, u74).
+- **Items and chests:** Late deletions are caught up on, so no ghost items lie around until the next load (u70); chests in the world hand out items cleanly (u98).
+- **Story videos:** Skipping for both also works when the video's internal number has ten digits (u87).
 
-- Coop für Gothic 1 (1.08k), Gothic 2 Die Nacht des Raben (2.6) und Gothic 1 mit Othello 4.x aus einem gemeinsamen Quelltext:
-  Spieler und NPCs; Kämpfe, in denen der eigene PC über Treffer auf den eigenen Helden entscheidet und der PC des Clients die
-  NPCs berechnet, die gegen ihn kämpfen; Dialoge, Story und Tagebuch (Quest-EP für beide); Truhen, Gegenstände und Plündern;
-  gemeinsame Spielstände mit Vorschau und Sicherung beim Partner; getrennte Welten mit Weltprozess und Zuschau-Fenster;
-  gemeinsames neues Spiel; Story-Videos, die sich für beide überspringen lassen; COOP-Menü mit Figur und 3D-Vorschau; Coop über
-  Steam; COOP-Schwierigkeit; Teleport-Rune zum Mitspieler; Coop-Testlauf (Shift+F11).
-- u62: Union 1.0m liegt als Dateien bei (im Installer und in den ZIPs für Gothic 1 und 2). Der Installer installiert Union mit,
-  wenn es fehlt, verschiebt `system\dinput.dll` von SystemPack nach `CoopBackup` und stellt beim Rückgängigmachen beides wieder
-  her (bis u61 startete er das Union-Setup). Neu ist eine ZIP für Othello.
-- u56–u61: Der Coop selbst ist gegenüber u55 unverändert.
+## 0.2.0 – First release as Gothic-I-II-Universal-Coop (Gothic I u62, Gothic II u62, Othello u62)
 
-## Vorgeschichte
+- Coop for Gothic 1 (1.08k), Gothic 2 Night of the Raven (2.6) and Gothic 1 with Othello 4.x from one shared source:
+  players and NPCs; fights in which your own PC decides hits on your own hero and the client's PC computes the NPCs fighting it;
+  dialogues, story and diary (quest XP for both); chests, items and looting; joint saves with preview and backup at the
+  partner; separate worlds with world process and watch window; shared new game; story videos that can be skipped for both;
+  COOP menu with character and 3D preview; coop via Steam; COOP difficulty; teleport rune to the partner; coop test run
+  (Shift+F11).
+- u62: Union 1.0m is included as files (in the installer and in the ZIPs for Gothic 1 and 2). The installer installs Union too
+  if it is missing, moves `system\dinput.dll` from SystemPack to `CoopBackup` and restores both on undo (up to u61 it started
+  the Union setup). New: a ZIP for Othello.
+- u56–u61: The coop itself is unchanged compared to u55.
 
-### Gothic Union Coop u1–u61 (unveröffentlicht)
+## History before the first release
 
-Aus dem Othello-Coop entstand ein Union-Plugin, das Gothic 1, Gothic 2 Die Nacht des Raben und Othello mit einem gemeinsamen
-Quelltext abdeckt. Die wichtigsten Schritte:
+### Gothic Union Coop u1–u61 (unreleased)
 
-- **u1–u7 – ein Kern für alle Engines:** Der Kern des Coops ist unabhängig von der Engine. Alle Adressen in der Engine stehen in
-  einer Tabelle, und jeder Teil des Coops wird für jede Engine einzeln freigeschaltet. Der Coop lässt sich jetzt auch für
-  Gothic 2 bauen, und in Gothic 1 läuft er auch ohne Othello (mit eigenem Hauptmenü und eigenem Laden). Die Neuerungen des
-  Othello-Coops bis v110 sind übernommen, dazu kommt ein automatischer Coop-Testlauf.
-- **u8–u20 – Gothic 2 Die Nacht des Raben:** COOP-Menü mit Mausbedienung, gemeinsames neues Spiel mit Intro für beide,
-  Coop-Renderer mit 3D-Vorschau der Figur und Zuschau-Fenster, Gespräche (einer spricht, der andere hört zu – Fortschritt,
-  Tagebuch und Erfahrung gelten für beide), Abgleich der Welt, gemeinsame Spielstände mit Vorschau, das Kampfsystem für zwei PCs
-  (wie in 0.2.0 beschrieben), COOP-Schwierigkeit, Teleport-Rune, Markierung des Partners und eine Selbstprüfung, ob alle
-  Adressen zur Engine passen.
-- **u21–u28 – Bedienung:** Esc-Menü mit „Hauptmenü“ und „Spielstand wählen“, Tagebuch mit Mausbedienung, ein Mauszeiger, das
-  Kapitelbild der eigenen Gilde, Story-Videos auch beim Partner und der Partner auf Gothics Karte.
-- **u29–u40 – getrennte Welten:** Jeder Spieler kann in seiner eigenen Welt sein (Khorinis, Minental, Jharkendar, Irdorath);
-  ein gemeinsamer Weltwechsel lässt sich einstellen. Der Weltprozess – ein zweites Gothic im Hintergrund – zeigt die Welt des
-  Partners im Zuschau-Fenster. Dazu kommen der Teleport zwischen den Welten und der Austausch der Weltstände, wenn in
-  verschiedenen Welten gespeichert wird.
-- **u41–u55 – stabil und installierbar:** Absturzkorrekturen aus Testläufen, ein automatischer Testlauf mit Host und Client auf
-  einem PC, der Installer (erkennt das Spiel am Ordnerinhalt, sichert alles, „Letzte Installation rückgängig“), die Sicherung
-  beim Partner (jeder bekommt auch den Spielstand des anderen) und Story-Videos, die sich für beide überspringen lassen.
+The Othello Coop grew into a Union plugin that covers Gothic 1, Gothic 2 Night of the Raven and Othello with one shared
+source. The main steps:
 
-### Othello-Coop 0.1.0–0.1.2 (nur Gothic 1 mit Othello 4.4.2.1, Alpha)
+- **u1–u7 – one core for all engines:** The coop's core is independent of the engine. All addresses in the engine are kept in a
+  table, and each part of the coop is enabled for each engine separately. The coop can now also be built for Gothic 2, and in
+  Gothic 1 it also runs without Othello (with its own main menu and loading). The new features of the Othello Coop up to v110
+  are included, plus an automated coop test run.
+- **u8–u20 – Gothic 2 Night of the Raven:** COOP menu with mouse control, shared new game with intro for both, coop renderer
+  with 3D preview of the character and watch window, conversations (one player talks, the other listens – progress, diary and
+  experience count for both), sync of the world, joint saves with preview, the combat system for two PCs (as described under
+  0.2.0), COOP difficulty, teleport rune, partner marker and a self-check that all addresses match the engine.
+- **u21–u28 – controls:** Esc menu with "Main menu" and "Choose save", diary with mouse control, a mouse cursor, the chapter
+  image of your own guild, story videos for the partner too, and the partner on Gothic's map.
+- **u29–u40 – separate worlds:** Each player can be in their own world (Khorinis, Valley of Mines, Jharkendar, Irdorath); a
+  joint world change can be set up. The world process – a second Gothic in the background – shows the partner's world in the
+  watch window. Plus teleporting between worlds and exchanging the world states when saving in different worlds.
+- **u41–u55 – stable and installable:** crash fixes from test runs, an automated test run with host and client on one PC, the
+  installer (detects the game by the folder contents, backs everything up, "Undo last installation"), the backup at the
+  partner (everyone also gets the other player's save) and story videos that can be skipped for both.
 
-- **0.1.2:** Teleport-Rune zum Mitspieler (kostet kein Mana, eigenes Aussehen). Markierung des Mitspielers: Name über dem Kopf
-  (hinter Wänden blass, mit Entfernung), Pfeil am Bildrand, beide Spieler als Pfeile auf Othellos Weltkarte. Behoben: Sprünge,
-  wenn NPCs ihr Ziel zwischen den Spielern wechseln; Fehler in Kämpfen von NPCs, die dem Host feindlich gesinnt sind; Abstürze
-  beim Seitenschritt im Kampf und bei einer Zwischensequenz kurz nach dem Laden. Beim Laden wird der Zustand der alten Welt
-  verworfen.
-- **0.1.1:** Speicherleck beim Host behoben (der Speicherverbrauch wuchs mit der Spielzeit und jedem Abgleich); die
-  Absturzmeldung stürzt nicht mehr selbst ab; stabilere Warteschlange zwischen Netzwerk und Spiel; kein Absturz mehr beim
-  Zauberwechsel des Mitspielers.
-- **0.1.0:** erste öffentliche Fassung – Coop für Gothic 1 mit Othello: COOP-Menü mit Mitspieler-Figur, Renderer mit
-  Zuschau-Fenster und Figurvorschau, Verbinden über IP oder Steam.
+### Othello Coop 0.1.0–0.1.2 (Gothic 1 with Othello 4.4.2.1 only, alpha)
+
+- **0.1.2:** Teleport rune to the partner (costs no mana, its own look). Partner marker: name above the head (faded behind
+  walls, with distance), an arrow at the edge of the screen, both players as arrows on Othello's world map. Fixed: jumps when
+  NPCs switch their target between the players; errors in fights of NPCs hostile to the host; crashes on a side step in combat
+  and during a cutscene shortly after loading. When loading, the state of the old world is discarded.
+- **0.1.1:** Fixed a memory leak on the host (memory use grew with play time and every sync); the crash report no longer
+  crashes itself; a more stable queue between network and game; no more crash when the partner switches spells.
+- **0.1.0:** first public version – coop for Gothic 1 with Othello: COOP menu with partner character, renderer with watch
+  window and character preview, connecting via IP or Steam.

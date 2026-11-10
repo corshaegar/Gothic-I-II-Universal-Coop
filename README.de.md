@@ -6,7 +6,7 @@ dieselbe Geschichte gemeinsam: Welt, NPCs, Kämpfe, Dialoge, Tagebuch, Truhen un
 abgeglichen. Ein Union-Plugin auf Grundlage von [GothicCoop / Gothic Together](https://gitlab.com/gothiccoop/gothiccoop)
 (AGPL-3.0), Nachfolger des [Othello-Coops](https://github.com/corshaegar/Othello-Coop).
 
-> *English version: [README.md](README.md). Menus and the installer are available in German and English.*
+> *English version: [README.md](README.md). The changelog, menus and the installer are available in German and English.*
 
 **Inhalt:** [Versionen](#versionen) · [Was funktioniert](#was-funktioniert) · [Teststand](#teststand) ·
 [Installation](#installation) · [Spielen](#spielen) · [Einstellungen](#einstellungen) · [Probleme](#probleme-lösen) ·
@@ -25,7 +25,7 @@ Projektversion **0.10.3** – je Spiel/Mod die Coop-Fassung (sie zählt nur hoch
 | The Chronicles of Myrtana: Archolos | u243 |
 
 **Beide PCs brauchen dieselbe Coop-Fassung** – beim Verbinden wird sie verglichen. Sie steht im Hauptmenü unten
-(„GothicCoop uNN“). Änderungen je Version: [`CHANGELOG.md`](CHANGELOG.md).
+(„GothicCoop uNN“). Änderungen je Version: [`CHANGELOG.de.md`](CHANGELOG.de.md) (englisch: [`CHANGELOG.md`](CHANGELOG.md)).
 ## Was funktioniert
 
 **Spiele und Mods**

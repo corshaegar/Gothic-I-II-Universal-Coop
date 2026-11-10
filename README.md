@@ -6,8 +6,8 @@ the same story together: world, NPCs, fights, dialogues, diary, chests and saves
 plugin based on [GothicCoop / Gothic Together](https://gitlab.com/gothiccoop/gothiccoop) (AGPL-3.0), successor of the
 [Othello Coop](https://github.com/corshaegar/Othello-Coop).
 
-> *Deutsche Fassung: [README.de.md](README.de.md). The changelog and the technical documentation under `docs/` are in German; menus
-> and the installer are available in German and English.*
+> *Deutsche Fassung: [README.de.md](README.de.md). The changelog, the menus and the installer are available in English and German;
+> the technical documentation under `docs/` is in German.*
 
 **Contents:** [Versions](#versions) · [What works](#what-works) · [Test status](#test-status) ·
 [Installation](#installation) · [Playing](#playing) · [Settings](#settings) · [Troubleshooting](#troubleshooting) ·
@@ -26,7 +26,7 @@ Project version **0.10.3** – for each game/mod the coop version (it only goes 
 | The Chronicles of Myrtana: Archolos | u243 |
 
 **Both PCs need the same coop version** – it is compared when connecting. It is shown at the bottom of the main menu
-("GothicCoop uNN"). Changes per version: [`CHANGELOG.md`](CHANGELOG.md) (in German).
+("GothicCoop uNN"). Changes per version: [`CHANGELOG.md`](CHANGELOG.md) (German: [`CHANGELOG.de.md`](CHANGELOG.de.md)).
 ## What works
 
 **Games and mods**
