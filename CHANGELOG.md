@@ -11,7 +11,7 @@ first version is recorded here.
 
 **New**
 
-- **Xeres' Rückkehr** (u246–u252): own profile in the Gothic 2 DLL, started with `-game:Xeres.ini`. Before that, all 6,583 script functions of the mod were read and every serious finding was checked against the code. Each hero keeps their own poisons, diseases, training, god bonus, transformations and perks; the mod's scene counters, the mine cart ride and the mod's settings apply per PC. Tested in automated test runs with a new game (host and client on one PC). The story has not been played through yet; the host should lead Xeres' first attack in the Valley of Mines. For players without the coop, the fixes are also available as a separate package: [Xeres-Fixes](https://github.com/corshaegar/Xeres-Fixes).
+- **Xeres' Rückkehr** (u246–u252): own profile in the Gothic 2 DLL, started with `-game:Xeres.ini`. Before that, all 6,583 script functions of the mod were read and every serious finding was checked against the code. Each hero keeps their own poisons, diseases, training, god bonus, transformations and perks; the mod's scene counters, the mine cart ride and the mod's settings apply per PC. Tested in automated test runs with a new game (host and client on one PC). The story has not been played through yet. For players without the coop, the fixes are also available as a separate package: [Xeres-Fixes](https://github.com/corshaegar/Xeres-Fixes).
 - **The installer recognizes Archolos**: Up to 0.10.3 it refused the Archolos folder because Archolos ships the addon world only as an empty file. It now recognizes Archolos by its `Data\KM_Scripts.mod`, like the coop itself, and installs normally.
 
 **Fixes**

@@ -10,7 +10,7 @@ unveröffentlichten Fassungen u1–u61, aus denen 0.2.0 hervorging. So ist hier 
 
 **Neu**
 
-- **Xeres' Rückkehr** (u246–u252): eigenes Profil in der Gothic-2-DLL, Start mit `-game:Xeres.ini`. Vorher wurden alle 6.583 Skript-Funktionen der Mod gelesen und jeder schwere Befund am Code geprüft. Jeder Held behält seine eigenen Gifte, Krankheiten, Übung, Götterbonus, Verwandlungen und Perks; die Zähler der Szenen, die Lorenfahrt und die Einstellungen der Mod gelten je PC. Geprüft in automatischen Testläufen mit neuem Spiel (Host und Client auf einem PC). Die Geschichte ist noch nicht durchgespielt; Xeres' ersten Angriff im Minental sollte der Host führen. Für Spieler ohne Coop gibt es die Fehlerbehebungen auch als eigenes Paket: [Xeres-Fixes](https://github.com/corshaegar/Xeres-Fixes).
+- **Xeres' Rückkehr** (u246–u252): eigenes Profil in der Gothic-2-DLL, Start mit `-game:Xeres.ini`. Vorher wurden alle 6.583 Skript-Funktionen der Mod gelesen und jeder schwere Befund am Code geprüft. Jeder Held behält seine eigenen Gifte, Krankheiten, Übung, Götterbonus, Verwandlungen und Perks; die Zähler der Szenen, die Lorenfahrt und die Einstellungen der Mod gelten je PC. Geprüft in automatischen Testläufen mit neuem Spiel (Host und Client auf einem PC). Die Geschichte ist noch nicht durchgespielt. Für Spieler ohne Coop gibt es die Fehlerbehebungen auch als eigenes Paket: [Xeres-Fixes](https://github.com/corshaegar/Xeres-Fixes).
 - **Der Installer erkennt Archolos**: Bis 0.10.3 lehnte er den Ordner von Archolos ab, weil Archolos die Addon-Welt nur als leere Datei beilegt. Jetzt erkennt er Archolos wie der Coop selbst an `Data\KM_Scripts.mod` und installiert ganz normal.
 
 **Korrekturen**
