@@ -1,7 +1,7 @@
 # Gothic-I-II-Universal-Coop
 
 **Koop-Mehrspieler für Gothic 1 und Gothic 2 Die Nacht des Raben samt Mods – unterstützt sind Othello (Gothic 1), Legend of
-Ahssun und The Chronicles of Myrtana: Archolos (Gothic 2).** Zwei oder mehr Spieler erleben
+Ahssun, The Chronicles of Myrtana: Archolos und Xeres' Rückkehr (Gothic 2).** Zwei oder mehr Spieler erleben
 dieselbe Geschichte gemeinsam: Welt, NPCs, Kämpfe, Dialoge, Tagebuch, Truhen und Spielstände werden zwischen den PCs
 abgeglichen. Ein Union-Plugin auf Grundlage von [GothicCoop / Gothic Together](https://gitlab.com/gothiccoop/gothiccoop)
 (AGPL-3.0), Nachfolger des [Othello-Coops](https://github.com/corshaegar/Othello-Coop).
@@ -14,15 +14,16 @@ abgeglichen. Ein Union-Plugin auf Grundlage von [GothicCoop / Gothic Together](h
 
 ## Versionen
 
-Projektversion **0.10.3** – je Spiel/Mod die Coop-Fassung (sie zählt nur hoch, wenn sich an diesem Spiel etwas ändert):
+Projektversion **0.11.0** – je Spiel/Mod die Coop-Fassung (sie zählt nur hoch, wenn sich an diesem Spiel etwas ändert):
 
 | Spiel / Mod | Coop-Fassung |
 |---|---|
-| Gothic I | u243 |
-| Gothic II | u243 |
-| Othello | u243 |
-| Legend of Ahssun | u243 |
-| The Chronicles of Myrtana: Archolos | u243 |
+| Gothic I | u252 |
+| Gothic II | u252 |
+| Othello | u252 |
+| Legend of Ahssun | u252 |
+| The Chronicles of Myrtana: Archolos | u252 |
+| Xeres' Rückkehr | u252 |
 
 **Beide PCs brauchen dieselbe Coop-Fassung** – beim Verbinden wird sie verglichen. Sie steht im Hauptmenü unten
 („GothicCoop uNN“). Änderungen je Version: [`CHANGELOG.de.md`](CHANGELOG.de.md) (englisch: [`CHANGELOG.md`](CHANGELOG.md)).
@@ -31,7 +32,7 @@ Projektversion **0.10.3** – je Spiel/Mod die Coop-Fassung (sie zählt nur hoch
 **Spiele und Mods**
 - **Ein Coop für alle:** je Engine eine DLL mit den Skripten aller Varianten. Wechselt die Mod (GothicStarter, Othello dazu oder
   weg), stellt sich der Coop beim Start selbst um (Log „Skript-Weiche“) – neu installieren muss man nicht.
-- **Unterstützte Mods:** Othello (Gothic 1), Legend of Ahssun und The Chronicles of Myrtana: Archolos (Gothic 2) mit eigenem Profil. Andere Mods, die mit
+- **Unterstützte Mods:** Othello (Gothic 1), Legend of Ahssun, The Chronicles of Myrtana: Archolos und Xeres' Rückkehr (Gothic 2) mit eigenem Profil. Andere Mods, die mit
   `-game:<ini>` starten, erkennt der Coop; was sie brauchen, kommt aus einer Profil-Datei (siehe [Einstellungen](#einstellungen)).
 
 **Grundabgleich**
@@ -114,13 +115,15 @@ Projektversion **0.10.3** – je Spiel/Mod die Coop-Fassung (sie zählt nur hoch
 | **Gothic 1** (1.08k, Steam/GOG) | Zuletzt getestet mit genau der Release-DLL von 0.6.0 (u197): Gilden, Coop-Inventar, Türen, Gegenstände der NPCs, Speichern und Laden Host 84 OK, Client 82 OK, je 1 Fehler im Testwerkzeug selbst (ein Diagnose-Schritt suchte den Apfel unter seinem Gothic-2-Namen, behoben in u198) – 31 bzw. 33 Schritte übersprungen, am Test-Spielstand stehen keine Truhe und kein passender Hebel oder Auslöser; getrennte Welten und Weltprozess Host 55 OK, Client 50 OK, 0 Fehler (4 bzw. 9 übersprungen). Die allgemeinen Änderungen aus u198 bis u217 (Beitritt nur mit demselben Spiel, Skripte des Clients, Begleiter, Zauber des Partners, Handel, Schlafen beim Client, Tote nach dem Weltwechsel, Laden, Absicherungen gegen Gesprächssperren) sind in Gothic 1 noch nicht getestet. Hebel und Auslöser sind in Gothic 1 noch nicht im Spiel geprüft. Von Hand zuletzt mit u44 gespielt; die Neuerungen seitdem (Coop-Inventar, Missions-Gegenstände, Mechanismen, Auslöser) noch nicht von Hand und nicht über das echte Netz. |
 | **Othello** 4.x (Gothic 1) | Zuletzt getestet mit genau der Release-DLL von 0.6.0 (u197), gestartet mit den Gothic-1-Skripten (die Skript-Weiche stellte beim Start auf Othello um): Gilden, Coop-Inventar, Truhen, Türen, Mechanismen, Auslöser, Gegenstände der NPCs, Speichern und Laden Host 99 OK, Client 97 OK, je 4 Fehler – 3 an einem Tor (siehe unten), 1 im Testwerkzeug selbst (behoben in u198); getrennte Welten und Weltprozess Host 55 OK, Client 50 OK, 0 Fehler. Die allgemeinen Änderungen aus u198 bis u217 sind in Othello noch nicht getestet. Von Hand zuletzt mit dem Othello-Coop v106 (= Othello-Coop 0.1.2) gespielt; seitdem sind die allgemeinen Änderungen dazugekommen. Mit u242 (0.10.3): automatischer Testlauf über 40 Minuten am 09.11.2026 ohne Absturz – die Kämpfe des Clients funktionieren wieder (13 von 13 mit Treffern; vorher traf der Client in 9 von 10 Kämpfen nichts), im Mittel alle 0,26 s ein Schlag, wie in Gothic 2. |
 | **Legend of Ahssun** 1.2.0 (Gothic 2) | Eigenes Profil in der Gothic-2-DLL – derselbe Coop wie für Gothic 2, kein eigenes Paket. Vor u199 wurden alle 3.914 eigenen Skript-Funktionen der Mod gelesen und jeder schwere Befund am Code geprüft, seit u200 auch alle Werte-Vorschläge, alle NPC-Zustände, die den Helden ansprechen, und alle Wächter der Welt-Inits. Voller automatischer Testlauf mit einem Spielstand der Mod (Entwicklungs-DLL u204): Host 240 OK, Client 236 OK, 0 Fehler – die tote Fleischwanze nach dem Betreten einer Welt ist behoben (u203); gemeinsames Laden, Weltwechsel, Weltprozess und Zuschau-Fenster darin bestanden. Dazu automatische Läufe in der Mod seit u170. Seit 0.8.0 (u211–u217): sieben einstündige automatische Testläufe am 08.11.2026 – kein Absturz, ein Hänger beim Weltwechsel im zweiten Lauf (danach kam in u213 eine Hänger-Diagnose, seitdem keiner mehr); vergrößerte Monster schweben beim Client nicht mehr über ihrem Platz (u214/u215); abschließende Prüfrunden der letzten fünf Läufe 0 Fehler (Host 31 OK, Client 25–31 OK). Mit u238 (0.10.1): ein 40-minütiger automatischer Testlauf am 09.11.2026 ohne Absturz, abschließende Prüfrunden Host 31 OK, Client 31 OK, 0 Fehler. |
-| **The Chronicles of Myrtana: Archolos** (Gothic 2) | Neu in 0.8.0: eigenes Profil in der Gothic-2-DLL (erkannt an `Data\KM_Scripts.mod`), derselbe Coop wie für Gothic 2, kein eigenes Paket. Dafür behoben: ein Absturz beim ersten Speichern, der Prolog auf dem Schiff kam im Coop nicht zu Ende, Werte der Mod je PC (Abblenden, Abstands-Warnungen, Zähler der Zwischensequenzen). Geprüft in langen automatischen Testläufen auf einem PC (Host und Client, beide Helden automatisch gespielt): zusammen etwa 7 Stunden ohne Absturz; Prüfrunden ohne Fehler bis auf eine Sitzung (Waffenmodus und Animation von NPCs in der Nähe). Gespielt sind darin bisher der Prolog und Kapitel 1 bis Silbach (Ruperts Geleit). Seit 0.8.0 (u211–u217) dafür behoben: ein Absturz beim Laden von Spielständen, die während eines Abblendens gespeichert wurden, NPCs, die nach einem nie beendeten Abblenden nicht mehr mit dem Helden redeten (u217), vergrößerte Monster, die beim Client hoch über ihrem Platz schwebten; dazu eine Absicherung gegen eine Gesprächssperre nach abgebrochenen Gesprächen (aus den Mod-Skripten abgeleitet, in den Läufen nicht ausgelöst). Sieben einstündige automatische Testläufe am 08.11.2026: kein Absturz, abschließende Prüfrunden 0 Fehler (Host 25–31 OK, Client 25–31 OK). Seit 0.9.1 (u218–u237) behoben: Szenen und Zwischensequenzen des Prologs auf dem Schiff (der Kapitän bleibt nicht mehr hinter dem Gitter), Trialoge (Sprecher, Reihenfolge und Plätze der NPCs beim Partner), Kopfdrehung gleich, beide PCs speichern im selben Moment – geprüft in automatischen Testläufen mit Aufnahmen am 09.11.2026. 0.10.0 und 0.10.1 stürzten in Archolos bei jedem Speichern ab (behoben in u239), und das Ende des Prologs auf dem Schiff konnte hängen bleiben, wenn der Ablauf beim Client vorn lag (behoben in u240). Beides geprüft in automatischen Testläufen am 09.11.2026, der Client trat mitten im Prolog bei: Startstand und gemeinsame Sicherungen, das Prolog-Ende auf beiden PCs, die Helden kamen an den Strand. Mit u243 (0.10.3) lief der ganze Prolog noch einmal durch, der Client trat mitten darin bei – die Kapitäns-Szene in der richtigen Reihenfolge, danach das Finale – ohne Absturz. Von Hand noch nicht gespielt. |
+| **The Chronicles of Myrtana: Archolos** (Gothic 2) | Neu in 0.8.0: eigenes Profil in der Gothic-2-DLL (erkannt an `Data\KM_Scripts.mod`), derselbe Coop wie für Gothic 2, kein eigenes Paket. Dafür behoben: ein Absturz beim ersten Speichern, der Prolog auf dem Schiff kam im Coop nicht zu Ende, Werte der Mod je PC (Abblenden, Abstands-Warnungen, Zähler der Zwischensequenzen). Geprüft in langen automatischen Testläufen auf einem PC (Host und Client, beide Helden automatisch gespielt): zusammen etwa 7 Stunden ohne Absturz; Prüfrunden ohne Fehler bis auf eine Sitzung (Waffenmodus und Animation von NPCs in der Nähe). Gespielt sind darin bisher der Prolog und Kapitel 1 bis Silbach (Ruperts Geleit). Seit 0.8.0 (u211–u217) dafür behoben: ein Absturz beim Laden von Spielständen, die während eines Abblendens gespeichert wurden, NPCs, die nach einem nie beendeten Abblenden nicht mehr mit dem Helden redeten (u217), vergrößerte Monster, die beim Client hoch über ihrem Platz schwebten; dazu eine Absicherung gegen eine Gesprächssperre nach abgebrochenen Gesprächen (aus den Mod-Skripten abgeleitet, in den Läufen nicht ausgelöst). Sieben einstündige automatische Testläufe am 08.11.2026: kein Absturz, abschließende Prüfrunden 0 Fehler (Host 25–31 OK, Client 25–31 OK). Seit 0.9.1 (u218–u237) behoben: Szenen und Zwischensequenzen des Prologs auf dem Schiff (der Kapitän bleibt nicht mehr hinter dem Gitter), Trialoge (Sprecher, Reihenfolge und Plätze der NPCs beim Partner), Kopfdrehung gleich, beide PCs speichern im selben Moment – geprüft in automatischen Testläufen mit Aufnahmen am 09.11.2026. 0.10.0 und 0.10.1 stürzten in Archolos bei jedem Speichern ab (behoben in u239), und das Ende des Prologs auf dem Schiff konnte hängen bleiben, wenn der Ablauf beim Client vorn lag (behoben in u240). Beides geprüft in automatischen Testläufen am 09.11.2026, der Client trat mitten im Prolog bei: Startstand und gemeinsame Sicherungen, das Prolog-Ende auf beiden PCs, die Helden kamen an den Strand. Mit u243 (0.10.3) lief der ganze Prolog noch einmal durch, der Client trat mitten darin bei – die Kapitäns-Szene in der richtigen Reihenfolge, danach das Finale – ohne Absturz. Von Hand noch nicht gespielt. Ab 0.11.0 installiert der Installer auch in Archolos – bis 0.10.3 lehnte er den Ordner ab, weil Archolos die Addon-Welt nur als leere Datei beilegt. Coop über Steam bleibt in Archolos aus (die Mod bringt eine eigene Steam-Anbindung mit) – dort über IP verbinden. In 0.11.0 außerdem behoben (in Testläufen gefunden): ein NPC, der im Gespräch stehen blieb, und doppelte NPCs, nachdem ein Skript einen NPC eingesetzt hatte (Ana und Lea). |
+| **Xeres' Rückkehr** 1.0.9 (Gothic 2) | Neu in 0.11.0: eigenes Profil in der Gothic-2-DLL (Start mit `-game:Xeres.ini`), derselbe Coop wie für Gothic 2, kein eigenes Paket. Vorher wurden alle 6.583 Skript-Funktionen der Mod gelesen und jeder schwere Befund am Code geprüft. Jeder Held behält Gifte, Krankheiten, Übung, Götterbonus, Verwandlungen und Perks; die Zähler der Szenen, die Lorenfahrt und die Einstellungen der Mod gelten je PC. Dazu allgemein behoben: Zeiger-Prüfungen oberhalb von 2 GB (Weltwechsel, Pass ins Minental, Türen des Spinnenbaus, Loren, Truhen) und ein Absturz bei Pfeiltreffern mit Blutspritzern, wenn das Union-Toolkit dabei ist. Automatischer Testlauf mit neuem Spiel auf einem PC (Host und Client): mit u250 Host 57 OK, Client 53 OK, 0 Fehler; mit u252 zusätzlich ein nachgestellter Treffer aus dem Bogen bei Host und Client – kein Absturz, der Blutspritzer zeigt den echten Schaden. In den Läufen mit u252 schlugen zwei Schritte beim Betreten der Welt des Partners fehl, weil das gemeinsame Speichern davor übersprungen wurde (der PC war dabei stark ausgelastet); die Ursache ist noch offen. Die Geschichte ist noch nicht durchgespielt: Xeres' ersten Angriff im Minental sollte der Host führen, und beide sollten im Menü dieselbe Schwierigkeit und Auto-Sicherung wählen. Ohne Coop gibt es die Fehlerbehebungen als eigenes Paket: [Xeres-Fixes](https://github.com/corshaegar/Xeres-Fixes). |
 | **Andere Mods** | Gothic 1/2 mit anderen Mods lassen sich installieren; der Installer zeigt die Mods im Ordner an. Es läuft das Fundament des Coops; was eine Mod an Anpassungen braucht, kommt über eine Profil-Datei (siehe [Einstellungen](#einstellungen)). Nicht gezielt geprüft. |
 
 Bekannte Grenzen:
 - Der **Weltprozess** braucht ein NTFS-Laufwerk (Verknüpfungen statt Kopien) und ein vorhandenes Speicherspiel.
 - Zuschau-Fenster und 3D-Vorschau brauchen den **Coop-Renderer** (GD3D11 v17.9.7 + Coop-Patch) und einen Prozessor mit AVX2.
 - „Über IP beitreten“ braucht beim Host einen offenen **UDP-Port 9955** (Router-Weiterleitung/Firewall) – oder Steam.
+- **Archolos:** Coop über Steam geht dort nicht (die Mod bringt eine eigene Steam-Anbindung mit) – über IP verbinden.
 - **Othello, Tore mit Hebel:** Wird ein Tor bewegt, während es noch fährt (Hebel ein zweites Mal umgelegt, beide zugleich am Hebel, ein Pfeil an seinem Auslöser), steht es im Testlauf danach auf den beiden PCs verschieden (`PSI_DOOR_TEMPLE_NYRAS_SECRECT_2`, 3 Schritte je Seite).
 - **Gothic 2, alte Spielstände:** Stände aus Fassungen vor u140 können doppelte NPCs enthalten. Die bleiben; neue entstehen nicht mehr.
 - **Skript-Ereignisse beim Client** (Teleport, Skript-Tod, Entfernen eines NPCs) gelten beim Host nur, wenn er in derselben Welt ist.
@@ -134,9 +137,9 @@ mit Patch 2.6) oder Gothic 1 mit Othello 4.x. Union 1.0m bringen Installer und Z
 
 ### Mit dem Installer (empfohlen)
 
-1. Unter [Releases](../../releases) `Gothic-I-II-Universal-Coop-0.10.3-Setup.exe` laden und starten.
+1. Unter [Releases](../../releases) `Gothic-I-II-Universal-Coop-0.11.0-Setup.exe` laden und starten.
 2. Den **Spielordner** wählen (den Ordner, in dem `system` liegt; Steam- und GOG-Ordner werden gesucht). Ein Spiel wählt man
-   nicht: Der Installer erkennt am Inhalt Gothic 1, Othello, Gothic 2 und die Mods im Ordner (z. B. Legend of Ahssun) und zeigt,
+   nicht: Der Installer erkennt am Inhalt Gothic 1, Othello, Gothic 2 und die Mods im Ordner (z. B. Legend of Ahssun, Archolos) und zeigt,
    welche unterstützt sind. Er installiert den Coop der Engine mit den Skripten aller Varianten – wechselt die Mod später
    (GothicStarter, Othello dazu oder weg), stellt sich der Coop beim Start selbst um. In einen falschen Ordner installiert er nichts.
 3. „Installieren“. Er schreibt den Coop, bringt GD3D11 v17.9.7 mit (falls es fehlt) und legt den Coop-Renderer darüber
@@ -148,12 +151,16 @@ Ohne Fenster: `Setup.exe /still /ordner:"<Spielordner>" [/spiel:g1|g2|othello|lo
 
 ### Mit der ZIP
 
-1. `Gothic-I-II-Universal-Coop-0.10.3.zip` laden – eine ZIP für alle Spiele.
+1. `Gothic-I-II-Universal-Coop-0.11.0.zip` laden – eine ZIP für alle Spiele.
 2. Den Inhalt **eines** ihrer Ordner in den Spielordner kopieren (dort, wo `system` liegt), vorhandene Dateien ersetzen:
-   `Gothic 1 + Othello` für Gothic 1 (auch mit Othello), `Gothic 2 + Mods` für Gothic 2 (auch mit Legend of Ahssun und anderen Mods).
-3. `Union 1.0m (nur wenn Union fehlt)` nur, wenn im Spielordner noch kein Union ist (`system\Shw32.dll` fehlt) – nie bei Othello.
-   Danach `system\dinput.dll` entfernen (der Lader von SystemPack – Union lädt SystemPack selbst).
-4. Der Coop-Renderer in der ZIP wirkt nur, wenn GD3D11 v17.9.7 installiert ist (sonst bringt es der Installer mit).
+   `Gothic 1 + Othello` für Gothic 1 (auch mit Othello), `Gothic 2 + Mods` für Gothic 2 (auch mit Legend of Ahssun, Archolos und
+   anderen Mods).
+3. `Union 1.0m (nur wenn Union fehlt)` nur, wenn im Spielordner noch kein Union ist (`system\Union.patch` fehlt) – nie bei Othello.
+   Danach `system\dinput.dll` entfernen (Union lädt SystemPack selbst).
+4. `Steam fuer Gothic 1 …` bzw. `Steam fuer Gothic 2 …` nur für „Coop über Steam“ und nur, wenn im Spielordner noch keine
+   `system\steam_api.dll` liegt. Bringt das Spiel eine eigene mit (Archolos), **nicht ersetzen** – sonst startet es nicht mehr; der
+   Coop läuft dann über IP.
+5. Der Coop-Renderer in der ZIP wirkt nur, wenn GD3D11 v17.9.7 installiert ist (sonst bringt es der Installer mit).
 
 ### Aktualisieren
 
@@ -208,7 +215,7 @@ Tasten (Vorgaben – alle einstellbar unter Einstellungen › COOP › Coop-Tast
 - **Union-Plugin:** `system\Autorun\Gothic1Coop.dll` bzw. `Gothic2Coop.dll` hängt sich in die Engine (Union-SDK, Haken auf
   Engine-Funktionen). Dazu Skripte (`COOP_MENU.D` für die Menüs, `COOP_ITEMS.D`, `PC_MULTIPLAYER_HERO.D`), die zParserExtender lädt.
   Dieselbe Quelle wird je Engine gebaut; Othello erkennt die Gothic-1-DLL selbst und schaltet ihre Othello-Anpassungen ein,
-  ebenso Legend of Ahssun und Archolos die Gothic-2-DLL. Andere Mods bekommen ihre Anpassungen über eine Profil-Datei – eine eigene DLL je Mod
+  ebenso Legend of Ahssun, Archolos und Xeres' Rückkehr die Gothic-2-DLL. Andere Mods bekommen ihre Anpassungen über eine Profil-Datei – eine eigene DLL je Mod
   gibt es nicht. Die Skripte jeder Variante liegen unter `system\GothicCoop\Skripte\<g1|othello|g2>`; beim Start legt die DLL den
   passenden Satz nach `system\Autorun`, bevor zParserExtender ihn lädt (Skript-Weiche).
 - **Netz:** ENet (UDP), Inhalte als JSON/BSON; Steam als Tunnel darunter. **Der Host führt:** Clients schicken Anfragen, der Host
@@ -228,8 +235,9 @@ Tasten (Vorgaben – alle einstellbar unter Einstellungen › COOP › Coop-Tast
 
 - Coop-Inventar, gemeinsame Missions-Gegenstände und Mechanismen im Spieltest mit zwei Personen über das echte Netz prüfen.
 - Gothic 1 und Othello von Hand und über das echte Netz prüfen (der automatische Testlauf läuft dort jetzt).
-- Weitere Mods mit Profil-Dateien aufnehmen und prüfen (eingebaut bisher: Othello, Legend of Ahssun, Archolos).
+- Weitere Mods mit Profil-Dateien aufnehmen und prüfen (eingebaut bisher: Othello, Legend of Ahssun, Archolos, Xeres' Rückkehr).
 - Archolos: über Kapitel 1 hinaus spielen (längere automatische Läufe mit Komplettlösung).
+- Xeres' Rückkehr: die Geschichte durchspielen (Szenen, in denen die Mod den Helden versetzt, Xeres' erster Angriff, Vinos Türen) und über das echte Netz prüfen.
 - Union für Gothic 1 vollständig mitliefern (Unions Setup schreibt dort zusätzlich `binkw32.dll`/`Mss32.dll`).
 - Weitere Abgleich-Feinheiten aus den langen Testläufen.
 

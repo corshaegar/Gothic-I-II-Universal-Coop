@@ -398,4 +398,37 @@ d = game('T10f')
 rc = run('/still', '/spiel:g2', '/ordner:' + d)
 check('T10f /spiel:g2 weiter erlaubt (nur Pruefung)', rc == 0 and satz_in(d, 'system/Autorun', 'g2'), rc)
 
+# u252 (Nutzer 11.11.2026): der Installer lehnte C:\TheChroniclesOfMyrtana ab ("KEIN GOTHIC 2 DIE NACHT DES RABEN 2.6 ... keine VDF mit
+# der Addon-Welt") - Archolos legt Worlds_Addon.vdf leer bei, seine Welten liegen in KM_Worlds.mod; und nach der ZIP startete Archolos
+# nicht mehr (KmSteam.dll braucht SteamAPI_Init aus Archolos' eigener steam_api.dll, die des Coops hat es nicht)
+print('T11 eigenstaendige Mod mit Marker (u252, Archolos): ohne Addon-Welt, eigene Steam-Anbindung bleibt')
+d = game('T11a', addon=False)
+touch(os.path.join(d, 'Data', 'Worlds_Addon.vdf'), b'')        # Archolos legt sie leer bei
+touch(os.path.join(d, 'Data', 'KM_Scripts.mod'), b'Archolos')   # Marker wie in GothicCoop\Mods\CoopModList.h
+touch(os.path.join(d, 'Data', 'KM_Worlds.mod'), b'Welten')
+touch(os.path.join(d, 'system', 'steam_api.dll'), b'steam_api der Mod (SteamAPI_Init)')
+touch(os.path.join(d, 'system', 'steam_appid.txt'), b'1467450')
+before = tree(d)
+rc = run('/still', '/ordner:' + d)
+log = last_log(d)
+check('T11a Archolos ohne /spiel: Rueckgabe 0, Gothic2Coop.dll', rc == 0 and
+      sha(os.path.join(d, 'system', 'Autorun', 'Gothic2Coop.dll')) == sha(dll2), rc)
+check('T11a Protokoll: erkannt an Data\\KM_Scripts.mod', 'KM_Scripts.mod' in log and 'Archolos' in log, log[-400:])
+check('T11a steam_api.dll und steam_appid.txt der Mod bleiben',
+      open(os.path.join(d, 'system', 'steam_api.dll'), 'rb').read() == b'steam_api der Mod (SteamAPI_Init)' and
+      open(os.path.join(d, 'system', 'steam_appid.txt'), 'rb').read() == b'1467450' and 'eigene Steam-Anbindung' in log)
+rc = run('/still', '/rueckgaengig', '/ordner:' + d)
+check('T11a rueckgaengig: Ordner wie vorher', rc == 0 and tree(d) == before, sorted(set(tree(d)) ^ set(before))[:5])
+d = game('T11b', addon=False)
+touch(os.path.join(d, 'Data', 'Worlds_Addon.vdf'), b'')
+rc = run('/still', '/ordner:' + d)
+check('T11b leere Worlds_Addon.vdf ohne Marker: weiter abgelehnt', rc == 1 and 'KEIN GOTHIC 2 DIE NACHT DES RABEN' in last_log(d), rc)
+d = game('T11c')
+appid_g2 = open(rp(pfade.STEAM_APPID['g2']), 'rb').read()
+touch(os.path.join(d, 'system', 'steam_appid.txt'), appid_g2)   # die des Coops - keine fremde Anbindung
+rc = run('/still', '/ordner:' + d)
+check('T11c steam_appid.txt des Coops: steam_api.dll geschrieben, appid unveraendert', rc == 0 and
+      os.path.exists(os.path.join(d, 'system', 'steam_api.dll')) and
+      open(os.path.join(d, 'system', 'steam_appid.txt'), 'rb').read() == appid_g2 and 'eigene Steam-Anbindung' not in last_log(d), rc)
+
 print('ALLES OK' if ok_all else 'FEHLER')

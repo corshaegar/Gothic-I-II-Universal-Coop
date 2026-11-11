@@ -247,6 +247,140 @@ namespace GOTHIC_ENGINE {
                 faded, state, stuckS, fadedAfter, stateAfter, CoopFadeLockResets);
     }
 
+    // u244 (P291, Archolos-Block 10.11.2026 08:44 mit b369): Der Host stand 12 min im wichtigen Gespraech DIA_FOLKARD_HELLO
+    // (MIL_710_FOLKARD): Auswahl mit drei Antworten, die Testinstanz waehlte 14-mal, keine Antwort lief, keine Gespraechskamera, kein
+    // Auswahlfenster. In Folkards Befehlsliste stand von 1162 s bis 1917 s dieselbe als geloescht markierte EV_TURNTOPOS - eine Liste,
+    // die Gothic abarbeitet, entfernt solche Nachrichten im naechsten Bild (zCEventManager::ProcessMessageList, aufgerufen nur fuer
+    // Manager in zCEventManager::activeEM). Die Liste lief also nicht, und mit ihr nicht EV_PROCESSINFOS, die oCInformationManager::Update
+    // treibt. Der Waechter griff erst, als die Nachricht nach 12 min ganz fehlte (1880 s): sein Einreihen ueber OnMessage setzte den
+    // Manager wieder aktiv, im selben Bild lief die gewaehlte Antwort. Gothic nimmt einen Manager nur mit leerer Liste aus activeEM,
+    // OnMessage setzt ihn beim Einreihen wieder hinein - eine Liste mit Nachrichten ausserhalb von activeEM ist also immer ein
+    // Fehlzustand. Jetzt: Bei offenem Dialog prueft der Waechter die Listen von NPC und Held; laeuft eine 1,5 s lang nicht (Merker aus
+    // oder nicht in activeEM), setzt er sie wieder aktiv wie OnMessage und schreibt Zustand und Nachrichten ins Log; nach drei Versuchen
+    // Exit. Fuer die Ursache zaehlt er alle 30 s solche Listen bei allen NPCs der Welt (nur Log, ohne Eingriff). Allgemein.
+    int CoopDialogListenStarts = 0;   // u244 (P291): wieder aktiv gesetzte Listen
+
+    static bool DialogWatchInAktivListe(zCEventManager* em) {
+        zCArray<zCEventManager*>& a = zCEventManager::activeEM;
+        for (int i = 0; i < a.GetNumInList(); i++)
+            if (a[i] == em)
+                return true;
+        return false;
+    }
+
+    // u244 (P291): hat die Figur Nachrichten, die Gothic nicht abarbeitet? Mit text: Zustand und Nachrichten fuers Log
+    static bool DialogWatchListeSteht(oCNpc* npc, std::string* text) {
+        zCEventManager* em = npc ? npc->GetEM(TRUE) : NULL;
+        if (!em || em->messageList.GetNumInList() <= 0 || !npc->GetHomeWorld())
+            return false;
+        const bool aktiv = em->active != 0, inListe = DialogWatchInAktivListe(em);
+        if (aktiv && inListe)
+            return false;
+        if (text) {
+            char kopf[128];
+            _snprintf(kopf, sizeof(kopf), "Merker aktiv=%d, in activeEM=%d, Zwischensequenz=%d, %d Nachrichten", aktiv ? 1 : 0, inListe ? 1 : 0,
+                em->cutscene ? 1 : 0, em->messageList.GetNumInList());
+            kopf[sizeof(kopf) - 1] = 0;
+            *text = kopf;
+            for (int i = 0; i < em->messageList.GetNumInList() && i < 8; i++) {
+                zCEventMessage* m = em->messageList[i];
+                if (!m)
+                    continue;
+                const char* art = zDYNAMIC_CAST<oCMsgConversation>(m) ? "Gespraech" : zDYNAMIC_CAST<oCMsgMovement>(m) ? "Bewegung" :
+                    zDYNAMIC_CAST<oCMsgManipulate>(m) ? "Gegenstand" : zDYNAMIC_CAST<oCMsgState>(m) ? "Zustand" :
+                    zDYNAMIC_CAST<oCMsgAttack>(m) ? "Kampf" : "andere";
+                *text += std::string(i ? ", " : ": ") + art + " " + m->MD_GetSubTypeString(m->GetSubType()).ToChar() +
+                    (m->IsDeleted() ? " (geloescht)" : "");
+            }
+        }
+        return true;
+    }
+
+    // u244 (P291): wie OnMessage beim Einreihen - Manager wieder in activeEM; steht nur der Merker, erst zuruecknehmen (sonst taete
+    // SetActive nichts)
+    static void DialogWatchListeAnwerfen(oCNpc* npc) {
+        zCEventManager* em = npc ? npc->GetEM(TRUE) : NULL;
+        if (!em)
+            return;
+        if (em->active && !DialogWatchInAktivListe(em))
+            em->active = FALSE;
+        em->SetActive(TRUE);
+    }
+
+    static void DialogWatchListenPruefen(oCInformationManager& im) {
+        static oCNpc* fuer = NULL;
+        static long long seit = 0;
+        static int versuche = 0;
+        if (fuer != im.Npc) {
+            fuer = im.Npc;
+            seit = 0;
+            versuche = 0;
+        }
+        const bool npcSteht = DialogWatchListeSteht(im.Npc, NULL), heldSteht = DialogWatchListeSteht(im.Player, NULL);
+        if (!npcSteht && !heldSteht) {
+            seit = 0;
+            return;
+        }
+        if (!seit) {
+            seit = CurrentMs;
+            return;
+        }
+        if (CurrentMs < seit + 1500)
+            return;
+        seit = 0;
+        char name[64];
+        CDiagName(im.Npc, name, sizeof(name));
+        std::string npcText, heldText;
+        DialogWatchListeSteht(im.Npc, &npcText);
+        DialogWatchListeSteht(im.Player, &heldText);
+        if (versuche >= 3) {
+            im.Exit();
+            if (DialogWatchDarfLoggen())
+                OthelloCompatLog("[%lld s, %s] Dialog-Waechter: Befehlsliste im Dialog mit %s laeuft nach 3 Versuchen weiter nicht (NPC %s | Held %s)"
+                    " - beendet (Exit, P291)", DiagSeconds(), DiagRole(), name, npcSteht ? npcText.c_str() : "laeuft", heldSteht ? heldText.c_str() : "laeuft");
+            versuche = 0;
+            return;
+        }
+        versuche++;
+        if (npcSteht)
+            DialogWatchListeAnwerfen(im.Npc);
+        if (heldSteht)
+            DialogWatchListeAnwerfen(im.Player);
+        CoopDialogListenStarts++;
+        if (DialogWatchDarfLoggen())
+            OthelloCompatLog("[%lld s, %s] Dialog-Waechter: Befehlsliste im Dialog mit %s laeuft nicht (NPC %s | Held %s) - wieder aktiv gesetzt"
+                " (P291, Versuch %d)", DiagSeconds(), DiagRole(), name, npcSteht ? npcText.c_str() : "laeuft", heldSteht ? heldText.c_str() : "laeuft",
+                versuche);
+    }
+
+    // u244 (P291): alle 30 s - wie viele NPCs der Welt haben eine Liste mit Nachrichten, die nicht laeuft? Nur Log (hoechstens 20 Zeilen)
+    static void DialogWatchListenScan() {
+        static long long next = 0;
+        static int gemeldet = 0;
+        if (CurrentMs < next || gemeldet >= 20 || !ogame || !ogame->GetGameWorld())
+            return;
+        next = CurrentMs + 30000;
+        int n = 0;
+        std::string erste;
+        for (auto* l = CoopWorldNpcListFirst(ogame->GetGameWorld()); l; l = l->next) {
+            oCNpc* npc = l->data;
+            if (!npc || !DialogWatchListeSteht(npc, NULL))
+                continue;
+            if (++n <= 3) {
+                std::string t;
+                DialogWatchListeSteht(npc, &t);
+                char name[64];
+                CDiagName(npc, name, sizeof(name));
+                erste += std::string(n > 1 ? " | " : "") + name + " (" + t + ")";
+            }
+        }
+        if (!n)
+            return;
+        gemeldet++;
+        OthelloCompatLog("[%lld s, %s] Befehlslisten-Pruefung: %d NPCs mit Nachrichten, deren Liste Gothic nicht abarbeitet - %s (P291, nur Log)",
+            DiagSeconds(), DiagRole(), n, erste.c_str());
+    }
+
     void CoopDialogWatchPulse() {
         static oCNpc* watchNpc = NULL;
         static long long since = 0;
@@ -255,6 +389,7 @@ namespace GOTHIC_ENGINE {
         oCInformationManager& im = oCInformationManager::GetInformationManager();
         CoopTalkLockPulse(im);   // u216 (P253)
         CoopFadeLockPulse(im);   // u217 (P254)
+        DialogWatchListenScan();   // u244 (P291)
         if (!im.Npc || !im.Player || im.IsDone) {
             watchNpc = NULL;
             tries = 0;
@@ -271,6 +406,9 @@ namespace GOTHIC_ENGINE {
             tries = 0;
             return;
         }
+        DialogWatchListenPruefen(im);   // u244 (P291)
+        if (im.IsDone)
+            return;
         if (DialogWatchHatProcessInfos(im.Npc)) {
             watchNpc = NULL;
             tries = 0;

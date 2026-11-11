@@ -1150,6 +1150,8 @@ namespace GOTHIC_ENGINE {
     //  - Gothic Free Aim (GFA_INIT): GFA_ - Zielen, Spannen, Mausbewegung, Zeitstempel
     //  - Spine (SPINE_INIT): SPINE_ - Funktionszeiger der Spine-DLL, Erfolgs-Anzeigen, lokaler Erfolgsstand
     // Allgemein (alle Mods mit diesen Paketen); Original-Skripte haben keine solchen Namen.
+    // u252: dazu LeGos HERO_LASTHP (Blutspritzer: Leben des eigenen Helden im letzten Bild, _Bloodsplats_Loop setzt es jedes Bild) - der
+    // Xeres-Lauf u252 schickte es nach jeder Aenderung des Lebens zum Partner ("Story-Abgleich: 1 Variablen (HERO_LASTHP)")
     static bool DlgScriptLibraryVar(const char* nm) {
         static zCParser* cached = NULL;
         static bool lib = false, lego = false, gfa = false, spine = false;
@@ -1170,7 +1172,7 @@ namespace GOTHIC_ENGINE {
             !strncmp(nm, "CURSOR_", 7) || !strcmp(nm, "GAMESTATE")))
             return true;
         if (lego && (!strcmp(nm, "NEXTHANDLE") || !strncmp(nm, "PM_", 3) || !strncmp(nm, "PRINT_", 6) || !strncmp(nm, "BUFF_", 5) ||
-            !strncmp(nm, "BUFFLIST_", 9) || !strncmp(nm, "TRIA_", 5)))
+            !strncmp(nm, "BUFFLIST_", 9) || !strncmp(nm, "TRIA_", 5) || !strcmp(nm, "HERO_LASTHP")))
             return true;
         return (gfa && !strncmp(nm, "GFA_", 4)) || (spine && !strncmp(nm, "SPINE_", 6));
     }
@@ -2654,8 +2656,9 @@ namespace GOTHIC_ENGINE {
     long CoopStoryVideoNewNo();
     void CoopStoryVideoBegin(long no);
     void CoopStoryVideoEnd();
+    void CoopStoryVideoRemoteTest(long no);   // u247 (P296), CoopNewGame.cpp
 
-    static void DialogPlayVideo(json& v, long no, const std::string& by) {
+    static void DialogPlayVideo(json& v, long no, const std::string& by, bool test = false) {
         if (!v.is_array() || v.size() != 4 || !v[0].is_string() || !parser || zCParser::GetParser() != parser)
             return;
         const bool ex = v[3].is_number() && v[3].get<int>() == 1;
@@ -2668,8 +2671,11 @@ namespace GOTHIC_ENGINE {
             DialogPushInt(v[1].is_number() ? v[1].get<int>() : 0);
             DialogPushInt(v[2].is_number() ? v[2].get<int>() : 0);
         }
-        DialogLog("Video von %s: %s - auch hier (Nr. %ld)", by.c_str(), name.ToChar(), no);
+        DialogLog("Video von %s: %s - auch hier (Nr. %ld)%s", by.c_str(), name.ToChar(), no,
+            test ? " - Testvideo, laeuft bis zum Ueberspringen (P296)" : "");
         VideoReplaying++;
+        if (test)
+            CoopStoryVideoRemoteTest(no);   // u247 (P296)
         CoopStoryVideoBegin(no);
         orig();
         CoopStoryVideoEnd();
@@ -3564,7 +3570,8 @@ namespace GOTHIC_ENGINE {
                 DialogShowChapter(e["ch"], by, "");
         }
         if (e.contains("vid") && CoopRuleQuests())   // u28 (B5); u55 mit Nummer fuers gemeinsame Ueberspringen
-            DialogPlayVideo(e["vid"], e.contains("vidno") && e["vidno"].is_number_integer() ? (long)e["vidno"].get<long long>() : 0, by);
+            DialogPlayVideo(e["vid"], e.contains("vidno") && e["vidno"].is_number_integer() ? (long)e["vidno"].get<long long>() : 0, by,
+                e.contains("vidtest"));   // u247 (P296)
         if (e.contains("exses") && CoopRuleQuests())   // u147 (P149)
             DialogExitSession(e["exses"], by);
         if (e.contains("l")) {
@@ -4387,12 +4394,106 @@ namespace GOTHIC_ENGINE {
         return 0;
     }
 
+    // --- u246 (P294): Schleifen-Trigger -------------------------------------------------------------------------------------
+    //
+    // Xeres' Rueckkehr treibt seine Dauerschleifen ueber oCTriggerScript-Vobs, die ihr eigenes Skript wieder ausloesen: INIT_GLOBAL sendet
+    // FRAMETRIGGER und DAUERTRIGGER, FRAMEFUNC bzw. DAUERFUNC_01 senden ihren Trigger am Ende erneut (Weltdaten: scriptFunc=FRAMEFUNC,
+    // fireDelaySec=1). Beim Client ging jedes dieser Wld_SendTrigger als Anfrage an den Host: seine Schleifen liefen nicht selbst, nur nach
+    // jeder Meldung des Hosts, und jede Sekunde gingen Anfragen und Meldungen hin und her; der Host loeste seine Trigger dazu doppelt aus.
+    // Ein Trigger, den das Skript, das er ausfuehrt, selbst wieder ausloest, ist eine Schleife wie eine Frame-Funktion - er laeuft jetzt auf
+    // jedem PC fuer sich, ohne Anfrage und ohne Verteilen. Erkannt im Bytecode (PUSHVAR <Text>; CALLEXTERN WLD_SENDTRIGGER in der Funktion,
+    // die der Trigger als scriptFunc hat) und am Vob der aktuellen Welt. Allgemein (jede Mod mit diesem Muster).
+    static std::map<std::string, std::set<std::string>> HostEvLoopSenders;   // Triggername -> Funktionen, die ihn senden
+    static int HostEvLoopSymCount = -1;
+
+    static void HostEvLoopScan() {
+        HostEvLoopSenders.clear();
+        if (!parser)
+            return;
+        const unsigned char* code = parser->stack.stack;
+        const int size = parser->stack.stacksize;
+        const int cnt = parser->symtab.table.GetNum();
+        const int send = parser->GetIndex(zSTRING("WLD_SENDTRIGGER"));
+        if (!code || size <= 0 || cnt <= 0 || send < 0)
+            return;
+        std::vector<std::pair<int, int>> funcs;   // Code-Anfang -> Funktionssymbol
+        for (int i = 0; i < cnt; i++) {
+            zCPar_Symbol* s = parser->symtab.table[i];
+            if (s && s->type == zPAR_TYPE_FUNC && !(s->flags & (zPAR_FLAG_EXTERNAL | zPAR_FLAG_CLASSVAR)) && s->single_intdata >= 0
+                && s->single_intdata < size)
+                funcs.push_back(std::make_pair(s->single_intdata, i));
+        }
+        std::sort(funcs.begin(), funcs.end());
+        int pOp = -1, pArg = 0;
+        for (int q = 0; q < size;) {
+            const unsigned char op = code[q];
+            int arg = 0, len = 1;
+            if (op == 61 || op == 62 || op == 64 || op == 65 || op == 67 || op == 75 || op == 76 || op == 80) {
+                if (q + 5 > size)
+                    break;
+                arg = *(const int*)(code + q + 1);
+                len = 5;
+            }
+            else if (op == 245) {
+                if (q + 6 > size)
+                    break;
+                arg = *(const int*)(code + q + 1);
+                len = 6;
+            }
+            if (op == 62 && arg == send && pOp == 65 && pArg >= 0 && pArg < cnt) {
+                zCPar_Symbol* t = parser->symtab.table[pArg];
+                if (t && t->type == zPAR_TYPE_STRING && (t->flags & zPAR_FLAG_CONST) && t->stringdata) {
+                    auto it = std::upper_bound(funcs.begin(), funcs.end(), std::make_pair(q, 0x7FFFFFFF));
+                    if (it != funcs.begin()) {
+                        zSTRING n = t->stringdata[0];
+                        n.Upper();
+                        HostEvLoopSenders[n.ToChar()].insert(parser->symtab.table[(it - 1)->second]->name.ToChar());
+                    }
+                }
+            }
+            pOp = op;
+            pArg = arg;
+            q += len;
+        }
+    }
+
+    static bool HostEvLoopTrigger(const zSTRING& name) {
+        if (!parser || zCParser::GetParser() != parser || !ogame || !ogame->GetGameWorld())
+            return false;
+        const int cnt = parser->symtab.table.GetNum();
+        if (cnt != HostEvLoopSymCount) {
+            HostEvLoopSymCount = cnt;
+            HostEvLoopScan();
+        }
+        zSTRING n = name;
+        n.Upper();
+        auto s = HostEvLoopSenders.find(n.ToChar());
+        if (s == HostEvLoopSenders.end())
+            return false;
+        oCTriggerScript* ts = zDYNAMIC_CAST<oCTriggerScript>(ogame->GetGameWorld()->SearchVobByName(name));
+        if (!ts)
+            return false;
+        zSTRING f = ts->scriptFunc;
+        f.Upper();
+        if (!s->second.count(f.ToChar()))
+            return false;
+        static std::set<std::string> logged;
+        if (logged.insert(n.ToChar()).second)
+            DialogLog("Schleifen-Trigger %s (Skript %s, alle %.1f s): laeuft auf jedem PC fuer sich - keine Anfrage an den Host, kein "
+                "Verteilen (P294)", n.ToChar(), f.ToChar(), ts->fireDelaySec);
+        return true;
+    }
+
     static int CoopHostEvTrigger(CoopParserExternal2 orig, const char* f) {
         if (HostEvReplaySwallow(f[0] == 't' ? "WLD_SENDTRIGGER" : "WLD_SENDUNTRIGGER"))   // u199 (P216)
             return 0;
         if (HostEvForward()) {
             zSTRING v;
             zCParser::GetParser()->GetParameter(v);
+            if (HostEvLoopTrigger(v)) {   // u246 (P294): Schleifen-Trigger laufen hier selbst
+                DialogPushString(&v);
+                return orig ? orig() : 0;
+            }
             if (HostEvInDeathScript()) {   // v41: Todesskript - der Host loest den Trigger mit seinem eigenen ZS_Dead aus und verteilt ihn
                 DialogLog("Host-Ereignis: Wld_Send%s(%s) aus einem Todesskript - nicht angefragt (der Host loest selbst aus)", f[0] == 't' ? "Trigger" : "Untrigger", v.ToChar());
                 return 0;
@@ -4409,6 +4510,10 @@ namespace GOTHIC_ENGINE {
         if (ServerThread && !HostEvApplying && DialogSyncAktiv() && zCParser::GetParser() == parser) {
             zSTRING v;
             parser->GetParameter(v);
+            if (HostEvLoopTrigger(v)) {   // u246 (P294): Schleifen-Trigger nicht an die Clients
+                DialogPushString(&v);
+                return orig ? orig() : 0;
+            }
             if (!HostEvInDeathScript() && !HostEvTwinAllow(HostEvKey(f, v.ToChar()), 0)) {   // u195 (P202)
                 DialogLog("Host-Ereignis: Wld_Send%s(%s) hat der Client eben angefragt und der Host ausgeloest - nicht noch einmal (P202)",
                     f[0] == 't' ? "Trigger" : "Untrigger", v.ToChar());
@@ -5148,6 +5253,7 @@ namespace GOTHIC_ENGINE {
         json j;
         j["vid"] = json::array({ file, 0, 0, 0 });
         j["vidno"] = no;
+        j["vidtest"] = 1;   // u247 (P296): beim Partner bis zum Ueberspringen laufen lassen (sein Autotest beendet sonst jedes Video sofort)
         DialogSend(j, SYNC_DIALOG_STATE);
         DialogLog("Testlauf: Video %s - auch beim Partner (Nr. %ld)", file.c_str(), no);
         zSTRING name(file.c_str());
@@ -5573,16 +5679,29 @@ namespace GOTHIC_ENGINE {
         // Naechster gemerkter derselben Instanz bis 30 m: Schleifen auf beiden PCs wuerfeln Wegpunkte selbst, Wld_SpawnNpcRange setzt
         // zufaellig um die Figur (P215) - die Lage kommt danach vom Host
         HostEvPendingExpire(HostEvPendingNpc);
+        // u245 (P292, Archolos-Lauf 09.11. 22:24 mit b369): Q101_SHIP_FINAL_CORPSES_APPLY setzt Ana, Darryl und Lea an PART_13_*_DEAD ein
+        // und gibt ihnen gleich danach den Tagesablauf "Alive" (B_StartOtherRoutine). Beim Client stand die eben eingefuegte Ana dadurch
+        // schon am Platz von RTN_ALIVE, mehr als 30 m von der Lage, die der Host meldete - kein Kandidat, die Meldung legte eine zweite Ana
+        // an (ebenso Lea). Ab da hatte der Client beide, sein Testinstanz sprach mit der, die der Host nicht kennt ("hier nicht vorhanden - nur
+        // gesperrt"), die Pruefrunde fand "NPCs um mich" ungleich. Jetzt: Gibt es genau einen gemerkten eigenen NPC dieser Instanz, ist er es
+        // auch weiter weg - der Host meldet ja genau den, den der Client angefragt hat. Bei mehreren (Schleifen mit gewuerfelten Wegpunkten)
+        // bleibt es beim naechsten bis 30 m. Allgemein.
         auto bestIt = HostEvPendingNpc.end();
-        float pendD = 3000.f;
+        float pendD = 1e9f;
+        int gleiche = 0;
         for (auto it = HostEvPendingNpc.begin(); it != HostEvPendingNpc.end(); ++it) {
             oCNpc* cand = it->inst == inst ? HostEvPendingNpcAlive(it->vob) : NULL;
-            const float d = cand ? (cand->GetPositionWorld() - pos).Length() : 1e9f;
-            if (cand && d < pendD) {
+            if (!cand)
+                continue;
+            gleiche++;
+            const float d = (cand->GetPositionWorld() - pos).Length();
+            if (d < pendD) {
                 pendD = d;
                 bestIt = it;
             }
         }
+        if (bestIt != HostEvPendingNpc.end() && pendD >= 3000.f && gleiche != 1)
+            bestIt = HostEvPendingNpc.end();
         for (auto it = bestIt; it != HostEvPendingNpc.end(); it = HostEvPendingNpc.end()) {
             oCNpc* mine = HostEvPendingNpcAlive(it->vob);
             auto old = NpcToUniqueNameList.find(mine);
@@ -5592,8 +5711,12 @@ namespace GOTHIC_ENGINE {
             NpcToUniqueNameList[mine] = string(n.c_str());
             UniqueNameToNpcList[string(n.c_str())] = mine;
             SpawnFromHost.insert(n);
-            DialogLog("Host-Ereignis: NPC %s (%s, hier eben eingefuegt) heisst jetzt %s wie beim Host (P212)", oldName.empty() ? "ohne Namen" : oldName.c_str(),
-                inst.c_str(), n.c_str());
+            char weit[64] = "";
+            if (pendD >= 3000.f)
+                _snprintf(weit, sizeof(weit), ", einziger eigener, %.0f m entfernt (P292)", pendD / 100.f);
+            weit[sizeof(weit) - 1] = 0;
+            DialogLog("Host-Ereignis: NPC %s (%s, hier eben eingefuegt) heisst jetzt %s wie beim Host (P212%s)", oldName.empty() ? "ohne Namen" : oldName.c_str(),
+                inst.c_str(), n.c_str(), weit);
             HostEvPendingNpc.erase(it);
             CoopTestPendingAdopted++;
             return;

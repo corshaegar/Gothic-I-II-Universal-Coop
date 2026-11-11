@@ -6,6 +6,7 @@ namespace GOTHIC_ENGINE {
 
     void CoopModLoAInit();   // Mods\ModLoA.cpp
     void CoopModArcholosInit();   // u204: Mods\ModArcholos.cpp
+    void CoopModXeresInit();      // u246: Mods\ModXeres.cpp
 
     static const CoopModData& CoopModDataGet() {
         (void)CoopProfile();   // liest eingebautes Profil und Datei beim ersten Zugriff
@@ -163,6 +164,9 @@ namespace GOTHIC_ENGINE {
             break;
         case COOP_PROFILE_ARCHOLOS:   // u204
             CoopModArcholosInit();
+            break;
+        case COOP_PROFILE_XERES:      // u246
+            CoopModXeresInit();
             break;
         default:
             break;

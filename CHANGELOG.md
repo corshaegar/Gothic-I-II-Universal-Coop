@@ -7,6 +7,22 @@ At the very bottom you will find the history before the first release: the Othel
 (github.com/corshaegar/Othello-Coop) and the unreleased versions u1–u61 that became 0.2.0. This way, every change since the very
 first version is recorded here.
 
+## 0.11.0 – Xeres' Rückkehr, installer for Archolos, blood splatter crash, trapped mouse (Gothic I u252, Gothic II u252, Othello u252, Legend of Ahssun u252, Archolos u252, Xeres' Rückkehr u252)
+
+**New**
+
+- **Xeres' Rückkehr** (u246–u252): own profile in the Gothic 2 DLL, started with `-game:Xeres.ini`. Before that, all 6,583 script functions of the mod were read and every serious finding was checked against the code. Each hero keeps their own poisons, diseases, training, god bonus, transformations and perks; the mod's scene counters, the mine cart ride and the mod's settings apply per PC. Tested in automated test runs with a new game (host and client on one PC). The story has not been played through yet; the host should lead Xeres' first attack in the Valley of Mines. For players without the coop, the fixes are also available as a separate package: [Xeres-Fixes](https://github.com/corshaegar/Xeres-Fixes).
+- **The installer recognizes Archolos**: Up to 0.10.3 it refused the Archolos folder because Archolos ships the addon world only as an empty file. It now recognizes Archolos by its `Data\KM_Scripts.mod`, like the coop itself, and installs normally.
+
+**Fixes**
+
+- **Archolos no longer started after installing the ZIP by hand**: The ZIP and the installer replaced `system\steam_api.dll` and `steam_appid.txt`. Archolos brings its own Steam integration, which needs a function that the coop's newer `steam_api.dll` no longer has – afterwards Archolos did not start. The installer now keeps a game's own Steam files; in the ZIP they are in their own folders, to be copied only if the game has none. In Archolos, coop over Steam therefore stays off – connect over IP. If your Archolos no longer starts: let Steam verify the game files, then install with the new installer.
+- **Crash when arrows hit you with blood splatter on** (u249–u252): With the Union Toolkit (`Data\Toolkit.vdf`, brought along by several Union plugins), LeGo 2.9 replaces a mod's older LeGo. The blood splatter and the damage function of mods like Xeres' Rückkehr then kept calling each other until the game crashed. The coop now gives the mod back its own blood splatter function: no loop, and the splatter shows the damage actually taken. Tested with a staged hit from a bow; without the fix the game hung at exactly that point.
+- **Objects above 2 GB treated as missing** (u246): Gothic 2 may use up to 4 GB of memory, and some mods check object addresses with `> 0` – an object in the upper half then counts as missing. In Xeres' Rückkehr this affected 20 places (world changes, the pass into the Valley of Mines, the doors of the spider burrow, the mine carts, chests). The coop corrects such checks at game start, in every mod.
+- **Mouse trapped in the top left corner** (u251, u252): The world process – a second Gothic that the coop runs in the background on its own Windows desktop – sometimes confined the real mouse to its invisible window. The coop now prevents this from the very start. Measured in two test runs with up to five Gothic instances: not trapped once (before: about 40 seconds per run).
+- **Archolos: NPC stopped in conversation, duplicate NPCs** (u244, u245): An NPC could stop in the middle of a conversation because its command list no longer ran; the dialogue watchdog now restarts it. An NPC that a script had just inserted was sometimes created a second time at the partner's (e.g. Ana and Lea); the coop now also takes over its own NPC at a distance if it is the only one of its kind.
+- **Guide for installing by hand**: Union is missing if `system\Union.patch` is missing – the old guide named `system\Shw32.dll`, which every Gothic has.
+
 ## 0.10.3 – Scenes in the Archolos prologue, fights in Othello (Gothic I u243, Gothic II u243, Othello u243, Legend of Ahssun u243, Archolos u243)
 
 Found in automated test runs on 9 Nov 2026 in Archolos and Othello (host and client on one PC).

@@ -75,6 +75,10 @@ namespace GOTHIC_ENGINE {
     static LONG StoryLastBegun = 0, StoryLastRemoteStopped = 0, StoryLastSkipSent = 0;   // fuer den Coop-Testlauf
     static long long StoryBeganMs = 0;
     static volatile LONG StoryTestStopMs = 0;   // Coop-Testlauf: Video nach so vielen ms wie mit Esc beenden (0 = aus)
+    // u247 (P296, Xeres-Testlauf 10.11. mit neuem Spiel, wie Archolos 09.11.): "Story-Video: Ueberspringen gilt fuer beide" - der Autotest
+    // beendet beim Partner jedes Video im ersten Bild (u170), das Ueberspringen vom Tester kam danach ins Leere ("beim Partner gestartet,
+    // aber NICHT beendet"). Das Testvideo des Partners ("vidtest") laeuft hier jetzt bis zu seinem Ueberspringen, hoechstens 20 s
+    static volatile LONG StoryRemoteTestNo = 0;
 
     static bool NewGameActive = false;
     static bool NewGameHost = false;
@@ -185,7 +189,8 @@ namespace GOTHIC_ENGINE {
     // im Autotest aus. Allgemein G1/G2.
     static int __fastcall IntroIsPlaying(void* self, void*) {
         int r = IntroOrigIsPlaying ? IntroOrigIsPlaying(self) : 0;
-        if (r && self && IntroAutotestSkip && StoryTestStopMs <= 0 && !(StoryVideoNo && CoopRecordMode())) {   // u170, u182
+        const bool remoteTest = StoryVideoNo && StoryVideoNo == StoryRemoteTestNo && GetCurrentMs() < StoryBeganMs + 20000;   // u247 (P296)
+        if (r && self && IntroAutotestSkip && StoryTestStopMs <= 0 && !(StoryVideoNo && CoopRecordMode()) && !remoteTest) {   // u170, u182
             ((CoopVideoFn)(*(DWORD**)self)[0x20 / 4])(self);   // Stop wie Esc
             NewGameLog("Autotest: Video %s gleich beendet (Testlauf ohne Videos)", ((zCVideoPlayer*)self)->mVideoFilename.ToChar());
             return 0;
@@ -310,6 +315,7 @@ namespace GOTHIC_ENGINE {
     void CoopStoryVideoEnd() {
         InterlockedExchange(&StoryVideoNo, 0);
         InterlockedExchange(&StoryTestStopMs, 0);
+        InterlockedExchange(&StoryRemoteTestNo, 0);   // u247 (P296)
         StoryWasPlaying = false;
         StoryRelaySkips();
     }
@@ -317,6 +323,11 @@ namespace GOTHIC_ENGINE {
     // Coop-Testlauf (CoopSelfTest.cpp, "Story-Video: Ueberspringen gilt fuer beide")
     void CoopStoryVideoTestStopAfter(int ms) {
         InterlockedExchange(&StoryTestStopMs, ms > 0 ? ms : 0);
+    }
+
+    // u247 (P296): Testvideo des Partners (CoopDialogSync.cpp, "vidtest") - vor CoopStoryVideoBegin
+    void CoopStoryVideoRemoteTest(long no) {
+        InterlockedExchange(&StoryRemoteTestNo, no > 0 ? (LONG)no : 0);
     }
 
     void CoopStoryVideoState(long& begun, long& remoteStopped, long& skipSent) {
@@ -411,6 +422,7 @@ namespace GOTHIC_ENGINE {
     void CoopStoryVideoBegin(long) {}
     void CoopStoryVideoEnd() {}
     void CoopStoryVideoTestStopAfter(int) {}
+    void CoopStoryVideoRemoteTest(long) {}   // u247 (P296)
     void CoopStoryVideoState(long& begun, long& remoteStopped, long& skipSent) { begun = remoteStopped = skipSent = 0; }
     void CoopNewGameLoadEnd() {}
     void CoopNewGamePulse() {}

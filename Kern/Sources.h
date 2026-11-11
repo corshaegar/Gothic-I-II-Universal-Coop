@@ -49,8 +49,12 @@
 #include "OthelloHookOrder.cpp"
 #include "CoopDialogWatch.cpp"   // 18.10.2026: Dialog-Waechter (EV_PROCESSINFOS verloren)
 #include "CoopAudit.cpp"
+#include "CoopZeiger.cpp"      // u246 (P293): Zeiger-Pruefungen "> 0" im Skript-Bytecode auf "!= 0" (Objekte ueber 2 GB, Xeres u. a.)
+#include "CoopBlutspritzer.cpp" // u249 (P300): Blutspritzer-Schleife - Wahrnehmung des Helden ruft LeGos _B_HeroDamage selbst auf (Xeres u. a.)
+#include "CoopMauskaefig.cpp"   // u251 (P301): auf einem eigenen Desktop (Testlauf, Weltprozess) sperren GRawInput/GD3D11 die Maus nicht mehr ein
 #include "CoopWorldProcess.cpp" // u33: Weltprozess - zweites Gothic beim Host, laedt die Welt eines Mitspielers (startet von selbst; u237: ohne Shift+F12)
 #include "Mods\ModLoA.cpp"     // u187: Mod-Profil Legend of Ahssun (Fundament + Mod-Varianten, docs\MODULE.md)
+#include "Mods\ModXeres.cpp"    // u246: Mod-Profil Xeres' Rueckkehr (-game:Xeres.ini)
 #include "Mods\ModArcholos.cpp" // u204: Mod-Profil The Chronicles of Myrtana: Archolos (ohne -game, erkannt an Data\KM_Scripts.mod)
 #include "Mods\CoopMods.cpp"   // u187: Verteiler der Mod-Profile (CoopModsInit)
 #include "Plugin.cpp"

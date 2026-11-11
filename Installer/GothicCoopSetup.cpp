@@ -240,9 +240,11 @@ static int UnionFiles() {
 static const wchar_t* const UNION_REMOVE = L"system\\dinput.dll";   // u62: entfernt der Union-Installer (SystemPack-Lader)
 
 // u195: Mods mit eigenem Profil - tools\installer_bau.py schreibt sie aus GothicCoop\Mods\CoopModList.h in die Ressource IDR_MODS,
-// je Zeile "Engine|Ini-Name|Name|geprueft mit" (Engine g1 bzw. g2a). Othello steht nicht darin (eigener Skriptsatz, fest unten).
+// je Zeile "Engine|Ini-Name|Name|geprueft mit|Marker" (Engine g1 bzw. g2a). Othello steht nicht darin (eigener Skriptsatz, fest unten).
+// u252: Marker = Datei, an der eine eigenstaendige Mod ohne -game erkannt wird (wie CoopProfile in der DLL), relativ zum Spielordner mit
+// fuehrendem "\" - Archolos: \Data\KM_Scripts.mod. Leer: die Mod kommt nur ueber ihren GothicStarter-Eintrag (-game:<Ini>)
 struct KnownMod {
-    std::wstring engine, ini, name, tested;
+    std::wstring engine, ini, name, tested, marker;
 };
 static std::vector<KnownMod> KnownMods;
 
@@ -271,7 +273,7 @@ static void LoadKnownMods() {
             b = c + 1;
         }
         if (f.size() >= 3 && !f[1].empty())
-            KnownMods.push_back({ f[0], f[1], f[2], f.size() > 3 ? f[3] : std::wstring() });
+            KnownMods.push_back({ f[0], f[1], f[2], f.size() > 3 ? f[3] : std::wstring(), f.size() > 4 ? f[4] : std::wstring() });
     }
 }
 
@@ -413,6 +415,12 @@ struct GameInfo {
     };
     std::vector<Mod> mods;
     bool loa = false;   // Gothic 2 mit Legend of Ahssun (LoA.ini und ihre Dateien)
+    // u252: eigenstaendige Mod mit eigenem Profil, erkannt an ihrem Marker (Archolos: Data\KM_Scripts.mod) - sie bringt ihre Welten
+    // selbst mit (Archolos: KM_Worlds.mod; Worlds_Addon.vdf liegt nur leer bei), die Addon-Welt fehlt dort zu Recht
+    std::wstring standaloneName, standaloneMarker;
+    // u252: eigene Steam-Anbindung im Ordner - system\steam_appid.txt mit einer anderen App als der des Coops (Archolos: 1467450 mit
+    // eigener steam_api.dll fuer KmSteam.dll). Leer: keine oder die des Coops
+    std::wstring steamAppForeign;
 };
 
 static Game DetectGame(const GameInfo& i) {
@@ -664,6 +672,27 @@ static GameInfo Inspect(const std::wstring& dir) {
             i.mods.push_back(m);
         }
     }
+    // u252: eigenstaendige Mod mit eigenem Profil (Marker wie in der DLL, Mods\CoopModList.h)
+    for (auto& k : KnownMods)
+        if ((i.exeG1 || i.exeG2) && !k.marker.empty() && _wcsicmp(k.engine.c_str(), i.exeG2 ? L"g2a" : L"g1") == 0 &&
+            FileExists(dir + (k.marker[0] == L'\\' ? L"" : L"\\") + k.marker)) {
+            i.standaloneName = k.name;
+            i.standaloneMarker = k.marker[0] == L'\\' ? k.marker.substr(1) : k.marker;
+            break;
+        }
+    // u252: eigene Steam-Anbindung - steam_appid.txt mit einer anderen App als der des Coops dieser Engine
+    if (coop) {
+        const Entry* app = FindEntry(i.exeG2 ? C_COOP_G2 : C_COOP_G1, L"system\\steam_appid.txt");
+        unsigned char sha[32];
+        std::vector<unsigned char> raw;
+        if (app && FileSha(sys + L"steam_appid.txt", sha) && memcmp(sha, app->sha, 32) != 0 && ReadAll(sys + L"steam_appid.txt", raw)) {
+            std::wstring id;
+            for (unsigned char ch : raw)
+                if (ch > L' ' && ch < 127 && id.size() < 20)
+                    id += (wchar_t)ch;
+            i.steamAppForeign = id.empty() ? L"?" : id;
+        }
+    }
     return i;
 }
 
@@ -726,6 +755,10 @@ static std::wstring SupportedText() {
 // u195: Mods im Ordner mit ihrem Stand (Statuszeile)
 static std::wstring ModsLine(const GameInfo& i, const std::wstring& dir) {
     std::wstring s;
+    if (!i.standaloneName.empty())   // u252: eigenstaendige Mod (ohne GothicStarter-Eintrag, am Marker erkannt)
+        s = i.standaloneName + L" (" + i.standaloneMarker + L"): " + T(L"unterstützt, eigenes Profil", L"supported, own profile") +
+            (i.steamAppForeign.empty() ? std::wstring() : std::wstring(T(L", eigene Steam-Anbindung (App ", L", own Steam setup (app ")) +
+                i.steamAppForeign + T(L") bleibt", L") is kept"));
     for (auto& m : i.mods) {
         const KnownMod* k = FindKnownMod(i.exeG2, m.ini);
         const bool oth = i.exeG1 && i.othello && ContainsNoCase(m.title, L"othello");
@@ -780,7 +813,8 @@ static bool GameCheck(const GameInfo& i, Game g, std::wstring& why) {
             L"WRONG GAME: this folder is Gothic 2 – /spiel does not match (without /spiel the installer detects the game itself).");
         return false;
     }
-    if (IsG2(g) && (!i.exeOk || i.g2AddonVdf.empty())) {
+    // u252: eine eigenstaendige Mod mit eigenem Profil (Marker, Archolos) bringt ihre Welten selbst mit - dort ohne Addon-Welt
+    if (IsG2(g) && (!i.exeOk || (i.g2AddonVdf.empty() && i.standaloneName.empty()))) {
         why = std::wstring(T(L"KEIN GOTHIC 2 DIE NACHT DES RABEN 2.6: ", L"NOT GOTHIC 2 NIGHT OF THE RAVEN 2.6: ")) + exe +
             (!i.g2AddonVdf.empty() ? L"" : T(L", in Data keine VDF mit der Addon-Welt (ADDON\\ADDONWORLD.ZEN, sonst in Worlds_Addon.vdf)",
                 L", no VDF in Data with the addon world (ADDON\\ADDONWORLD.ZEN, normally in Worlds_Addon.vdf)")) +
@@ -836,7 +870,10 @@ static bool GameCheck(const GameInfo& i, Game g, std::wstring& why) {
 // woran das Spiel erkannt wurde (Statuszeile)
 static std::wstring GameEvidence(const GameInfo& i) {
     std::wstring s = L"system\\" + i.exeName + L" " + i.exeVer;
-    if (i.exeG2)
+    if (i.exeG2 && !i.standaloneName.empty())   // u252: Archolos u. a. - Worlds_Addon.vdf liegt dort leer bei
+        s += L", " + i.standaloneName + T(L" erkannt an ", L" detected by ") + i.standaloneMarker +
+            (i.g2AddonVdf.empty() ? std::wstring() : L", " + i.g2AddonVdf + T(L" mit ADDONWORLD.ZEN", L" with ADDONWORLD.ZEN"));
+    else if (i.exeG2)
         s += L", " + i.g2AddonVdf + T(L" mit ADDONWORLD.ZEN", L" with ADDONWORLD.ZEN") + (i.loa ? L", system\\LoA.ini" : L"");
     else if (i.othello)
         s += L", " + i.othelloKey;
@@ -1264,6 +1301,15 @@ static int DoInstall(Ctx& c) {
         if (exists && (e.flags & F_KEEP)) {
             keptOwn++;
             Log(c, std::wstring(T(L"  behalten (eigene Einstellungen): ", L"  kept (own settings): ")) + e.path);
+            continue;
+        }
+        // u252: eigene Steam-Anbindung des Spiels bzw. der Mod bleibt (Archolos: steam_appid.txt 1467450 und eine steam_api.dll fuer
+        // KmSteam.dll, das SteamAPI_Init braucht - in der des Coops, neueres SDK, fehlt es; nach der ZIP startete Archolos nicht mehr).
+        // Die Steam-Funktionen des Coops bleiben dann aus (GT prueft die DLL beim Start)
+        if (exists && !i.steamAppForeign.empty() &&
+            (_wcsicmp(e.path.c_str(), L"system\\steam_api.dll") == 0 || _wcsicmp(e.path.c_str(), L"system\\steam_appid.txt") == 0)) {
+            keptOwn++;
+            Log(c, std::wstring(T(L"  behalten (eigene Steam-Anbindung, App ", L"  kept (own Steam setup, app ")) + i.steamAppForeign + L"): " + e.path);
             continue;
         }
         unsigned char now[32];

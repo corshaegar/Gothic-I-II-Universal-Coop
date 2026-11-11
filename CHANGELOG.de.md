@@ -6,6 +6,22 @@ Jeder Abschnitt nennt die Projektversion und für jedes Spiel und jede Mod die C
 oben. Ganz unten folgt die Vorgeschichte: der Othello-Coop 0.1.0–0.1.2 (github.com/corshaegar/Othello-Coop) und die
 unveröffentlichten Fassungen u1–u61, aus denen 0.2.0 hervorging. So ist hier jede Änderung seit der allerersten Fassung festgehalten.
 
+## 0.11.0 – Xeres' Rückkehr, Installer für Archolos, Absturz durch Blutspritzer, eingesperrte Maus (Gothic I u252, Gothic II u252, Othello u252, Legend of Ahssun u252, Archolos u252, Xeres' Rückkehr u252)
+
+**Neu**
+
+- **Xeres' Rückkehr** (u246–u252): eigenes Profil in der Gothic-2-DLL, Start mit `-game:Xeres.ini`. Vorher wurden alle 6.583 Skript-Funktionen der Mod gelesen und jeder schwere Befund am Code geprüft. Jeder Held behält seine eigenen Gifte, Krankheiten, Übung, Götterbonus, Verwandlungen und Perks; die Zähler der Szenen, die Lorenfahrt und die Einstellungen der Mod gelten je PC. Geprüft in automatischen Testläufen mit neuem Spiel (Host und Client auf einem PC). Die Geschichte ist noch nicht durchgespielt; Xeres' ersten Angriff im Minental sollte der Host führen. Für Spieler ohne Coop gibt es die Fehlerbehebungen auch als eigenes Paket: [Xeres-Fixes](https://github.com/corshaegar/Xeres-Fixes).
+- **Der Installer erkennt Archolos**: Bis 0.10.3 lehnte er den Ordner von Archolos ab, weil Archolos die Addon-Welt nur als leere Datei beilegt. Jetzt erkennt er Archolos wie der Coop selbst an `Data\KM_Scripts.mod` und installiert ganz normal.
+
+**Korrekturen**
+
+- **Archolos startete nach der Installation von Hand nicht mehr**: ZIP und Installer ersetzten `system\steam_api.dll` und `steam_appid.txt`. Archolos bringt eine eigene Steam-Anbindung mit, die eine Funktion braucht, die es in der neueren `steam_api.dll` des Coops nicht mehr gibt – danach startete Archolos nicht. Der Installer lässt die eigenen Steam-Dateien eines Spiels jetzt stehen; in der ZIP liegen sie in eigenen Ordnern und werden nur kopiert, wenn das Spiel keine hat. Coop über Steam bleibt in Archolos deshalb aus – dort über IP verbinden. Startet dein Archolos nicht mehr: in Steam die Spieldateien überprüfen lassen und danach mit dem neuen Installer installieren.
+- **Absturz, wenn einen Pfeile treffen und Blutspritzer an sind** (u249–u252): Mit dem Union-Toolkit (`Data\Toolkit.vdf`, das mehrere Union-Plugins mitbringen) ersetzt LeGo 2.9 das ältere LeGo einer Mod. Der Blutspritzer und die Schadens-Funktion von Mods wie Xeres' Rückkehr riefen sich dann gegenseitig auf, bis das Spiel abstürzte. Jetzt bekommt die Mod ihre eigene Blutspritzer-Funktion zurück: keine Schleife mehr, und der Blutspritzer zeigt den tatsächlichen Schaden. Geprüft mit einem nachgestellten Treffer aus dem Bogen; ohne die Korrektur blieb das Spiel genau dort hängen.
+- **Objekte oberhalb von 2 GB galten als nicht vorhanden** (u246): Gothic 2 darf bis zu 4 GB Speicher nutzen, und manche Mods prüfen die Adresse eines Objekts mit `> 0` – ein Objekt in der oberen Hälfte gilt dann als nicht vorhanden. In Xeres' Rückkehr betraf das 20 Stellen (Weltwechsel, der Pass ins Minental, die Türen des Spinnenbaus, die Loren, Truhen). Der Coop stellt solche Prüfungen beim Spielstart richtig, in jeder Mod.
+- **Maus oben links eingesperrt** (u251, u252): Der Weltprozess – ein zweites Gothic, das der Coop im Hintergrund auf einem eigenen Windows-Desktop laufen lässt – sperrte die echte Maus manchmal in sein unsichtbares Fenster. Das unterbindet der Coop jetzt von Anfang an. Gemessen in zwei Testläufen mit bis zu fünf Gothic-Instanzen: kein einziges Mal eingesperrt (vorher etwa 40 Sekunden je Lauf).
+- **Archolos: NPC blieb im Gespräch stehen, doppelte NPCs** (u244, u245): Ein NPC konnte mitten im Gespräch stehen bleiben, weil seine Befehlsliste nicht weiterlief; der Dialog-Wächter stößt sie jetzt wieder an. Ein NPC, den ein Skript gerade eingesetzt hatte, entstand beim Partner manchmal ein zweites Mal (etwa Ana und Lea); der Coop übernimmt den eigenen NPC jetzt auch auf Entfernung, wenn er der einzige seiner Art ist.
+- **Anleitung zur Installation von Hand**: Union fehlt, wenn `system\Union.patch` fehlt – die alte Anleitung nannte `system\Shw32.dll`, die jedes Gothic hat.
+
 ## 0.10.3 – Szenen im Archolos-Prolog, Kämpfe in Othello (Gothic I u243, Gothic II u243, Othello u243, Legend of Ahssun u243, Archolos u243)
 
 Gefunden in automatischen Testläufen am 09.11.2026 in Archolos und Othello (Host und Client auf einem PC).

@@ -561,7 +561,8 @@ namespace GOTHIC_ENGINE {
             (int)CoopEntryJumps.size() - nFremd, nFremd);
     }
 
-    // cur: die 5 Bytes, die jetzt am Eingang stehen (Testschritt: ein nachgebauter Eingang). 1 = Kopie versetzt
+    // cur: die 5 Bytes, die jetzt am Eingang stehen (Testschritt: ein nachgebauter Eingang). 1 = Kopie versetzt, 2 = Kopie zeigt schon
+    // auf GT (u247, P295: eine neuere HookEngine versetzt sie selbst)
     int CoopLegoFixAt(DWORD entry, const unsigned char* cur, DWORD gt, char* how, size_t hn) {
         if (cur[0] != 0xE9)
             return 0;
@@ -574,7 +575,15 @@ namespace GOTHIC_ENGINE {
             return 0;
         const int oldRel = (int)(gt - (entry + 5));
         for (int i = 0; i + 5 + 6 <= span; i++) {
-            if (t[i] != 0xE9 || *(const int*)(t + i + 1) != oldRel)
+            if (t[i] != 0xE9)
+                continue;
+            const int rel = *(const int*)(t + i + 1);
+            // u247 (P295, Xeres' Rueckkehr 10.11.: das Union-Toolkit (Data\Toolkit.vdf) ersetzt per MergeMode Xeres' LeGo 2.5.0 durch
+            // LeGo 2.9.0 - dessen HookEngine sichert den Daedalus-Stapel, der kopierte Sprung ist schon versetzt und trifft GT; P177 suchte nur die unveraenderte Kopie, die Selbstpruefung meldete
+            // "FREMDER HOOK VOR GT" an oCGame::ChangeLevel und oCAIArrow::SetupAIVob und 76 von 78 GT-Haken aktiv, obwohl die Kette
+            // bis GT lief - nachgesehen im Speicher von Host und Client)
+            const bool moved = front + (DWORD)i + 5u + (DWORD)rel == gt;
+            if (rel != oldRel && !moved)
                 continue;
             int n = 0;
             for (int k = 5; k <= 32 && i + k + 6 <= span && !n; k++)
@@ -582,6 +591,14 @@ namespace GOTHIC_ENGINE {
                     n = k;
             if (!n)
                 continue;
+            if (moved) {
+                char who[MAX_PATH];
+                ModuleName((const void*)front, who, sizeof(who));
+                _snprintf(how, hn, "Sprung bei %08X (%s), kopierter GT-Sprung %d Bytes dahinter zeigt schon auf GT (von der HookEngine versetzt), "
+                    "%d Bytes alter Code", (unsigned)front, who, i, n);
+                how[hn - 1] = 0;
+                return 2;
+            }
             unsigned char* w = (unsigned char*)(t + i);
             DWORD old = 0;
             if (!VirtualProtect(w, 5, PAGE_EXECUTE_READWRITE, &old))
@@ -608,12 +625,28 @@ namespace GOTHIC_ENGINE {
     }
 
     // LoadEnd (Plugin.cpp) und jede Sekunde im Spiel: billig (je Haken 5 Bytes lesen, gesucht wird nur hinter einem fremden Sprung)
+    static std::set<DWORD> CoopLegoChainSeen;   // u247 (P295): Eingaenge, deren Kette schon gemeldet ist (versetzt oder schon richtig)
     void CoopLegoFixPulse() {
         for (auto& e : CoopEntryJumps) {
             if (!IsReadableMemory((const void*)e.entry, 5))
                 continue;
             char how[260];
-            if (CoopLegoFixAt(e.entry, (const unsigned char*)e.entry, e.target, how, sizeof(how))) {
+            const int r = CoopLegoFixAt(e.entry, (const unsigned char*)e.entry, e.target, how, sizeof(how));
+            if (r == 2) {   // u247 (P295): die Kette laeuft schon bis GT bzw. zum alten Ziel - einmal melden, als behandelt zaehlen
+                if (CoopLegoChainSeen.insert(e.entry).second) {
+                    char nm[16];
+                    _snprintf(nm, sizeof(nm), "%08X", (unsigned)e.entry);
+                    nm[sizeof(nm) - 1] = 0;
+                    if (e.gt)
+                        CoopLegoFixedAt.insert(e.entry);
+                    OthelloCompatLog("[%lld s, %s] LeGo-Haken vor %s an %s (%08X): %s - nichts zu versetzen, die Kette laeuft bis %s (P295)",
+                        DiagSeconds(), DiagRole(), e.gt ? "GT" : "fremdem Sprung", e.name ? e.name : nm, (unsigned)e.entry, how,
+                        e.gt ? "GT" : "zum alten Ziel");
+                }
+                continue;
+            }
+            if (r) {
+                CoopLegoChainSeen.insert(e.entry);
                 CoopLegoFixed++;
                 char nm[16];
                 _snprintf(nm, sizeof(nm), "%08X", (unsigned)e.entry);
@@ -703,7 +736,7 @@ namespace GOTHIC_ENGINE {
             const char* fname = info ? info->n : "?";
             const char* handled = CoopAuditHandledNote(t);
             if (!handled && CoopLegoFixedAt.count(t))
-                handled = "LeGo-Haken davor, kopierter GT-Sprung versetzt (P177)";
+                handled = "LeGo-Haken davor, die Kette laeuft bis GT (kopierter GT-Sprung versetzt, P177, bzw. von der HookEngine versetzt, P295)";
             char line[512];
             if (memcmp(m, f, 16) == 0) {
                 nSame++;

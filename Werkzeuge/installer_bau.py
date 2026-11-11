@@ -59,13 +59,17 @@ def union_files(folder):
 
 
 def known_mods():
-    """u195: Mods mit eigenem Profil aus GothicCoop\\Mods\\CoopModList.h - [(Engine g1/g2a, Ini-Name, Name, geprueft mit)]"""
+    """u195: Mods mit eigenem Profil aus GothicCoop\\Mods\\CoopModList.h - [(Engine g1/g2a, Ini-Name, Name, geprueft mit, Marker)].
+    u252: dazu der Marker - die Datei, an der eine Mod ohne -game erkannt wird (Archolos: \\Data\\KM_Scripts.mod; leer = nur ueber -game).
+    Nutzer 11.11.2026: der Installer lehnte C:\\TheChroniclesOfMyrtana ab ("KEIN GOTHIC 2 DIE NACHT DES RABEN 2.6 ... keine VDF mit der
+    Addon-Welt") - Archolos liefert Worlds_Addon.vdf leer aus, seine Welten liegen in KM_Worlds.mod"""
     import re, makezip_mod
     t = open(os.path.join(ROOT, pfade.QUELLE, 'Mods', 'CoopModList.h'), encoding='cp1252').read()
     out = []
-    for eng, ini, name in re.findall(r'\{\s*Engine_(\w+)\s*,\s*"([^"|]+)"\s*,\s*\w+\s*,\s*"([^"|]+)"', t):
+    for eng, ini, name, marker in re.findall(r'\{\s*Engine_(\w+)\s*,\s*"([^"|]+)"\s*,\s*\w+\s*,\s*"([^"|]+)"\s*,\s*\w+\s*,\s*'
+                                             r'(?:"([^"|]*)"|NULL)\s*\}', t):
         m = makezip_mod.MODS.get(ini.lower(), {})
-        out.append((eng.lower(), ini, name, m.get('geprueft', '')))
+        out.append((eng.lower(), ini, name, m.get('geprueft', ''), marker.replace('\\\\', '\\')))
     if not out:
         sys.exit('keine Mods in CoopModList.h gefunden - Muster pruefen')
     return out
@@ -238,9 +242,9 @@ def main():
         print('Teil %d %-18s %5d Dateien %10d -> %9d Bytes' % (comp, names[comp], n, r, p))
     print('Nutzlast: %d Dateien, %d -> %d Bytes' % (len(entries), raw_total, os.path.getsize(payload)))
 
-    # u195: Mods mit eigenem Profil (Ressource IDR_MODS, je Zeile Engine|Ini|Name|geprueft mit)
+    # u195: Mods mit eigenem Profil (Ressource IDR_MODS, je Zeile Engine|Ini|Name|geprueft mit|Marker - u252: Marker)
     mods_txt = os.path.join(OBJ, 'mods.txt')
-    open(mods_txt, 'w', encoding='utf-8', newline='\n').write(''.join('%s|%s|%s|%s\n' % m for m in mods))
+    open(mods_txt, 'w', encoding='utf-8', newline='\n').write(''.join('%s|%s|%s|%s|%s\n' % m for m in mods))
     print('Mods mit eigenem Profil: %s' % ', '.join('%s (%s)' % (m[2], m[0]) for m in mods))
 
     # Ressourcen (Nutzlast, Mods, Fassung) und Bau

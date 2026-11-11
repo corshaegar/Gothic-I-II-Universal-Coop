@@ -9,7 +9,7 @@ namespace GOTHIC_ENGINE {
     // OthelloCompatLog/DiagSeconds nicht (Plan Phase 1, Schritt 1). Hier steht nur engine-neutraler Code (Windows-Aufrufe,
     // keine Engine-Stelle); Othello-Eigenes bleibt in OthelloCompat.cpp.
 
-#define COOP_FASSUNG "u243"
+#define COOP_FASSUNG "u252"
 
     // Auswahl je Engine, z. B. Adressen: COOP_ENGINE_SWITCH(G1, G1A, G2, G2A). ENGINE wird erst an der Stelle des Gebrauchs
     // eingesetzt - in Mehr-Engine-Builds (MP x2/x4) bindet Interface.cpp Sources.h je Engine neu ein.
@@ -270,7 +270,9 @@ namespace GOTHIC_ENGINE {
     // u194 (P196): Daten eines Profils auch als Datei (system\GothicCoopMod-<Ini>.json bzw. system\GothicCoopMod.json,
     // Mods\CoopModProfile.h) - jede Mod bekommt so Werte je PC, Vorgaben und Hinweise ohne neuen Bau.
     // u204: COOP_PROFILE_ARCHOLOS (The Chronicles of Myrtana: Archolos, ohne -game - erkannt an einer Datei der Mod, Mods\CoopModList.h)
-    enum CoopProfileId { COOP_PROFILE_VANILLA, COOP_PROFILE_OTHELLO, COOP_PROFILE_LOA, COOP_PROFILE_MOD, COOP_PROFILE_ARCHOLOS };
+    // u246: COOP_PROFILE_XERES (Xeres' Rueckkehr, -game:Xeres.ini)
+    enum CoopProfileId { COOP_PROFILE_VANILLA, COOP_PROFILE_OTHELLO, COOP_PROFILE_LOA, COOP_PROFILE_MOD, COOP_PROFILE_ARCHOLOS,
+        COOP_PROFILE_XERES };
 
     struct CoopProfileInfo {
         CoopProfileId id = COOP_PROFILE_VANILLA;

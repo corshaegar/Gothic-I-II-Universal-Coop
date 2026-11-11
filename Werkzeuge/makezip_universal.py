@@ -7,7 +7,14 @@ Engine-Pakete derselben Fassung zusammen (gebaut von makezip_g1.py und makezip_g
   Gothic 1 + Othello/                      Inhalt in den Ordner von Gothic 1 kopieren (auch mit Othello)
   Gothic 2 + Mods/                         Inhalt in den Ordner von Gothic 2 Die Nacht des Raben (auch Legend of Ahssun ...)
   Union 1.0m (nur wenn Union fehlt)/       die sieben Dateien von Union 1.0m (installer_bau.UNION_FILES) - nicht bei Othello
+  Steam fuer Gothic 1|2 (...)/             u252: system\\steam_api.dll und steam_appid.txt der Engine - nur fuer "Coop ueber Steam" und
+                                           nur, wenn das Spiel keine eigene steam_api.dll hat. Nutzer 11.11.2026: Absturz nach der
+                                           ZIP (Archolos) - Archolos' KmSteam.dll braucht SteamAPI_Init aus seiner eigenen
+                                           steam_api.dll, in der des Coops (neueres SDK) fehlt es; bis u251 lagen beide Dateien im
+                                           Engine-Ordner und wurden beim Kopieren ersetzt
 Getrennt bleiben die Engines: die DLL einer Engine gehoert nur in ihr Spiel (ihre festen Haken zeigen in der anderen Exe ins Leere).
+u252: Union fehlt, wenn system\\Union.patch fehlt - system\\Shw32.dll hat jedes Gothic (Speicherverwaltung, ~50 KB), bis u251 stand
+hier diese Datei als Merkmal (dann haette niemand Union kopiert).
 Am einfachsten bleibt der Installer (erkennt das Spiel selbst). Ausgabe: <BAU>\\zip\\Gothic-I-II-Universal-Coop <projekt>.zip
 
 Aufruf (aus dem Repo):  python tools\\makezip_universal.py u197 [--projekt 0.6.0] [--force]
@@ -19,6 +26,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import pfade
 
 G1, G2, UNION = 'Gothic 1 + Othello', 'Gothic 2 + Mods', 'Union 1.0m (nur wenn Union fehlt)'
+STEAM1, STEAM2 = 'Steam fuer Gothic 1 (nur Coop ueber Steam)', 'Steam fuer Gothic 2 (nur Coop ueber Steam, nicht bei Archolos)'
+STEAMDATEIEN = ('system/steam_api.dll', 'system/steam_appid.txt')
 
 LIESMICH = """Gothic-I-II-Universal-Coop {p} (Coop {f}) - ein Paket fuer alle Spiele
 
@@ -29,11 +38,16 @@ Von Hand: den Inhalt EINES Ordners dieser ZIP in den Spielordner kopieren (den O
 Dateien ersetzen:
   "{g1}"   Gothic 1 (Fassung 1.08k) - auch mit Othello 4.x: der Coop legt beim Start selbst die
                          Othello-Skripte an (system\\GothicCoop\\Skripte, Log "Skript-Weiche")
-  "{g2}"      Gothic 2 Die Nacht des Raben (2.6) - auch mit Legend of Ahssun und anderen Mods; wer
-                         im GothicStarter die Mod wechselt, muss nichts neu installieren
-  "{u}"   nur, wenn im Spielordner noch kein Union ist (system\\Shw32.dll fehlt) - nie bei
-                         Othello (bringt Union mit). Danach system\\dinput.dll entfernen (Lader von SystemPack;
-                         Union laedt SystemPack selbst).
+  "{g2}"      Gothic 2 Die Nacht des Raben (2.6) - auch mit Legend of Ahssun, Archolos und anderen
+                         Mods; wer im GothicStarter die Mod wechselt, muss nichts neu installieren
+  "{u}"   nur, wenn im Spielordner noch kein Union ist (system\\Union.patch fehlt) - nie bei
+                         Othello (bringt Union mit). Danach system\\dinput.dll entfernen (Union laedt SystemPack
+                         selbst).
+  "{s1}" bzw.
+  "{s2}"
+                         nur fuer "Coop ueber Steam" und nur, wenn im Spielordner noch keine system\\steam_api.dll
+                         liegt. Bringt das Spiel eine eigene mit (Archolos), diese NICHT ersetzen - sonst startet es
+                         nicht mehr; der Coop laeuft dann ueber IP.
 Der Coop-Renderer (system\\GD3D11\\Bin) wirkt nur mit installiertem GD3D11 v17.9.7 (der Installer bringt es mit).
 
 Beide PCs brauchen dieselbe Coop-Fassung ({f}). Mehr in GothicCoop-LIESMICH.txt im jeweiligen Ordner, zu Othello und Legend
@@ -50,11 +64,15 @@ By hand: copy the contents of ONE folder of this ZIP into the game folder (the f
 existing files:
   "{g1}"   Gothic 1 (version 1.08k) - also with Othello 4.x: the coop sets up the Othello scripts
                          itself at start (system\\GothicCoop\\Skripte, log "Skript-Weiche")
-  "{g2}"      Gothic 2 Night of the Raven (2.6) - also with Legend of Ahssun and other mods; switching
-                         the mod in the GothicStarter needs no new installation
-  "{u}"   only if the game folder has no Union yet (system\\Shw32.dll missing) - never for
-                         Othello (it brings Union). Then remove system\\dinput.dll (SystemPack loader; Union loads
-                         SystemPack itself).
+  "{g2}"      Gothic 2 Night of the Raven (2.6) - also with Legend of Ahssun, Archolos and other mods;
+                         switching the mod in the GothicStarter needs no new installation
+  "{u}"   only if the game folder has no Union yet (system\\Union.patch missing) - never for
+                         Othello (it brings Union). Then remove system\\dinput.dll (Union loads SystemPack itself).
+  "{s1}" or
+  "{s2}"
+                         only for "coop over Steam", and only if the game folder has no system\\steam_api.dll yet.
+                         If the game brings its own (Archolos), do NOT replace it - the game would no longer start;
+                         the coop then runs over IP.
 The coop renderer (system\\GD3D11\\Bin) only works with GD3D11 v17.9.7 installed (the installer brings it).
 
 Both PCs need the same coop version ({f}). More in GothicCoop-LIESMICH.txt in each folder (German).
@@ -84,12 +102,17 @@ def main():
     import installer_bau
     union = set(rel.lower() for rel, _, _ in installer_bau.UNION_FILES)
     entries, union_seen = [], {}
-    for src, folder in ((src1, G1), (src2, G2)):
+    steam_seen = 0
+    for src, folder, steam in ((src1, G1, STEAM1), (src2, G2, STEAM2)):
         with zipfile.ZipFile(src) as z:
             for info in z.infolist():
                 if info.is_dir():
                     continue
                 data = z.read(info.filename)
+                if info.filename.lower() in STEAMDATEIEN:   # u252: eigener Ordner - nie ueber eine steam_api.dll des Spiels
+                    entries.append((steam + '/' + info.filename, data, info.date_time))
+                    steam_seen += 1
+                    continue
                 if info.filename.lower() in union:
                     if info.filename.lower() in union_seen:
                         if union_seen[info.filename.lower()] != data:
@@ -101,7 +124,9 @@ def main():
                     entries.append((folder + '/' + info.filename, data, info.date_time))
     if len(union_seen) != len(union):
         sys.exit('Union-Dateien unvollstaendig: %d von %d' % (len(union_seen), len(union)))
-    fmt = dict(p=projekt, f=a.fassung, g1=G1, g2=G2, u=UNION)
+    if steam_seen != 2 * len(STEAMDATEIEN):
+        sys.exit('Steam-Dateien unvollstaendig: %d von %d' % (steam_seen, 2 * len(STEAMDATEIEN)))
+    fmt = dict(p=projekt, f=a.fassung, g1=G1, g2=G2, u=UNION, s1=STEAM1, s2=STEAM2)
     texts = [('LIESMICH.txt', LIESMICH.format(**fmt).replace('\n', '\r\n').encode('cp1252')),
              ('README.txt', README.format(**fmt).replace('\n', '\r\n').encode('cp1252'))]
     tmp = out + '.part'

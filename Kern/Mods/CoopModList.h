@@ -11,6 +11,7 @@
 
 const char* CoopModLoAProfile();        // u194: Mods\ModLoA.cpp - eingebautes Profil von Legend of Ahssun
 const char* CoopModArcholosProfile();   // u204: Mods\ModArcholos.cpp - eingebautes Profil von Archolos
+const char* CoopModXeresProfile();      // u246: Mods\ModXeres.cpp - eingebautes Profil von Xeres' Rueckkehr
 
 struct CoopModKnown {
     int engine;            // Engine_G1 / Engine_G2A ...
@@ -24,6 +25,7 @@ struct CoopModKnown {
 static const CoopModKnown CoopModsKnown[] = {
     { Engine_G2A, "LoA", COOP_PROFILE_LOA, "Legend of Ahssun", CoopModLoAProfile, NULL },   // u170-u181: P177, P178, P180, P181 (allgemein), Mods\ModLoA.cpp
     { Engine_G2A, "Archolos", COOP_PROFILE_ARCHOLOS, "The Chronicles of Myrtana: Archolos", CoopModArcholosProfile, "\\Data\\KM_Scripts.mod" },   // u204: P233, P234, Mods\ModArcholos.cpp
+    { Engine_G2A, "Xeres", COOP_PROFILE_XERES, "Xeres' Rueckkehr", CoopModXeresProfile, NULL },   // u246: P293, P294, Mods\ModXeres.cpp
 };
 
 static const CoopModKnown* CoopModFind(const std::string& iniBase) {

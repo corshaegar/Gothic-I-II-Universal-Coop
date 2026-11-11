@@ -1577,6 +1577,11 @@ namespace GOTHIC_ENGINE {
         WpHostStop("Spiel beendet", false, false);
     }
 
+    // u247 (P298): bereit mit Figur, nur ohne Bild - der Renderer hat keine Coop-Teile (GD3D11 der Mod) - fuer den Coop-Testlauf
+    bool CoopWpReadyNoImage() {
+        return WpHost.on && WpHost.active && WpHost.phase == "bereit" && WpHost.fig && !WpHost.img;
+    }
+
     // u38: CoopCamera.cpp (Shift+F5) - Bild des Weltprozesses, wenn er bereit ist; sonst sein Stand in Worten
     bool CoopWpImage(unsigned int& handle, std::string& nick, std::string& world, std::string& state) {
         handle = 0;
@@ -2559,6 +2564,7 @@ namespace GOTHIC_ENGINE {
                 nextLego = CurrentMs + 1000;
                 CoopLegoFixPulse();
                 CoopScriptMapPulse();   // u195 (P199): Skript-Spur im Absturzprotokoll auch im Weltprozess (Hooks.cpp)
+                CoopMausKaefigAus("Weltprozess");   // u251 (P301): eigener Desktop GothicCoopWelt
             }
         }
         WpWorldInbox(true);
@@ -2629,6 +2635,7 @@ namespace GOTHIC_ENGINE {
 
 #else   // nicht G2A: Weltprozess noch nicht freigegeben
 
+    bool CoopWpReadyNoImage() { return false; }   // u247 (P298)
     bool CoopWpImage(unsigned int& handle, std::string& nick, std::string& world, std::string& state) {
         handle = 0;
         nick.clear();

@@ -87,6 +87,7 @@ namespace GOTHIC_ENGINE {
     }
 
     void _Game_MenuLoop() {
+        CoopMausKaefigAus("Menue");   // u251 (P301): auch im Menue und im Weltprozess (eigener Desktop)
         if (CoopWpIsWorld()) {   // u33: Weltprozess - nur den Slot laden (CoopWorldProcess.cpp)
             try {
                 CoopCrashFilterPulse();

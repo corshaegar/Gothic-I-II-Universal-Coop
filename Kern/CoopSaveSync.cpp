@@ -1815,6 +1815,12 @@ namespace GOTHIC_ENGINE {
     bool CoopKamerafahrtLaeuft(std::string* name);   // CoopWorldSync.cpp (u219)
     bool CoopAblaufLaeuft(long long withinMs);       // CoopDialogSync.cpp (u243, P290)
 
+    // u247 (P297, Xeres-Testlauf 10.11.): Coop-Testlauf "Kamerafahrt beim Speichern" (P136) - nur die Kamerafahrt, die der Testlauf selbst
+    // gestartet hat, haelt seine Testsicherung nicht auf. Seit u243 (P290) wartet jede Sicherung in einer Kamerafahrt: der Schritt danach
+    // fiel immer aus, die Fahrt lief noch beim Betreten einer Welt ("gemeinsame Sicherung jetzt nicht (Kamerafahrt EVT_STARTKAMERA)"),
+    // und beide Betreten-Schritte scheiterten
+    static std::string TestSaveAllowCam;
+
     // u243 (P290, Archolos-Lauf b368 am 09.11., Nutzer: "Archolos buggt gerade oder": bei 115 s trat der Client bei, der Host machte die
     // gemeinsame Sicherung - das Spiel stand 3 s. Eben hatte der Kapitaens-Ablauf begonnen (Q101_CAPTAIN_CUTSCENEENABLE 1 -> 2, gleich darauf
     // SHIP_CAPITAN_01). Danach holten Archolos' Frame-Funktionen (LeGo, alle 75 ms) die verpassten Takte auf einmal nach, der Zaehler sprang
@@ -1828,7 +1834,7 @@ namespace GOTHIC_ENGINE {
         static long long camSeit = 0, ablaufSeit = 0;
         const long long now = GetCurrentMs();
         std::string cam;
-        if (CoopKamerafahrtLaeuft(&cam)) {
+        if (CoopKamerafahrtLaeuft(&cam) && !(!cam.empty() && cam == TestSaveAllowCam)) {   // u247 (P297)
             if (cam != camName) {
                 camName = cam;
                 camSeit = now;
@@ -5115,6 +5121,7 @@ namespace GOTHIC_ENGINE {
             if (CurrentMs > TestSaveSetMs + 20000) {
                 SaveSyncLog("Coop-Testlauf: Sicherung in Slot %d verworfen - der Mitspieler konnte 20 s nicht mitspeichern (%s) (P282)", TestSaveSlot, why.c_str());
                 TestSaveSlot = -1;
+                TestSaveAllowCam.clear();   // u247 (P297)
             }
             return;
         }
@@ -5124,6 +5131,11 @@ namespace GOTHIC_ENGINE {
         CoopSavingKind = TestSaveKind;
         CoopDoSave(slot, TestSaveName + CoopNowText("time"));
         CoopSavingKind.clear();
+        if (!TestSaveAllowCam.empty()) {   // u247 (P297)
+            SaveSyncLog("Coop-Testlauf: Sicherung in Slot %d trotz Kamerafahrt %s (P136-Probe, nur diese Testsicherung - sonst wartet sie, P290)",
+                slot, TestSaveAllowCam.c_str());
+            TestSaveAllowCam.clear();
+        }
         SaveSyncLog("%s: gemeinsame Sicherung in Slot %d - der Partner speichert mit", TestSaveKind == "test" ? "Coop-Testlauf" :
             ("vor dem Betreten von " + EnterJob.world).c_str(), slot);
         TestSaveKind = "test";
@@ -5445,6 +5457,14 @@ namespace GOTHIC_ENGINE {
 
     int CoopSaveSyncTestSave(std::string& why) {
         return TestSaveReserve(why, true);
+    }
+
+    void CoopSaveSyncTestAllowCam(const std::string& cam) {   // u247 (P297)
+        TestSaveAllowCam = cam;
+    }
+
+    bool CoopSaveSyncSceneBlocks(std::string& why) {   // u247 (P297): Coop-Testlauf - wuerde eine Sicherung jetzt warten (P290)?
+        return CoopSzeneSperrt(why);
     }
 
     // u47 (P88): gemeinsame Sicherung vor dem Betreten einer Welt (wie die Testsicherung, Art "weltwechsel", Name "Coop-Weltwechsel").
@@ -5947,6 +5967,8 @@ namespace GOTHIC_ENGINE {
     std::string CoopSaveSyncLastRestoredSid() { return std::string(); }
     bool CoopSaveSyncTestHideOwnCopy(const std::string&, std::string& what) { what = "Speichern-Modul aus"; return false; }
     int CoopSaveSyncTestSave(std::string& why) { why = "Speichern-Modul aus"; return -1; }   // u30
+    void CoopSaveSyncTestAllowCam(const std::string&) {}   // u247 (P297)
+    bool CoopSaveSyncSceneBlocks(std::string& why) { why.clear(); return false; }   // u247 (P297)
     bool CoopSaveSyncPartnerBusy(std::string& why) { why.clear(); return false; }   // u237 (P282)
     int CoopSaveSyncEnterSave(const std::string&, const std::string&, std::string& why) { why = "Speichern-Modul aus"; return -1; }   // u47
     int CoopSaveSyncEnterState(std::string& note) { note = "Speichern-Modul aus"; return 1; }

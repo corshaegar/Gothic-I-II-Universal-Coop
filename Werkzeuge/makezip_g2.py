@@ -37,10 +37,14 @@ SystemPack - Union laedt SystemPack selbst). Bequemer und rueckgaengig machbar: 
   system\\Autorun\\              GothicCoop-DLL und drei Skripte
   system\\GothicCoopConfig.json  Vorgaben (Name, Adresse, Aussehen - im Spiel unter COOP aenderbar)
   system\\GothicCoopMod.vorlage.json  Vorlage fuer ein Mod-Profil (so benannt nicht aktiv, siehe unten)
-  system\\steam_api.dll und steam_appid.txt (39510)   fuer "Coop ueber Steam" (Steam muss laufen)
+  system\\steam_api.dll und steam_appid.txt (39510)   fuer "Coop ueber Steam" (Steam muss laufen) - nicht, wenn das Spiel
+                                  eine eigene steam_api.dll mitbringt (Archolos: sonst startet es nicht mehr; in der
+                                  Universal-ZIP liegen beide darum in einem eigenen Ordner)
   system\\GD3D11\\Bin\\g2a_avx2.dll  Coop-Renderer (GD3D11 v17.9.7 + coop9) - nur wirksam, wenn GD3D11 installiert ist
                                   (3D-Vorschau der Figur, Zuschau-Fenster beim Mitspieler, eigenes Log im Weltprozess,
-                                  ab coop8 das Bild des Weltprozesses im Zuschau-Fenster)
+                                  ab coop8 das Bild des Weltprozesses im Zuschau-Fenster). Er passt nur zu den Shadern von
+                                  GD3D11 v17.9.7: Bringt eine Mod eine andere Fassung mit (Xeres' Rueckkehr: v17.9.4), diese
+                                  Datei weglassen - oder den Installer nehmen, der GD3D11 dann auf v17.9.7 bringt.
 
 Stand: In Gothic 2 laufen GTs Grundabgleich (Spieler, NPCs in der Naehe), das COOP-Menue (Figur, Verbinden, Steam),
 die Maus in den Menues, das gemeinsame neue Spiel (Intro fuer beide ueberspringen, Mitspieler neben dem Host),
@@ -165,6 +169,17 @@ Ab u242: ein Gespraech des Mitspielers macht den eigenen Helden nicht mehr dauer
 nicht an, NPCs redeten nicht mit ihm) - 10 s nach dem Ende wird es zurueckgesetzt.
 Ab u243: der Coop speichert nicht mehr mitten in einer Szene (Kamerafahrt oder Szenenablauf einer Mod) - Auto-Sicherung, Mitspeichern
 und Beitritt warten, bis sie vorbei ist. Sonst konnte eine Szene der Mod uebersprungen werden (Archolos: Kapitaens-Szene).
+Ab u244: haengt ein Gespraech, weil die Befehlsliste des NPCs oder des Helden nicht mehr abgearbeitet wird (Antworten ohne Wirkung,
+kein Auswahlfenster), setzt der Coop sie nach 1,5 s wieder in Gang.
+Ab u245: setzt ein Skript des Clients einen NPC ein, den sein Tagesablauf gleich woandershin schickt (Archolos: Ana und Lea am Strand),
+gibt es ihn danach nicht mehr doppelt.
+Ab u246: Xeres' Rueckkehr (-game:Xeres.ini) hat ein eigenes Profil: Gifte, Krankheiten, Uebung, Goetterbonus, Verwandlungen
+und Perks bleiben beim eigenen Helden, Zwischensequenzen und Lorenfahrt laufen je PC. Skripte, die Zeiger mit "> 0" pruefen,
+versagen oberhalb von 2 GB nicht mehr (Xeres: Weltwechsel, Pass ins Minental, Tueren, Loren). Schleifen einer Mod, die sich
+ueber einen Trigger selbst wieder ausloesen, laufen auf jedem PC fuer sich.
+Ab u247: die Selbstpruefung (system\\GothicCoopAudit.log) erkennt Haken einer neueren HookEngine (LeGo 2.9 aus dem Union-Toolkit) vor dem Coop
+richtig - die Kette laeuft bis zum Coop, kein Fehlalarm mehr. Der Coop-Testlauf passt zu einem neuen Spiel und zu Mods mit eigenem
+GD3D11 (ohne Coop-Renderer).
 
 Spielen: Hauptmenue > COOP > Figur waehlen > "Weiter: Verbinden" > "Spiel hosten" bzw. "Ueber IP beitreten"
 (Port 9955) oder ueber Steam. Protokoll: system\\GothicCoop.log.

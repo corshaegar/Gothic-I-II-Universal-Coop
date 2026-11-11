@@ -78,6 +78,12 @@ Ab u241: liegt der Ablauf beim Client hinten, laeuft nichts doppelt.
 Ab u242: ein Gespraech des Mitspielers macht den eigenen Helden nicht mehr dauerhaft "unverwundbar" (in Othello griffen Monster ihn
 danach nicht an, er traf sie nicht) - 10 s nach dem Ende wird es zurueckgesetzt.
 Ab u243: der Coop speichert nicht mehr mitten in einer Szene (Kamerafahrt oder Szenenablauf einer Mod).
+Ab u244: haengt ein Gespraech, weil die Befehlsliste des NPCs oder des Helden nicht mehr abgearbeitet wird, setzt der Coop sie
+nach 1,5 s wieder in Gang.
+Ab u245: setzt ein Skript des Clients einen NPC ein, den sein Tagesablauf gleich woandershin schickt, gibt es ihn danach
+nicht mehr doppelt.
+Ab u246: Skripte, die Zeiger mit "> 0" pruefen, versagen oberhalb von 2 GB nicht mehr. Schleifen einer Mod, die sich ueber
+einen Trigger selbst wieder ausloesen, laufen auf jedem PC fuer sich.
 """
 
 SKRIPTE =('COOP_MENU.D', 'COOP_ITEMS.D', 'PC_MULTIPLAYER_HERO.D')
