@@ -8,6 +8,7 @@
 // (Mods\CoopModProfile.h) - eingebaut ueber "builtin", fuer jede andere Mod als system\GothicCoopMod-<Ini>.json ohne neuen Bau.
 // u204: Mods ohne -game (eigene Installation, Mod-Dateien direkt in Data\ - The Chronicles of Myrtana: Archolos) erkennt CoopProfile()
 // an einer Datei ("marker", relativ zum Spielordner); iniBase ist dann Kuerzel fuer Kennung und Profil-Datei.
+// u254 (P305): die Datei zaehlt auch bei einem Start mit unbekannter Spiel-Ini (Archolos aus Steam: -game:TheChroniclesOfMyrtana.ini).
 
 const char* CoopModLoAProfile();        // u194: Mods\ModLoA.cpp - eingebautes Profil von Legend of Ahssun
 const char* CoopModArcholosProfile();   // u204: Mods\ModArcholos.cpp - eingebautes Profil von Archolos

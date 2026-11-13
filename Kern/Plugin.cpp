@@ -377,7 +377,7 @@ namespace GOTHIC_ENGINE {
             }
         }
         CoopAuditOnce();     // Pruefebene 1: einmal je Start, nach dem CanUse-Vorbau
-        CoopTracePulse();    // Pruefebenen 2/3: Schnappschuesse, F7-Testschritte
+        CoopTracePulse();    // Pruefebene 2: Schnappschuss - u253 (P304) abgeschaltet (COOP_READY_Trace), leerer Aufruf
 
         if (CurrentMs > LastNpcListRefreshTime + 1000) {
             BuildGlobalNpcList();

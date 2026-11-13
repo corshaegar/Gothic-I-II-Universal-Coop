@@ -16,6 +16,11 @@ namespace GOTHIC_ENGINE {
     //
     // u237 (Nutzer 09.11.: "Die tests sollten auch nicht per hotkey erreichbar sein"): der gefuehrte Testablauf mit der Taste F7
     // (Konfiguration "testStepKey", Schritte im Chat, Marker M/C je Schritt) ist entfernt - Tests laufen ueber die automatischen Laeufe.
+    //
+    // u253 (P304, Nutzer 12.11.: "komplett raus damit wir brauchen es ja nicht, fuer Othello kann es ja bleiben, aber abgeschaltet"):
+    // abgeschaltet ueber COOP_READY_Trace = 0 (CoopCore.cpp), der Code bleibt. Kein Werkzeug wertet die Datei mehr aus, und jede Zeile
+    // oeffnet und schliesst sie neu - in den eigenen Logs 60 bis 120 Zeilen alle 5 s (Figuren und Zaehler). Anlass: ein Spieler meldete
+    // beim Mitspieler (Gothic 1) etwa 1 s Stillstand alle 5 s.
 
 #if COOP_BUILD(Trace)   // u3: bis u2 nur G1 - Freigabe je Engine in CoopCore.cpp
 

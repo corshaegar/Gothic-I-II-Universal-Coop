@@ -6,6 +6,15 @@ Jeder Abschnitt nennt die Projektversion und für jedes Spiel und jede Mod die C
 oben. Ganz unten folgt die Vorgeschichte: der Othello-Coop 0.1.0–0.1.2 (github.com/corshaegar/Othello-Coop) und die
 unveröffentlichten Fassungen u1–u61, aus denen 0.2.0 hervorging. So ist hier jede Änderung seit der allerersten Fassung festgehalten.
 
+## 0.11.1 – Stillstand beim Host alle 5 Sekunden, Archolos aus Steam (Gothic I u254, Gothic II u254, Othello u254, Legend of Ahssun u254, Archolos u254, Xeres' Rückkehr u254)
+
+Gefunden in den Logs zweier Spieler, die am 12.11.2026 Archolos zusammen gespielt haben.
+
+**Korrekturen**
+
+- **Das Spiel des Hosts stand alle 5 Sekunden still** (u253): Eine alte Diagnose aus den Anfängen des Projekts schrieb, solange man verbunden war, alle 5 Sekunden einen Schnappschuss aller Figuren in der Nähe nach `system\GothicCoopSnapshot.log` – und öffnete und schloss die Datei dabei für jede einzelne Zeile neu. Auf einem PC, dessen Virenscanner jede Datei beim Schließen prüft, dauerte das umso länger, je größer die Datei wurde: Im Log des Spielers stand der Host anfangs 35 ms still, nach 13 Minuten fast 0,9 Sekunden. Auch der Mitspieler bekam das mit, weil in diesen Momenten keine Bewegungen vom Host kamen. Der Schnappschuss ist jetzt abgeschaltet, ebenso zwei weitere Diagnosen, die niemand mehr braucht: eine beim Client, die nach längst behobenen Fehlern suchte, und eine Liste der NPC-Namen, die beim Laden über 1.000 Zeilen auf einmal schrieb. Auch der Zeitraffer der automatischen Testläufe ist nicht mehr im Release-Bau. Was bei Fehlermeldungen hilft, bleibt: Bildzeiten und eine Netz-Zusammenfassung alle 30 Sekunden, das Log, das an den Partner geht, die Selbstprüfung beim Start und die Berichte über Hänger und Abstürze.
+- **Archolos lief beim Start aus Steam ohne sein Profil** (u254): Steam startet Archolos mit `-game:TheChroniclesOfMyrtana.ini`. An diesem Ini-Namen erkannte der Coop die Mod nicht und behandelte Archolos wie eine unbekannte Mod – ohne die Anpassungen, die es dafür gibt, etwa die Werte, die Archolos je PC führt (Abblenden, Abstands-Warnungen, die Zähler der Zwischensequenzen im Prolog). Startete nur einer der beiden Archolos auf diesem Weg, lehnte der Coop außerdem die Verbindung ab, als spielten beide verschiedene Spiele. Jetzt erkennt der Coop Archolos auch beim Start mit eigener Ini an `Data\KM_Scripts.mod` – beide Startwege führen zum selben Profil.
+
 ## 0.11.0 – Xeres' Rückkehr, Installer für Archolos, Absturz durch Blutspritzer, eingesperrte Maus (Gothic I u252, Gothic II u252, Othello u252, Legend of Ahssun u252, Archolos u252, Xeres' Rückkehr u252)
 
 **Neu**

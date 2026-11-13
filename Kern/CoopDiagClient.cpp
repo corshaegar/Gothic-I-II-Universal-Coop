@@ -10,6 +10,18 @@ namespace GOTHIC_ENGINE {
     // anvisierten NPCs. Beobachtet: NPCs bewegen sich nach einem Treffer des Clients nicht,
     // Dialoge haengen. Hier wird protokolliert, was fuer den anvisierten/angesprochenen/
     // getroffenen NPC blockiert wird und wie Kamera und Dialogverwaltung dabei stehen.
+    //
+    // u253 (P304): abgeschaltet ueber COOP_READY_DiagClient = 0 (CoopCore.cpp) - Fehlersuche aus der Othello-Zeit, die Fehler sind
+    // behoben; in den eigenen Logs kam davon kaum noch eine Zeile. Der Code bleibt.
+
+    // u253: Name eines NPCs fuer Logzeilen - nutzen auch Dialog-Waechter, Speichern, Welt-Sync und Testlauf, steht darum vor dem
+    // abgeschalteten Teil
+    static void CDiagName(oCNpc* n, char* out, size_t len) {
+        if (!n) { strncpy(out, "-", len); return; }
+        if (n == player) { strncpy(out, "eigener Held", len); return; }
+        _snprintf(out, len, "%s", n->GetObjectName().ToChar());
+        out[len - 1] = 0;
+    }
 
 #if COOP_BUILD(DiagClient)   // u3: bis u2 nur G1 - Freigabe je Engine in CoopCore.cpp
 
@@ -23,13 +35,6 @@ namespace GOTHIC_ENGINE {
     static long long CDiagNextDialogCheck = 0;
     static std::string CDiagLastDialogState;
     static unsigned long CDiagDialogLines = 0;
-
-    static void CDiagName(oCNpc* n, char* out, size_t len) {
-        if (!n) { strncpy(out, "-", len); return; }
-        if (n == player) { strncpy(out, "eigener Held", len); return; }
-        _snprintf(out, len, "%s", n->GetObjectName().ToChar());
-        out[len - 1] = 0;
-    }
 
     // Aus dem zCModel::StartAni-Hook, wenn GT die Animation NICHT startet.
     void CoopDiagAniBlocked(zCVob* vob, zCModelAni* ani) {

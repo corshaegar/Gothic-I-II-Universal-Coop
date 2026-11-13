@@ -9,7 +9,7 @@ namespace GOTHIC_ENGINE {
     // OthelloCompatLog/DiagSeconds nicht (Plan Phase 1, Schritt 1). Hier steht nur engine-neutraler Code (Windows-Aufrufe,
     // keine Engine-Stelle); Othello-Eigenes bleibt in OthelloCompat.cpp.
 
-#define COOP_FASSUNG "u252"
+#define COOP_FASSUNG "u254"
 
     // Auswahl je Engine, z. B. Adressen: COOP_ENGINE_SWITCH(G1, G1A, G2, G2A). ENGINE wird erst an der Stelle des Gebrauchs
     // eingesetzt - in Mehr-Engine-Builds (MP x2/x4) bindet Interface.cpp Sources.h je Engine neu ein.
@@ -226,7 +226,7 @@ namespace GOTHIC_ENGINE {
 #define COOP_READY_Camera      COOP_READY_G1_G2A    // CoopCamera.cpp     Zuschau-Fenster (braucht Coop-GD3D11; u10: G2A mit g2a_avx2 coop6)
 #define COOP_READY_CombatLead  COOP_READY_G1_G2A    // CoopCombatLead.cpp Kampf-Uebergabe an den Client (C18; u16: G2A)
 #define COOP_READY_Damage      COOP_READY_G1_G2A    // CoopDamage.cpp     HP-Abzug messen/skalieren (C8, H16; u16: G2A)
-#define COOP_READY_DiagClient  COOP_READY_G1_G2A    // CoopDiagClient.cpp Diagnose beim Client (u8: G2A)
+#define COOP_READY_DiagClient  0                    // CoopDiagClient.cpp Diagnose beim Client (u8: G2A; u253 P304: abgeschaltet - Fehlersuche aus der Othello-Zeit)
 #define COOP_READY_Dialog      COOP_READY_G1_G2A    // CoopDialogSync.cpp Dialoge, Story, Tagebuch (D; u11: G2A - B_GivePlayerXP, je-PC-Variablen)
 #define COOP_READY_DialogWatch COOP_READY_G1_G2A    // CoopDialogWatch.cpp Dialog-Waechter (u13: G2A - ClearEM, EV_PROCESSINFOS gleich)
 #define COOP_READY_Difficulty  COOP_READY_G1_G2A    // CoopDifficulty.cpp Schwierigkeitsgrad, Abgleich-Regeln (H16, H21; u16: G2A - XP_PER_VICTORY)
@@ -245,7 +245,7 @@ namespace GOTHIC_ENGINE {
 #define COOP_READY_Steam       COOP_READY_G1_G2A    // CoopSteam.cpp      Coop ueber Steam (H28; u8: G2A, App 39510)
 #define COOP_READY_Teleport    COOP_READY_G1_G2A    // CoopTeleport.cpp   Teleport-Rune (N1; u17: G2A - SPL_TELEPORTXARDAS, Wirken in Spell_Cast)
 #define COOP_READY_Title       COOP_READY_G1_G2A    // CoopTitle.cpp      "Hauptmenue" im Esc-Menue (H26; u19: G2A, Esc-Eintraege auch ohne Mod)
-#define COOP_READY_Trace       COOP_READY_G1_G2A    // CoopTrace.cpp      Schnappschuss, Zaehler (G; u8: G2A)
+#define COOP_READY_Trace       0                    // CoopTrace.cpp      Schnappschuss (G; u8: G2A; u253 P304: abgeschaltet, der Code bleibt fuer Othello)
 #define COOP_READY_World       COOP_READY_G1_G2A    // CoopWorldSync.cpp  Truhen, Gegenstaende, Leichen (E; u13: G2A - DisableVob +0x74, Teilmengen E6b)
 #define COOP_READY_HooksExt    COOP_READY_G1_G2A    // Hooks.cpp          Kampf-Erweiterungen (C3, C10, C13, C20, C21), A17, A19 (u16: G2A)
 #define COOP_READY_HookOrder   COOP_READY_G1_ONLY   // OthelloHookOrder.cpp Haken-Reihenfolge (B3, nur Othello)
@@ -348,7 +348,10 @@ namespace GOTHIC_ENGINE {
                 p.why = "-game:" + ini + (known ? " (bekannte Mod)" : " (Mod ohne eigenes Profil - Fundament)");
             }
             // u204: bekannte Mod ohne -game (Archolos legt seine KM_*.mod direkt in Data\) - erkannt an ihrer Datei
-            if (p.id == COOP_PROFILE_VANILLA && ini.empty())
+            // u254 (P305): auch mit einer Spiel-Ini, die keine bekannte Mod nennt - Archolos aus Steam startet mit
+            // -game:TheChroniclesOfMyrtana.ini, im Log eines Spielers (u252) lief darum nur das Fundament ("Mod ohne eigenes Profil").
+            // Profil, Kennung (P209) und Profil-Datei dann wie ohne -game, damit beide Startwege zusammenpassen.
+            if ((p.id == COOP_PROFILE_VANILLA && ini.empty()) || (p.id == COOP_PROFILE_MOD && !known))
                 for (const CoopModKnown& m : CoopModsKnown)
                     if (m.engine == ENGINE && m.marker && CoopProfileFileExists(CoopGameRoot() + m.marker)) {
                         known = &m;
@@ -356,7 +359,8 @@ namespace GOTHIC_ENGINE {
                         p.id = m.id;
                         p.name = m.name;
                         p.modIni = m.iniBase;   // Kennung beim Verbinden (P209) und Name der Profil-Datei (GothicCoopMod-<iniBase>.json)
-                        p.why = std::string(m.marker + 1) + " vorhanden (bekannte Mod ohne -game)";
+                        p.why = std::string(m.marker + 1) + " vorhanden (bekannte Mod " +
+                            (ini.empty() ? std::string("ohne -game)") : "mit -game:" + ini + ")");
                         break;
                     }
             CoopModDataLoad(p, known, base);   // u194 (P196): eingebautes Profil und system\GothicCoopMod[-<Ini>].json (ohne Log)
@@ -706,11 +710,12 @@ namespace GOTHIC_ENGINE {
     }
 
     // u3: welche Module laufen in dieser Engine nicht (Platzhalter aktiv, Haken aus) - einmal je Start ins Log (Game_Init)
+    // u253 (P304): Client-Diagnose und Schnappschuss sind ueberall abgeschaltet und stehen darum nicht mehr in der Liste
     static void CoopModulesReport() {
         static const struct { const char* name; bool ready; } mods[] = {
             { "Selbstpruefung", COOP_READY_Audit }, { "Zuschau-Fenster", COOP_READY_Camera },
             { "Kampf-Uebergabe", COOP_READY_CombatLead }, { "Schaden", COOP_READY_Damage },
-            { "Client-Diagnose", COOP_READY_DiagClient }, { "Dialoge/Story", COOP_READY_Dialog },
+            { "Dialoge/Story", COOP_READY_Dialog },
             { "Dialog-Waechter", COOP_READY_DialogWatch }, { "Schwierigkeit/Regeln", COOP_READY_Difficulty },
             { "Fern-Abgleich", COOP_READY_FarSync }, { "Treffer-Hoheit", COOP_READY_Hit },
             { "Aussehen/Sprache", COOP_READY_Look }, { "Hauptmenue-Eintraege", COOP_READY_MenuInject },
@@ -719,7 +724,7 @@ namespace GOTHIC_ENGINE {
             { "3D-Vorschau", COOP_READY_Preview }, { "Spielstand-Vorschau", COOP_READY_SavePreview },
             { "Speichern/Laden", COOP_READY_Save }, { "Testlauf", COOP_READY_SelfTest },
             { "Steam", COOP_READY_Steam }, { "Teleport-Rune", COOP_READY_Teleport },
-            { "Esc-Hauptmenue", COOP_READY_Title }, { "Schnappschuss", COOP_READY_Trace },
+            { "Esc-Hauptmenue", COOP_READY_Title },
             { "Welt-Abgleich", COOP_READY_World }, { "Kampf-Erweiterungen", COOP_READY_HooksExt },
             { "Haken-Reihenfolge (Othello)", COOP_READY_HookOrder },
         };

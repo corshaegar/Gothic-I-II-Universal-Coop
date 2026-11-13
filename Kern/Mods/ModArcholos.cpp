@@ -1,5 +1,6 @@
 // The Chronicles of Myrtana: Archolos - Mod-Profil COOP_PROFILE_ARCHOLOS (docs\MODULE.md, docs\mod-analyse\Archolos-durchsicht.md).
 // Archolos startet ohne -game: seine Mod-Dateien (KM_*.mod) liegen direkt in Data\ - erkannt an Data\KM_Scripts.mod (Mods\CoopModList.h).
+// u254 (P305): aus Steam startet es mit -game:TheChroniclesOfMyrtana.ini - die Datei zaehlt auch dann.
 // Allgemeines aus Archolos liegt im Fundament: P233 (Menue-Raster aus MENU_MAIN_Y/MENU_MAIN_DY, CoopMenuInject.cpp), P234 (Heldenwerte als
 // lokale Variable einer Funktion, CoopDialogSync.cpp), P235 (Ikarus-Teleport von NPCs beim Client, CoopDialogSync.cpp), P236 (gleichzeitige
 // Aenderung eines Werts - der Host behaelt seinen). Archolos bringt Ikarus und LeGo 2.7.0 mit - P177 (LeGo-Haken vor GT) gilt.

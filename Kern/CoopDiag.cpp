@@ -12,7 +12,7 @@ namespace GOTHIC_ENGINE {
     // mit einem unbekannten Namen verwirft ProcessCoopPacket kommentarlos.
     // Ausgabe:
     //   system\GothicCoopOthello.log   Zusammenfassung alle 30 s, unbekannte Paket-Namen
-    //   system\GothicCoopNpcNames.log  jeder vergebene Name mit Instanz, Wegpunkt, Position
+    //   system\GothicCoopNpcNames.log  jeder vergebene Name mit Instanz, Wegpunkt, Position (u253, P304: nur im Entwicklungsbau)
 
     enum { TRACE_SENT, TRACE_RECV, TRACE_APPLIED, TRACE_SKIPPED, TRACE_KINDS };
 
@@ -53,31 +53,11 @@ namespace GOTHIC_ENGINE {
         return b.used++ < perMinute;
     }
 
-    static void DiagNameLog(const char* fmt, ...) {
-        if (CoopWpIsWorld())
-            return;   // u33: Weltprozess - die Datei gehoert dem Hauptspiel
-        CoopLogArchiveOnce();   // v35
-        FILE* f = fopen("system\\GothicCoopNpcNames.log", "a");
-        if (!f)
-            return;
-        va_list ap;
-        va_start(ap, fmt);
-        vfprintf(f, fmt, ap);
-        va_end(ap);
-        fputc('\n', f);
-        fclose(f);
-    }
 
-    // Aus BuildGlobalNpcList: jeder neu vergebene Name.
+    // Aus BuildGlobalNpcList: jeder neu vergebene Name. u253 (P304): im oeffentlichen Bau nichts - beim Laden und Verbinden schrieb
+    // jeder PC 1000 bis 1600 Zeilen in einem einzigen Bild, jede mit eigenem Oeffnen und Schliessen der Datei.
     void CoopDiagNameAssigned(string uniqueName, oCNpc* npc, bool firstRun) {
-        if (!npc || DiagNamesLogged >= 6000)
-            return;
-        DiagNamesLogged++;
-        zVEC3 p = npc->GetPositionWorld();
-        DiagNameLog("%lld\t%s\t%s\t%s\twp=%s\t%.0f %.0f %.0f\t%s",
-            DiagSeconds(), DiagRole(), zSTRING(uniqueName).ToChar(),
-            npc->GetInstanceName().ToChar(), npc->wpname.ToChar(),
-            p.n[0], p.n[1], p.n[2], firstRun ? "erster-Lauf" : "spaeter");
+        (void)uniqueName; (void)npc; (void)firstRun;
     }
 
     // Aus BuildGlobalNpcList: ein Durchlauf ist fertig.
