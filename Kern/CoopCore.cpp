@@ -9,7 +9,7 @@ namespace GOTHIC_ENGINE {
     // OthelloCompatLog/DiagSeconds nicht (Plan Phase 1, Schritt 1). Hier steht nur engine-neutraler Code (Windows-Aufrufe,
     // keine Engine-Stelle); Othello-Eigenes bleibt in OthelloCompat.cpp.
 
-#define COOP_FASSUNG "u254"
+#define COOP_FASSUNG "u273"
 
     // Auswahl je Engine, z. B. Adressen: COOP_ENGINE_SWITCH(G1, G1A, G2, G2A). ENGINE wird erst an der Stelle des Gebrauchs
     // eingesetzt - in Mehr-Engine-Builds (MP x2/x4) bindet Interface.cpp Sources.h je Engine neu ein.
@@ -693,18 +693,44 @@ namespace GOTHIC_ENGINE {
         return &cs;
     }
 
+    // u255 (P307): Das Log bleibt fuer die ganze Sitzung offen. Bis u254 oeffnete und schloss jede Zeile die Datei neu - dasselbe Muster,
+    // das P304 beim Schnappschuss abgeschaltet hat (auf einem PC, dessen Virenscanner jede geschlossene Datei prueft, kostet jedes Schliessen
+    // eine Pruefung der ganzen Datei; nach dem Laden kommen Dutzende Zeilen in einem Bild). Jede Zeile geht weiter sofort an Windows (fflush),
+    // ein Absturz oder Beenden verliert also nichts. Andere Schreiber (Selbstpruefung, Kopfzeile) haengen wie bisher mit eigenem "a" an
+    // ("a" schreibt immer ans Ende); Lesen und Anhaengen anderer bleibt erlaubt (fopen teilt Lesen und Schreiben). Schlaegt ein Schreiben
+    // fehl, wieder je Zeile wie bisher (nach drei Fehlern bleibt es dabei). Allgemein (Windows).
+    static FILE* CoopMainLogFile = NULL;
     static void OthelloCompatLog(const char* fmt, ...) {
         EnterCriticalSection(OthelloCompatLogLock());
         CoopLogArchiveOnce();   // v35: vorige Sitzung zuerst archivieren
         static const std::string path = CoopSystemFile(CoopLogMainName());   // v98 (A15): auch vor dem Ordnerwechsel
-        FILE* f = fopen(path.c_str(), "a");
+        static int openFails = 0;
+        FILE* f = CoopMainLogFile;
+        bool keep = f != NULL;
+        if (!f) {
+            f = fopen(path.c_str(), "a");   // MSVC: geteilt wie _SH_DENYNO
+            if (f && openFails < 3) {
+                CoopMainLogFile = f;
+                keep = true;
+            }
+            else if (!f)
+                openFails++;
+        }
         if (f) {
             va_list ap;
             va_start(ap, fmt);
             vfprintf(f, fmt, ap);
             va_end(ap);
             fputc('\n', f);
-            fclose(f);
+            if (keep) {
+                if (fflush(f) != 0) {   // Schreibfehler (Datei weg, Platte voll): ab jetzt wieder je Zeile oeffnen
+                    fclose(f);
+                    CoopMainLogFile = NULL;
+                    openFails++;
+                }
+            }
+            else
+                fclose(f);
         }
         LeaveCriticalSection(OthelloCompatLogLock());
     }

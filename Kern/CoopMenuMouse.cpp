@@ -400,7 +400,29 @@ namespace GOTHIC_ENGINE {
                 }
             }
         }
-        return -1;
+        // u267 (P326, Nutzer 15.11.: "in den Othello Einstellungen fuer Steuerung kann man die einzelnen Zeilen nicht anklicken"): kein
+        // Eintrag unter dem Zeiger bzw. ein Wertefeld, dessen Beschriftung nicht direkt davor in der Liste steht (Othellos Tastenmenue) - dann
+        // gilt der waehlbare Eintrag derselben Zeile (Hoehe ueberlappt), bei mehreren der waagrecht naechste; ein Wertefeld (Eingabe, Auswahl,
+        // Regler) unter dem Zeiger in dieser Zeile wird valueIdx
+        int best = -1, bestDx = 0x7FFFFFFF, under = -1;
+        for (int i = 0; i < n; i++) {
+            zCMenuItem* it = menu->m_listItems[i];
+            if (!it || !it->ondesk || it->psizey <= 0 || y < it->pposy || y >= it->pposy + it->psizey)
+                continue;
+            if (!it->GetIsSelectable()) {
+                if (MouseInRect(it, x, y) && (it->m_parType == MENU_ITEM_INPUT || it->m_parType == MENU_ITEM_CHOICEBOX || it->m_parType == MENU_ITEM_SLIDER))
+                    under = i;
+                continue;
+            }
+            const int dx = x < it->pposx ? it->pposx - x : (x >= it->pposx + it->psizex ? x - (it->pposx + it->psizex) + 1 : 0);
+            if (dx < bestDx) {
+                bestDx = dx;
+                best = i;
+            }
+        }
+        if (best >= 0 && under >= 0)
+            valueIdx = under;
+        return best;
     }
 
     static void MouseBrowseSound() {

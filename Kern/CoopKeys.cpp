@@ -526,9 +526,11 @@ namespace GOTHIC_ENGINE {
         }
         l.push_back(std::string());
         l.push_back(CoopTr("Mitspieler-Anzeige: Einstellungen > COOP.", "Partner display: Settings > COOP."));
+        l.push_back(CoopTr("Coop-Inventar: Rechtsklick legt ein St\xFC" "ck hin\xFC" "ber,", "Coop inventory: right-click moves one item,"));   // u272
+        l.push_back(CoopTr("   gehalten mehr - Tab wechselt das Fenster.", "   hold for more - Tab switches the window."));
         l.push_back(std::string(CoopTr("Bewusstlos? Hingehen, ", "Knocked out? Walk over, ")) + K(CK_REVIVE) + CoopTr(", 10 s stehen.", ", stand 10 s."));
         l.push_back(CoopTr("Speichern und Laden: der Host f\xFC" "r beide.", "Saving and loading: the host for both."));
-        l.push_back(std::string(CoopTr("Als Client h\xE4lt ", "As client, ")) + K(CK_JOIN) + CoopTr(" den Abgleich an.", " pauses the sync."));
+        l.push_back(std::string(CoopTr("Als Client h\xE4lt ", "As client, ")) + K(CK_JOIN) + CoopTr(" die Synchronisierung an.", " pauses the sync."));
         l.push_back(std::string(CoopTr("Probleme: ", "Problems: ")) + K(CK_SYNC) + CoopTr(" Welt abgleichen,", " resync world,"));
         l.push_back(CoopTr("   \xE4ltere St\xE4nde: Esc > Spielstand w\xE4hlen.", "   older saves: Esc > Choose save."));   // u237: statt der F9-Liste
     }

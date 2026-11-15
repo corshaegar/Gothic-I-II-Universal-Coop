@@ -109,6 +109,17 @@ namespace GOTHIC_ENGINE {
     static int TruheTasteIdx = -1;
     static long long TruheTasteLesenMs = 0;
     static bool TruheTasteWar = false;
+    // u265 (P321): Coop-Inventar mit dem Inventar (Gothic.ini [GOTHICCOOP] coopInvMitInventar, Vorgabe 1)
+    static bool TruheMitInv = false;          // das offene Fenster gehoert zum Inventar (passiv daneben)
+    static bool TruheMitInvWill = false;      // Inventar ging auf - Inventar zu, im naechsten Bild beide oeffnen
+    static bool TruheInvWarOffen = false;     // Inventar im letzten Takt offen (Flanke)
+    static bool TruheSchliesstSelbst = false; // u270 (P335): GT schliesst die Coop-Truhe selbst (TruheSchliessenHier) - nie verhindern
+    static int TruheMitInvOpt = 1;
+    static long long TruheMitInvLesenMs = 0;
+    static long long TruheEinloesenMs = 0;    // u265 (P322): Munition/Schluessel/Dietrich aus dem Coop-Inventar, Takt
+    // u266 (P324): selbst aus dem Coop-Inventar Genommenes (Instanz -> Menge, Zeit) - solche Quest-Gegenstaende bleiben im eigenen Inventar
+    struct CoopTruheGenommen { int menge = 0; long long ms = 0; };
+    static std::map<std::string, CoopTruheGenommen> TruheSelbstGenommen;
 
     static void TruheLog(const char* fmt, ...) {
         char buf[900];
@@ -375,6 +386,15 @@ namespace GOTHIC_ENGINE {
             return;
         const CoopTruheBestand d = TruheDiff(TruheBekannt, jetzt);
         TruheBekannt = jetzt;
+        // u266 (P324): was hier herausging (Klick, Einloesen, Skript), merken - so genommene Quest-Gegenstaende bleiben im eigenen Inventar
+        for (const auto& e : d)
+            if (e.second < 0) {
+                CoopTruheGenommen& g = TruheSelbstGenommen[e.first];
+                if (GetCurrentMs() > g.ms + 10000)
+                    g.menge = 0;
+                g.menge -= e.second;
+                g.ms = GetCurrentMs();
+            }
         if (!TruheCoop())
             return;
         if (ServerThread) {
@@ -496,14 +516,56 @@ namespace GOTHIC_ENGINE {
         TruheLog("der Host hatte es nicht mehr - aus dem Inventar zurueckgegeben: %s", shown.c_str());
     }
 
+    // u265 (P321): Einstellung (je 2 s gelesen)
+    static bool TruheMitInvAn() {
+        const long long now = GetCurrentMs();
+        if (zoptions && now > TruheMitInvLesenMs + 2000) {
+            TruheMitInvLesenMs = now;
+            TruheMitInvOpt = zoptions->ReadInt(zSTRING("GOTHICCOOP"), "coopInvMitInventar", 1);
+        }
+        return TruheMitInvOpt != 0;
+    }
+
+    // u265 (P321): im Gespraech (auch Handel) nicht mit dem Inventar oeffnen
+    static bool TruheImGespraech() {
+        oCInformationManager& im = oCInformationManager::GetInformationManager();
+        return im.Npc && !im.IsDone;
+    }
+
+    // u265 (P321), u266 (P323): Fokus. Das Coop-Fenster bleibt nicht passiv - wie bei einer Truhe wechseln Tab und die Coop-Taste zwischen
+    // den Fenstern, Esc schliesst. Dass Aktion, Linksklick und Alt im eigenen Inventar anlegen, benutzen bzw. wegwerfen, regelt der Haken
+    // auf oCNpcInventory::HandleEvent (Coop-Fenster nur waehrend dieses Aufrufs passiv - die Engine sieht dann kein Nachbarfenster)
+    static void TruheFokusInventar(oCMobContainer* c) {
+        if (!c || !c->items || !player)
+            return;
+        if (c->items->IsActive())
+            c->items->Deactivate();
+        c->items->passive = TruheMitInvAn() ? TRUE : FALSE;   // u272 (P337): mit der Einstellung kein Fenster daneben fuer die Engine
+        if (!player->inventory2.IsActive())
+            player->inventory2.Activate();
+    }
+
+    static void TruheFokusTruhe(oCMobContainer* c) {
+        if (!c || !c->items || !player)
+            return;
+        c->items->passive = FALSE;
+        if (player->inventory2.IsActive())
+            player->inventory2.Deactivate();
+        c->items->Activate();
+    }
+
     static void TruheSchliessenHier(const char* why) {
         oCMobContainer* c = TruheObj();
         if (!c || !TruheOffenHier)
             return;
         TruhePruefeHier();   // letzte Aenderungen im Fenster
         TruheOffenHier = false;
-        if (c->items && player)
+        TruheMitInv = false;   // u265 (P321)
+        if (c->items && player) {
+            TruheSchliesstSelbst = true;   // u270 (P335)
             c->Close(player);
+            TruheSchliesstSelbst = false;
+        }
         TruheLog("geschlossen (%s) - %d Gegenstaende", why, TruheAnzahl(TruheBekannt));
         if (TruheTestZuMs) {
             TruheTestZuMs = 0;
@@ -530,9 +592,15 @@ namespace GOTHIC_ENGINE {
         TruheOffenHier = true;
         TruheInvGesehen = false;
         if (!c->items) {
+            TruheMitInvWill = false;
             TruheSchliessenHier("Fenster kam nicht");
             return;
         }
+        // u265 (P321): mit dem Inventar geoeffnet - Coop-Fenster passiv daneben, das eigene Inventar bleibt bedienbar wie immer
+        TruheMitInv = TruheMitInvWill;
+        TruheMitInvWill = false;
+        if (TruheMitInv)
+            TruheFokusInventar(c);
 #if ENGINE >= Engine_G2
         // u102 (P124, Nutzer: "man kann noch einen Namen hinzufügen wie beim Handeln mit NPCs, zb "Brian""): Titel ueber dem Fenster.
         // G2A oCMobContainer::Open gibt dem Fenster oCMOB::GetName (Skript-Symbol, hier leer); oCItemContainer::SetName (0x00704F60)
@@ -664,21 +732,282 @@ namespace GOTHIC_ENGINE {
         Ivk_oCItem_Dtor_Coop(_this);
     }
 
+    bool CoopIstTeleportRune(oCItem* it);   // u272 (P338): CoopTeleport.cpp
+
     // u101 (P123): Hinueberschieben aus dem eigenen Inventar bei offenem Coop-Inventar - die Coop-Truhe selbst bleibt, wo sie ist
     int __fastcall oCItemContainer_TransferItem_Truhe(oCItemContainer* _this, void* vtable, int a, int b);
     CInvoke<int(__thiscall*)(oCItemContainer*, int, int)> Ivk_oCItemContainer_TransferItem_Truhe(CoopAddr::oCItemContainer_TransferItem,
         &oCItemContainer_TransferItem_Truhe, COOP_IVK(Save));
     int __fastcall oCItemContainer_TransferItem_Truhe(oCItemContainer* _this, void* vtable, int a, int b) {
-        if (_this && player && TruheOffenHier && _this == &player->inventory2 && TruheIstGegenstand(_this->GetSelectedItem())) {
+        // u272 (P338, Nutzer 15.11.: "es sollte nicht moeglich sein die Teleport rune aus dem Inventar zu entfernen weder boden schmeissen,
+        // noch in truhe legen"): die Teleport-Rune geht in kein anderes Fenster (Truhe, Coop-Inventar, Pluendern)
+        if (_this && player && _this == &player->inventory2 && CoopIstTeleportRune(_this->GetSelectedItem())) {
             const long long now = GetCurrentMs();
             if (now > TruheSelbstMeldungMs + 2000) {
                 TruheSelbstMeldungMs = now;
-                ChatLog(CoopTr("Das Coop-Inventar kann nicht in sich selbst.", "The coop inventory cannot go into itself."), zCOLOR(255, 200, 80, 255));
-                TruheLog("Coop-Truhe sollte in sich selbst - nicht verschoben");
+                ChatLog(CoopTr("Die Teleport-Rune bleibt im Inventar.", "The teleport rune stays in your inventory."), zCOLOR(255, 200, 80, 255));
+                TruheLog("Teleport-Rune sollte in ein anderes Fenster - nicht verschoben (P338)");
+            }
+            return FALSE;
+        }
+        // u266 (P323, Nutzer 15.11.: "man soll das Coop inventar nicht wegschmeissen koennen"): die Coop-Truhe geht in kein anderes Fenster
+        // (Coop-Inventar, Truhe der Welt, Pluendern) - vorher nur bei offenem Coop-Inventar gesperrt
+        if (_this && player && _this == &player->inventory2 && TruheIstGegenstand(_this->GetSelectedItem())) {
+            const long long now = GetCurrentMs();
+            if (now > TruheSelbstMeldungMs + 2000) {
+                TruheSelbstMeldungMs = now;
+                ChatLog(CoopTr("Das Coop-Inventar bleibt bei dir.", "The coop inventory stays with you."), zCOLOR(255, 200, 80, 255));
+                TruheLog("Coop-Truhe sollte in ein anderes Fenster - nicht verschoben");
             }
             return FALSE;
         }
         return Ivk_oCItemContainer_TransferItem_Truhe(_this, a, b);
+    }
+
+    // u266 (P323): Meldung (Chat hoechstens alle 2 s)
+    static void TruheMeldungBleibt() {
+        const long long now = GetCurrentMs();
+        if (now > TruheSelbstMeldungMs + 2000) {
+            TruheSelbstMeldungMs = now;
+            ChatLog(CoopTr("Das Coop-Inventar bleibt bei dir.", "The coop inventory stays with you."), zCOLOR(255, 200, 80, 255));
+            TruheLog("Coop-Truhe sollte weg (wegwerfen bzw. in ein anderes Fenster) - bleibt");
+        }
+    }
+
+    // u266 (P323, Nutzer 15.11.: "wieso denn den ganzen stapel"): Rechtsklick wie der Linksklick bei einer Truhe - ein Stueck je Klick,
+    // gedrueckt halten legt nach und nach mehr hinueber (Zaehler der Engine; G2: bei einem neuen Druck von vorn). Rueckgabe: Taste fuers
+    // Original
+    static int TruheWieLinksklick(oCItemContainer* f) {
+#if ENGINE >= Engine_G2
+        if (f && zinput->KeyToggled(MOUSE_BUTTONRIGHT))
+            f->TransferCount = 0;
+#endif
+        return MOUSE_BUTTONLEFT;
+    }
+
+    // u268 (P332, Nutzer 15.11. zu u267 in Othello: "rechtsclick schliesst nicht mehr das inventar aber das coop inventar und reingelegt
+    // wird auch nichts"): der Rechtsklick legt selbst hinueber bzw. nimmt selbst heraus - ohne die Engine, deren Truhen-Klick unter
+    // Gothic 1 anders laeuft (sie schloss das Coop-Fenster). Welches Fenster gemeint ist, sagt der Fokus. Ein Stueck je Klick, gehalten
+    // nach 0,45 s fortlaufend (CoopTruhePulse)
+    static long long TruheRechtsWeiterMs = 0;
+    static bool TruheRechtsFrei = true;
+    static int TruheRechtsZahl = 0;
+
+    // u269 (P333, Nutzer 15.11. zu u268 in Othello: "immernoch das selbe ausserdem laggt das spiel jetzt sobald man rechtsclick drueckt",
+    // "es koennte an GRawInput liegen"): Othello liefert der Engine keine Maustasten-Ereignisse - der Puls erkennt den Rechtsklick
+    // selbst. Dazu Diagnose: wer will das Coop-Fenster bzw. das Inventar schliessen, welche Tasten kommen an
+    static bool TruheRechtsWar = false;          // rechte Maustaste im letzten Takt gedrueckt
+    static long long TruheRechtsDruckMs = 0;     // Zeit des letzten Drucks
+    static int TruheRechtsWiederAuf = 0;         // Coop-Fenster in diesem Druck wieder geoeffnet
+    static int TruheZuVerhindert = 0;            // CloseInventory in diesem Druck verhindert
+    static bool TruheRechtsAusCoop = false;      // u271 (P336): Coop-Fenster hatte beim Druck den Fokus (Richtung fuer den ganzen Druck)
+    static bool TruheTabZuCoop = false;          // u272 (P337): Tab im Inventar - der Puls wechselt ins Coop-Fenster
+    static long long TruheDiagMs = 0;            // Diagnosezeilen hoechstens alle 300 ms
+
+    static bool TruheRechtsGedrueckt() {
+        return zinput && (zinput->GetMouseButtonPressedRight() || zinput->KeyPressed(MOUSE_BUTTONRIGHT));
+    }
+
+    static std::string TruheAufrufer(const void* ret) {
+        char m[160];
+        CoopModuleOf(ret, m, sizeof(m));
+        return m[0] ? std::string(m) : std::string("?");
+    }
+
+    static bool TruheDiagJetzt() {
+        const long long now = GetCurrentMs();
+        if (now - TruheDiagMs < 300)
+            return false;
+        TruheDiagMs = now;
+        return true;
+    }
+
+    static bool TruheRechtsEinStueck(bool ausCoop) {
+        oCMobContainer* c = TruheOffenHier ? TruheObj() : NULL;
+        if (!c || !c->items || !player || !parser)
+            return false;
+        if (ausCoop) {   // Coop-Fenster hatte beim Druck den Fokus: ein Stueck heraus (u271: Richtung vom Druck, P336)
+            oCItem* sel = c->items->GetSelectedItem();
+            if (!sel)
+                return false;
+            const int idx = sel->GetInstance();
+            const std::string inst = CoopItemInst(sel);
+            TruhePruefeHier();
+            const int r = -TruheAendernHier(inst, -1);
+            TruhePruefeHier();
+            if (r <= 0)
+                return false;
+            if (oCItem* it = CreateCoopItem(idx)) {
+                it->amount = 1;
+                WorldSyncApplying++;
+                player->PutInInv(it);
+                WorldSyncApplying--;
+            }
+            return true;
+        }
+        oCItem* sel = player->inventory2.GetSelectedItem();   // eigenes Inventar hat den Fokus: ein Stueck hinein
+        if (!sel)
+            return false;
+        if (sel->HasFlag(ITM_FLAG_ACTIVE)) {
+            ChatLog(CoopTr("Angelegte Gegenst" "\xE4" "nde erst ablegen.", "Unequip items first."), zCOLOR(255, 200, 80, 255));
+            return false;
+        }
+        if (TruheIstGegenstand(sel)) {
+            TruheMeldungBleibt();
+            return false;
+        }
+        if (CoopIstTeleportRune(sel)) {   // u272 (P338): die Teleport-Rune bleibt im Inventar
+            ChatLog(CoopTr("Die Teleport-Rune bleibt im Inventar.", "The teleport rune stays in your inventory."), zCOLOR(255, 200, 80, 255));
+            return false;
+        }
+        const std::string inst = CoopItemInst(sel);
+        TruhePruefeHier();
+        WorldSyncApplying++;
+        oCItem* r = player->RemoveFromInv(sel, 1);
+        if (r)
+            ogame->GetGameWorld()->RemoveVob(r);
+        WorldSyncApplying--;
+        if (r)
+            TruheAendernHier(inst, 1);
+        TruhePruefeHier();
+        return r != NULL;
+    }
+
+    // ein Druck = ein Stueck; weitere Ereignisse desselben Drucks zaehlen nicht (CoopTruhePulse gibt nach dem Loslassen frei). Rueckgabe
+    // TRUE fuer die Haken: der Klick ist verbraucht, nichts schliesst
+    static int TruheRechtsKlick(const char* wo) {
+        if (!TruheRechtsFrei)
+            return TRUE;
+        TruheRechtsFrei = false;
+        TruheRechtsZahl = 0;
+        TruheRechtsWeiterMs = GetCurrentMs() + 450;
+        oCMobContainer* c = TruheObj();
+        const int coopAktiv = c && c->items && c->items->IsActive() ? 1 : 0;
+        TruheRechtsAusCoop = coopAktiv != 0;   // u271 (P336)
+        const bool ok = TruheRechtsEinStueck(TruheRechtsAusCoop);
+        TruheLog("Rechtsklick (%s): Coop-Fenster aktiv %d - %s (P332)", wo, coopAktiv, ok ? "ein Stueck hinueber" : "nichts");
+        return TRUE;
+    }
+
+    // u266 (P323, Nutzer 15.11.: "man soll das Coop inventar nicht wegschmeissen koennen", "Alt ist die taste fuer wegschmeissen,
+    // vielleicht solltest du irgendwie rechtsclick fuer legen ins coop inventar nutzen", "das inventar sollte sich nicht schliessen
+    // koennen mit rechtsclick"): eigenes Inventar. Alt auf die Coop-Truhe wirft sie nie weg (immer). Bei offenem Coop-Inventar legt der
+    // Rechtsklick hinueber wie der Linksklick bei einer Truhe und schliesst nichts; angelegte Gegenstaende bleiben (Meldung). Mit dem
+    // Coop-Inventar daneben (Einstellung) wirken Aktion, Linksklick und Alt wie im Inventar allein (anlegen bzw. benutzen, Alt wirft weg):
+    // das Coop-Fenster ist dafuer waehrend des Aufrufs passiv. Tab wechselt wie bei jeder Truhe (Original)
+    int __fastcall oCNpcInventory_HandleEvent_Truhe(oCNpcInventory* _this, void* vtable, int key);
+    CInvoke<int(__thiscall*)(oCNpcInventory*, int)> Ivk_oCNpcInventory_HandleEvent_Truhe(CoopAddr::oCNpcInventory_HandleEvent,
+        &oCNpcInventory_HandleEvent_Truhe, COOP_IVK(Save));
+    int __fastcall oCNpcInventory_HandleEvent_Truhe(oCNpcInventory* _this, void* vtable, int key) {
+        // u269 (P333): Diagnose - welche Taste kommt bei gedrueckter Maustaste an (Othello/GRawInput)?
+        if (TruheOffenHier && zinput && player && _this == &player->inventory2
+            && (zinput->GetMouseButtonPressedRight() || zinput->GetMouseButtonPressedLeft()) && TruheDiagJetzt())
+            TruheLog("Ereignis im Inventar bei gedrueckter Maustaste (links %d, rechts %d): Taste %d, aktiv %d (P333)",
+                zinput->GetMouseButtonPressedLeft(), zinput->GetMouseButtonPressedRight(), key, (int)_this->IsActive());
+        // u267 (P331): Diagnose - kommt der Rechtsklick hier an, und in welchem Zustand?
+        if (key == MOUSE_BUTTONRIGHT && player && _this == &player->inventory2 && zinput && zinput->KeyToggled(MOUSE_BUTTONRIGHT))
+            TruheLog("Rechtsklick im Inventar: aktiv %d, Coop-Fenster %d, mit Inventar %d (P331)", (int)_this->IsActive(), (int)TruheOffenHier, (int)TruheMitInv);
+        // u268 (P332): bei offenem Coop-Fenster legt der Rechtsklick selbst hinueber bzw. nimmt heraus - auch wenn gerade das Coop-Fenster
+        // den Fokus hat und die Engine das Ereignis hier zuerst abliefert
+        if (key == MOUSE_BUTTONRIGHT && player && _this == &player->inventory2 && TruheOffenHier && TruheObj() && TruheObj()->items)
+            return TruheRechtsKlick("Inventar");
+        if (_this && player && _this == &player->inventory2 && zinput && _this->IsActive()) {
+            oCItem* sel = _this->GetSelectedItem();
+            const bool alt = zinput->IsBinded(GAME_SMOVE, (unsigned short)key) != 0;
+            if (alt && TruheIstGegenstand(sel)) {
+                if (zinput->GetToggled(GAME_SMOVE))
+                    TruheMeldungBleibt();
+                return TRUE;
+            }
+            oCMobContainer* c = TruheOffenHier ? TruheObj() : NULL;
+            if (c && c->items) {
+                if (TruheMitInvAn() && (alt || key == MOUSE_BUTTONLEFT || zinput->IsBinded(GAME_ACTION, (unsigned short)key))) {
+                    const int warPassiv = c->items->passive;   // u272 (P337): mit Inventar-Fokus haelt der Puls es ohnehin passiv
+                    c->items->passive = TRUE;
+                    // u269 (P334, Nutzer 15.11.: "der linksclick legt jetzt das item ins inventar sodass man es nicht verwenden kann"):
+                    // Gothic 1 legt trotz passiv hinueber - fuer diesen Aufruf steht das Coop-Fenster auch nicht in der Liste der offenen
+                    // Fenster (GetNextContainerLeft findet es dann nicht), danach wieder hinein
+                    oCItemContainer* ci = c->items;
+                    const bool drin = oCItemContainer::contList.IsInList(ci) != 0;
+                    if (drin)
+                        oCItemContainer::contList.Remove(ci);
+                    const int r = Ivk_oCNpcInventory_HandleEvent_Truhe(_this, key);
+                    if (drin && CoopTruheObj && CoopTruheObj->items == ci && ci->IsOpen() && !oCItemContainer::contList.IsInList(ci))
+                        oCItemContainer::contList.Insert(ci);
+                    if (c->items)
+                        c->items->passive = warPassiv;
+                    return r;
+                }
+            }
+            // u267 (P331, Nutzer 15.11.: "rechtsclick schliesst immernoch das inventar"): mit der Einstellung schliesst der Rechtsklick
+            // das Inventar nie - auch ohne Coop-Fenster daneben (allein gespielt, noch nicht verbunden)
+            if (key == MOUSE_BUTTONRIGHT && TruheMitInvAn())
+                return TRUE;
+        }
+        return Ivk_oCNpcInventory_HandleEvent_Truhe(_this, key);
+    }
+
+    // u266 (P323, Nutzer 15.11.: "im coop inventar ist es dann egal ob man links click oder rechtsclick drueckt"): im Coop-Fenster nimmt
+    // auch der Rechtsklick heraus - wie der Linksklick (ein Stueck, gehalten mehr) - und schliesst nichts (die Engine schloss mit
+    // Rechtsklick Fenster und Inventar)
+    int __fastcall oCItemContainer_HandleEvent_Truhe(oCItemContainer* _this, void* vtable, int key);
+    CInvoke<int(__thiscall*)(oCItemContainer*, int)> Ivk_oCItemContainer_HandleEvent_Truhe(CoopAddr::oCItemContainer_HandleEvent,
+        &oCItemContainer_HandleEvent_Truhe, COOP_IVK(Save));
+    int __fastcall oCItemContainer_HandleEvent_Truhe(oCItemContainer* _this, void* vtable, int key) {
+        // u269 (P333): Diagnose wie im Inventar
+        if (TruheOffenHier && zinput && CoopTruheObj && _this == CoopTruheObj->items
+            && (zinput->GetMouseButtonPressedRight() || zinput->GetMouseButtonPressedLeft()) && TruheDiagJetzt())
+            TruheLog("Ereignis im Coop-Fenster bei gedrueckter Maustaste (links %d, rechts %d): Taste %d, aktiv %d (P333)",
+                zinput->GetMouseButtonPressedLeft(), zinput->GetMouseButtonPressedRight(), key, (int)_this->IsActive());
+        // u268 (P332): Rechtsklick im bzw. am Coop-Fenster - ob es den Fokus hat oder nicht - legt selbst hinueber bzw. nimmt heraus und
+        // schliesst nichts (unter Gothic 1 schloss die Engine das Fenster)
+        if (_this && player && key == MOUSE_BUTTONRIGHT && CoopTruheObj && _this == CoopTruheObj->items && TruheOffenHier)
+            return TruheRechtsKlick("Coop-Fenster");
+        return Ivk_oCItemContainer_HandleEvent_Truhe(_this, key);
+    }
+
+    // u267 (P331, Nutzer 15.11.: "rechtsclick schliesst immernoch das inventar"): schliesst ein anderer Weg das Inventar am Coop-Haken
+    // vorbei (Maussteuerung einer Mod, Engine ausserhalb von HandleEvent), bleibt es mit der Einstellung offen, solange die rechte
+    // Maustaste gedrueckt ist. Gespraech und Tod schliessen weiter
+    void __fastcall oCNpc_CloseInventory_Truhe(oCNpc* _this, void* vtable);
+    CInvoke<void(__thiscall*)(oCNpc*)> Ivk_oCNpc_CloseInventory_Truhe(CoopAddr::oCNpc_CloseInventory, &oCNpc_CloseInventory_Truhe,
+        COOP_IVK(Save));
+    void __fastcall oCNpc_CloseInventory_Truhe(oCNpc* _this, void* vtable) {
+        // u272 (P337): Tab (GAME_INVENTORY) im eigenen Inventar bei offenem, passivem Coop-Fenster - die Engine sieht kein Fenster daneben
+        // und will das Inventar schliessen; statt dessen wechselt der Fokus ins Coop-Fenster (im Puls, nicht mitten in den Ereignissen)
+        if (_this && _this == player && zinput && TruheOffenHier && TruheMitInvAn() && zinput->GetState(GAME_INVENTORY) > 0.0f
+            && !TruheImGespraech() && !_this->IsDead()) {
+            oCMobContainer* tc = TruheObj();
+            if (tc && tc->items && tc->items->IsOpen() && !tc->items->IsActive()) {
+                TruheTabZuCoop = true;
+                return;
+            }
+        }
+        if (_this && _this == player && zinput && TruheMitInvAn() && TruheRechtsGedrueckt() && !TruheImGespraech()
+            && !_this->IsDead()) {
+            if (++TruheZuVerhindert == 1)   // u269 (P333): einmal je Druck, mit Aufrufer
+                TruheLog("Inventar schliessen bei Rechtsklick verhindert, Aufrufer %s (P331)", TruheAufrufer(_ReturnAddress()).c_str());
+            return;
+        }
+        Ivk_oCNpc_CloseInventory_Truhe(_this);
+    }
+
+    // u268 (P332): schliesst ein anderer Weg das Coop-Fenster beim Rechtsklick (Engine bzw. Mod ausserhalb von HandleEvent), bleibt es
+    // offen, und der Klick legt hinueber bzw. nimmt heraus wie oben. Laden, Gespraech und Tod schliessen weiter
+    void __fastcall oCItemContainer_Close_Truhe(oCItemContainer* _this, void* vtable);
+    CInvoke<void(__thiscall*)(oCItemContainer*)> Ivk_oCItemContainer_Close_Truhe(CoopAddr::oCItemContainer_Close, &oCItemContainer_Close_Truhe,
+        COOP_IVK(Save));
+    void __fastcall oCItemContainer_Close_Truhe(oCItemContainer* _this, void* vtable) {
+        // u269 (P333): Diagnose - wer schliesst das Coop-Fenster?
+        if (_this && CoopTruheObj && _this == CoopTruheObj->items && TruheOffenHier && TruheDiagJetzt())
+            TruheLog("Coop-Fenster soll schliessen, Aufrufer %s, rechte Maustaste %d (P333)", TruheAufrufer(_ReturnAddress()).c_str(),
+                (int)TruheRechtsGedrueckt());
+        if (_this && player && zinput && CoopTruheObj && _this == CoopTruheObj->items && TruheOffenHier && !IsLoadingLevel
+            && TruheRechtsGedrueckt() && !TruheImGespraech() && !player->IsDead()) {
+            TruheRechtsKlick("Schliessen");
+            return;
+        }
+        Ivk_oCItemContainer_Close_Truhe(_this);
     }
 
     // --- u103 (P125): Gegenstaende im Coop-Inventar zaehlen bei Quests ---
@@ -747,6 +1076,178 @@ namespace GOTHIC_ENGINE {
                 string(name.c_str())), zCOLOR(200, 220, 255, 255));
         TruheLog("%s(Held, %s): %d von %d aus dem Coop-Inventar genommen", wie, inst.c_str(), r, n);
         return r;
+    }
+
+    // u265 (P322, Nutzer 15.11.: "die Items im Coop-Inventar auch fuer andere Sachen einloesbar ... fuer den Bogen"): was die Engine
+    // selbst im eigenen Inventar sucht - Munition der gezogenen Fernkampfwaffe, Schluessel bzw. Dietrich fuer die verschlossene Tuer oder
+    // Truhe im Fokus -, legt GT aus dem Coop-Inventar ins eigene, wenn es dort fehlt (Meldung wie TruheQuestNehmen). Skripte (Erz,
+    // Quest-Gegenstaende) zaehlen das Coop-Inventar seit u103 (P125) ohnehin mit
+    static void TruheInsInventar(int idx, int n, const char* wofuer) {
+        if (idx <= 0 || n <= 0 || !player)
+            return;
+        const int got = TruheQuestNehmen(idx, n, wofuer);
+        if (got <= 0)
+            return;
+        WorldSyncApplying++;
+        int rest = got;
+        while (rest > 0) {
+            oCItem* it = CreateCoopItem(idx);
+            if (!it)
+                break;
+            const bool multi = (it->flags & ITM_FLAG_MULTI) != 0;
+            it->amount = multi ? rest : 1;
+            rest -= it->amount;
+            player->PutInInv(it);
+        }
+        WorldSyncApplying--;
+    }
+
+    static void TruheEinloesen() {
+        if (!player || !parser || !CoopTruheObj || player->IsDead() || player->IsUnconscious() || CoopHeroSwapped())
+            return;
+        // Munition: Bogen links, Armbrust rechts in der Hand (u177), sonst die angelegte Fernkampfwaffe
+        const int fm = (int)player->fmode;
+        if (fm == 5 || fm == 6) {
+            oCItem* w = player->GetSlotItem(zSTRING(fm == 5 ? "ZS_LEFTHAND" : "ZS_RIGHTHAND"));
+            if (!w)
+                w = player->GetEquippedRangedWeapon();
+            const int mun = w ? w->munition : 0;
+            if (mun > 0 && !player->IsInInv(mun, 1)) {
+                const int n = TruheMengeIdx(mun);
+                if (n > 0)
+                    TruheInsInventar(mun, n, "Munition");
+            }
+        }
+        // u267 (P327, Nutzer 15.11.: "die Items im Coop inventar immer zugaenglich halten fuer alle moeglichen aktionen"): Mob im Fokus, das
+        // einen Gegenstand braucht (Amboss, Kochstelle, Alchemietisch ... - oCMobInter::GetUseWithItem), der nur im Coop-Inventar liegt -
+        // ein Stueck ins eigene Inventar
+        if (oCMobInter* mi = zDYNAMIC_CAST<oCMobInter>(player->GetFocusVob())) {
+            const int uw = mi->GetUseWithItem();
+            if (uw > 0 && !player->IsInInv(uw, 1) && TruheMengeIdx(uw) > 0)
+                TruheInsInventar(uw, 1, "Werkbank");
+        }
+        // Schluessel und Dietrich: verschlossene Tuer bzw. Truhe im Fokus
+        oCMobLockable* m = zDYNAMIC_CAST<oCMobLockable>(player->GetFocusVob());
+        if (!m || !m->locked)
+            return;
+        if (!m->keyInstance.IsEmpty()) {
+            const int k = parser->GetIndex(m->keyInstance);
+            if (k > 0 && !player->IsInInv(k, 1) && TruheMengeIdx(k) > 0)
+                TruheInsInventar(k, 1, "Schluessel");
+        }
+        if (!m->pickLockStr.IsEmpty()) {
+            static const char* const dietriche[] = { "ITKE_LOCKPICK", "ITKELOCKPICK" };
+            for (const char* nm : dietriche) {
+                const int d = parser->GetIndex(zSTRING(nm));
+                if (d <= 0)
+                    continue;
+                if (!player->IsInInv(d, 1)) {
+                    const int n = TruheMengeIdx(d);
+                    if (n > 0)
+                        TruheInsInventar(d, n, "Dietrich");
+                }
+                break;
+            }
+        }
+    }
+
+    // --- u267 (P328, Nutzer 15.11.: "Dann koennen wir ja diese Funktion fuer den Handel hinzufuegen"): beim Handeln liegt der Inhalt des
+    // Coop-Inventars voruebergehend im eigenen Inventar (verkaufen, mit Erz bzw. Gold daraus bezahlen); endet der Handel, geht zurueck, was
+    // davon noch da ist (hoechstens die geliehene Menge je Instanz, angelegte nie). Beginn: oCViewDialogTrade::SetNpcRight mit dem eigenen
+    // Helden; Ende: AllDialogsStop, sicherheitshalber auch das Gespraechsende (CoopTruhePulse); beim Laden verworfen (CoopTruheLoadBegin)
+    static CoopTruheBestand TruheHandelGeliehen;
+    static bool TruheHandelAktiv = false;
+
+    static void TruheHandelBeginn() {
+        if (TruheHandelAktiv || !TruheCoop() || !player || !parser || !CoopTruheObj)
+            return;
+        TruhePruefeHier();
+        const CoopTruheBestand b = TruheBekannt;
+        int n = 0;
+        for (const auto& e : b) {
+            const int idx = parser->GetIndex(zSTRING(e.first.c_str()));
+            if (idx <= 0 || e.second <= 0)
+                continue;
+            const int got = -TruheAendernHier(e.first, -e.second);
+            if (got <= 0)
+                continue;
+            WorldSyncApplying++;
+            int rest = got;
+            while (rest > 0) {
+                oCItem* it = CreateCoopItem(idx);
+                if (!it)
+                    break;
+                it->amount = (it->flags & ITM_FLAG_MULTI) ? rest : 1;
+                rest -= it->amount;
+                player->PutInInv(it);
+            }
+            WorldSyncApplying--;
+            TruheHandelGeliehen[e.first] += got;
+            n += got;
+        }
+        TruhePruefeHier();
+        TruheHandelAktiv = true;
+        if (n > 0) {
+            ChatLog(string::Combine(CoopTr("Handel: %i Gegenst" "\xE4" "nde aus dem Coop-Inventar liegen bei dir.", "Trade: %i items from the coop inventory are with you."), n),
+                zCOLOR(200, 220, 255, 255));
+            TruheLog("Handel beginnt: %d Gegenstaende aus dem Coop-Inventar ins eigene (%s) (P328)", n, TruheText(TruheHandelGeliehen).c_str());
+        }
+    }
+
+    static void TruheHandelEnde(const char* why) {
+        if (!TruheHandelAktiv)
+            return;
+        TruheHandelAktiv = false;
+        if (!player || !parser) {
+            TruheHandelGeliehen.clear();
+            return;
+        }
+        int n = 0;
+        for (const auto& e : TruheHandelGeliehen) {
+            const int idx = parser->GetIndex(zSTRING(e.first.c_str()));
+            if (idx <= 0)
+                continue;
+            int moved = 0;
+            WorldSyncApplying++;
+            while (moved < e.second) {
+                oCItem* have = player->IsInInv(idx, 1);
+                if (!have || have->HasFlag(ITM_FLAG_ACTIVE))
+                    break;
+                const int k = (std::min)(e.second - moved, CoopItemAmount(have));
+                oCItem* r = player->RemoveFromInv(have, k);
+                if (r)
+                    ogame->GetGameWorld()->RemoveVob(r);
+                moved += k;
+            }
+            WorldSyncApplying--;
+            if (moved > 0) {
+                TruheAendernHier(e.first, moved);
+                n += moved;
+            }
+        }
+        TruhePruefeHier();
+        TruheLog("Handel endet (%s): %d Gegenstaende zurueck ins Coop-Inventar (P328)", why, n);
+        if (n > 0)
+            ChatLog(string::Combine(CoopTr("Handel beendet: %i Gegenst" "\xE4" "nde zur" "\xFC" "ck ins Coop-Inventar.", "Trade over: %i items back to the coop inventory."), n),
+                zCOLOR(200, 220, 255, 255));
+        TruheHandelGeliehen.clear();
+    }
+
+    void __fastcall oCViewDialogTrade_SetNpcRight_Truhe(oCViewDialogTrade* _this, oCNpc* npc);
+    CInvoke<void(__fastcall*)(oCViewDialogTrade*, oCNpc*)> Ivk_oCViewDialogTrade_SetNpcRight_Truhe(CoopAddr::oCViewDialogTrade_SetNpcRight,
+        &oCViewDialogTrade_SetNpcRight_Truhe, COOP_IVK(Save));
+    void __fastcall oCViewDialogTrade_SetNpcRight_Truhe(oCViewDialogTrade* _this, oCNpc* npc) {
+        if (npc && npc == player && !IsLoadingLevel)
+            TruheHandelBeginn();   // vor dem Original - das Handelsfenster zeigt das Inventar mit den geliehenen Gegenstaenden
+        Ivk_oCViewDialogTrade_SetNpcRight_Truhe(_this, npc);
+    }
+
+    void __fastcall oCViewDialogTrade_AllDialogsStop_Truhe(oCViewDialogTrade* _this);
+    CInvoke<void(__fastcall*)(oCViewDialogTrade*)> Ivk_oCViewDialogTrade_AllDialogsStop_Truhe(CoopAddr::oCViewDialogTrade_AllDialogsStop,
+        &oCViewDialogTrade_AllDialogsStop_Truhe, COOP_IVK(Save));
+    void __fastcall oCViewDialogTrade_AllDialogsStop_Truhe(oCViewDialogTrade* _this) {
+        Ivk_oCViewDialogTrade_AllDialogsStop_Truhe(_this);
+        TruheHandelEnde("Handelsfenster zu");
     }
 
     // Npc_HasItems(npc, inst): eigener Held - das Coop-Inventar zaehlt mit (Rueckgabe des Originals ersetzt)
@@ -844,6 +1345,8 @@ namespace GOTHIC_ENGINE {
         const zSTRING sec("GOTHICCOOP");
         if (zoptions && !zoptions->EntryExists(sec, "coopInvKey"))
             zoptions->WriteInt(sec, "coopInvKey", 1, 0);
+        if (zoptions && !zoptions->EntryExists(sec, "coopInvMitInventar"))   // u265 (P321): Vorgabe an
+            zoptions->WriteInt(sec, "coopInvMitInventar", 1, 0);
     }
 
     // Plugin.cpp, Game_Loop (Tasten, nicht im Gespraech): Taste aus den COOP-Einstellungen (je 2 s gelesen) oeffnet bzw. schliesst
@@ -860,6 +1363,16 @@ namespace GOTHIC_ENGINE {
         if (!CoopKeyHit(CK_INV))
             return;
         if (TruheOffenHier) {
+            // u265 (P321): mit dem Inventar geoeffnet - die Coop-Taste wechselt zwischen eigenem Inventar und Coop-Inventar
+            oCMobContainer* fc = TruheObj();
+            if (TruheMitInv && fc && fc->items && player->inventory2.IsOpen()) {
+                if (fc->items->IsActive())
+                    TruheFokusInventar(fc);
+                else
+                    TruheFokusTruhe(fc);
+                TruheLog("Taste %s - jetzt %s", CoopKeyText(CK_INV).c_str(), fc->items->IsActive() ? "im Coop-Inventar" : "im eigenen Inventar");
+                return;
+            }
             TruheSchliessenHier("Taste");
             return;
         }
@@ -867,6 +1380,10 @@ namespace GOTHIC_ENGINE {
             TruheLog("Taste %s - ein anderes Fenster ist offen (Truhe, Pluendern, Handel) - nicht geoeffnet", CoopKeyText(CK_INV).c_str());
             return;
         }
+        // u266 (P323, Nutzer 15.11.: "dass in dem Modus I genau die selbe Funktion hat"): mit der Einstellung oeffnet die Coop-Taste beides
+        // wie Tab (eigenes Inventar vorn, Coop-Inventar daneben); im offenen Inventar wechselt sie wie Tab
+        if (TruheCoop() && TruheMitInvAn())
+            TruheMitInvWill = true;
         TruheDirekt("Taste");
     }
 
@@ -878,6 +1395,34 @@ namespace GOTHIC_ENGINE {
             return;
         TruheExterneUmleiten();   // u103: einmal, sobald das Spiel laeuft
         const long long now = GetCurrentMs();
+        // u268 (P332): Rechtsklick gehalten - nach 0,45 s weiter ein Stueck nach dem anderen (erst alle 120 ms, ab dem zehnten alle 40 ms);
+        // losgelassen: der naechste Druck zaehlt wieder
+        // u269 (P333): den Druck selbst erkennen - kam kein Ereignis an (Othello), legt der Puls das Stueck hinueber
+        const bool rechts = TruheRechtsGedrueckt();
+        if (rechts && !TruheRechtsWar) {
+            TruheRechtsDruckMs = now;
+            TruheRechtsWiederAuf = 0;
+            TruheZuVerhindert = 0;
+            if (TruheRechtsFrei && TruheOffenHier && player->inventory2.IsOpen())
+                TruheRechtsKlick("Maus");
+        }
+        if (rechts) {
+            // u271 (P336): nur bei offenem Coop-Fenster - geht es kurz zu (Othello), oeffnet der Puls es unten wieder
+            oCMobContainer* rc = TruheOffenHier ? TruheObj() : NULL;
+            if (!TruheRechtsFrei && TruheRechtsWeiterMs && now >= TruheRechtsWeiterMs && rc && rc->items && rc->items->IsOpen()) {
+                TruheRechtsZahl++;
+                TruheRechtsWeiterMs = TruheRechtsEinStueck(TruheRechtsAusCoop) ? now + (TruheRechtsZahl < 10 ? 120 : 40) : 0;
+            }
+        }
+        else {
+            if (TruheRechtsWar && TruheZuVerhindert > 1)
+                TruheLog("Inventar schliessen waehrend des Rechtsklicks %d-mal verhindert (P333)", TruheZuVerhindert);
+            if (TruheRechtsWar && TruheRechtsWiederAuf > 1)
+                TruheLog("Coop-Fenster waehrend des Rechtsklicks %d-mal wieder geoeffnet (P336)", TruheRechtsWiederAuf);
+            TruheRechtsFrei = true;
+            TruheRechtsWeiterMs = 0;
+        }
+        TruheRechtsWar = rechts;
         if (now > TruheGebenMs + 2000) {
             TruheGebenMs = now;
             TruheGeben();
@@ -896,6 +1441,16 @@ namespace GOTHIC_ENGINE {
             }
         }
         TruhePruefeHier();
+        // u265 (P321): Flanke - Inventar eben aufgegangen
+        const bool invJetzt = player->inventory2.IsOpen() != 0;
+        const bool invNeu = invJetzt && !TruheInvWarOffen;
+        TruheInvWarOffen = invJetzt;
+        if (now > TruheEinloesenMs + 300) {   // u265 (P322)
+            TruheEinloesenMs = now;
+            TruheEinloesen();
+            if (TruheHandelAktiv && !TruheImGespraech())   // u267 (P328): Gespraech zu, ohne dass das Handelsfenster es meldete
+                TruheHandelEnde("Gespraech zu");
+        }
         if (TruheTestHalt && now > TruheTestHaltMs + 15000)
             CoopTruheTestHalten(false);   // Testlauf: hoechstens 15 s
         if (!TruheZuege.empty() && now > TruheSendMs + 3000) {
@@ -916,8 +1471,50 @@ namespace GOTHIC_ENGINE {
             const bool inv = player->inventory2.IsOpen() != 0;
             if (inv)
                 TruheInvGesehen = true;
-            if (!open)
-                TruheSchliessenHier("Fenster zu");
+            // u272 (P337, Nutzer 15.11. zu u271 in Othello: "die Items werden mit linksclick ins inventar getan, dabei soll es ja so sein, dass
+            // wir die Items ausruesten koennen", "mit Alt werden die Sachen ins coop inventar getan statt auf den Boden"): Othello (OTHELLO_ABI)
+            // umgeht die Haken auf HandleEvent - darum haelt der Puls den Zustand selbst: hat das eigene Inventar den Fokus, ist das
+            // Coop-Fenster passiv. Gothics Suche nach dem Fenster daneben (GetNextContainerLeft/Right, auch eingebaut in
+            // oCNpcInventory::HandleEvent) ueberspringt passive Fenster - Linksklick und Aktion ruesten aus bzw. benutzen, Alt wirft auf den
+            // Boden, Rechtsklick schliesst nichts. Hat das Coop-Fenster den Fokus, ist es normal (Linksklick nimmt heraus)
+            if (open && inv && TruheMitInvAn()) {
+                if (TruheTabZuCoop) {   // Tab im Inventar (oCNpc_CloseInventory_Truhe)
+                    TruheTabZuCoop = false;
+                    TruheFokusTruhe(c);
+                    TruheLog("Tab - jetzt im Coop-Inventar (P337)");
+                }
+                const int soll = c->items->IsActive() ? FALSE : TRUE;
+                if (c->items->passive != soll)
+                    c->items->passive = soll;
+            }
+            else
+                TruheTabZuCoop = false;
+            if (!open) {
+                // u271 (P336, Nutzer 15.11. zu u270 in Othello: "Sobald man rechtsclick drueckt schliesst sich das Coop Fenster, das Item
+                // landet trotzdem dort"): in Othello schliessen die Inventar-Ereignisse der Engine nur das Coop-Fenster, an den Haken vorbei
+                // (OTHELLO_ABI.DLL vorn auf HandleEvent und oCItemContainer::Close, ZUTILITIES.DLL in den vtables von Close); das Inventar
+                // bleibt offen. Waehrend bzw. kurz nach dem Rechtsklick oeffnet der Puls nur das Fenster wieder, mit dem Fokus wie beim Druck
+                if (c && c->items && inv && TruheMitInvAn() && !IsLoadingLevel && !TruheImGespraech() && !player->IsDead()
+                    && (TruheRechtsGedrueckt() || (TruheRechtsDruckMs && now - TruheRechtsDruckMs < 500))) {
+#if ENGINE >= Engine_G2
+                    c->items->Open(0, 0, INV_MODE_CONTAINER);
+#else
+                    c->items->Open(0, 0, oCItemContainer::FULLSCREEN);   // wie oCMobContainer::Open unter Gothic 1
+#endif
+                    if (TruheRechtsAusCoop)
+                        TruheFokusTruhe(c);
+                    else
+                        TruheFokusInventar(c);
+                    if (++TruheRechtsWiederAuf == 1)
+                        TruheLog("Coop-Fenster nach dem Rechtsklick wieder geoeffnet (P336)");
+                }
+                else {
+                    if (TruheDiagJetzt())
+                        TruheLog("Coop-Fenster zu: rechte Maustaste %d, seit dem letzten Rechtsklick %lld ms, Inventar offen %d (P333)",
+                            (int)TruheRechtsGedrueckt(), TruheRechtsDruckMs ? now - TruheRechtsDruckMs : -1LL, (int)inv);
+                    TruheSchliessenHier("Fenster zu");
+                }
+            }
             else if (TruheInvGesehen && !inv)
                 TruheSchliessenHier("Inventar zu");
             else if (TruheTestZuMs && now >= TruheTestZuMs)
@@ -926,14 +1523,24 @@ namespace GOTHIC_ENGINE {
                 TruheSchliessenHier("Held tot bzw. bewusstlos");
             return;
         }
+        // u265 (P321, Nutzer 15.11.: "das Coop-Inventar sich immer mitoeffnet wenn man das normale Inventar oeffnet"): geht das Inventar
+        // auf (nicht beim Pluendern, Handeln, Stehlen, an Truhen der Welt, im Gespraech), schliesst GT es und oeffnet im naechsten Bild
+        // beide wie mit der Coop-Taste - das Coop-Fenster dann passiv daneben (TruheOeffnenHier)
+        if (invNeu && !TruheWill && TruheCoop() && TruheMitInvAn() && !TruheAnderesFenster() && !TruheImGespraech()) {
+            TruheMitInvWill = true;
+            TruheWill = true;
+            TruheWillMs = now;
+        }
         if (TruheWill) {   // erst, wenn der Held frei ist (Koerperzustand normal, Inventar zu), hoechstens 5 s warten
             if (now > TruheWillMs + 5000 || player->IsDead() || player->IsUnconscious()) {
                 TruheWill = false;
+                TruheMitInvWill = false;
                 TruheTestZuNach = 0;
                 TruheLog("Held 5 s beschaeftigt bzw. ausser Gefecht - nicht geoeffnet (Koerperzustand %d)", player->GetBodyState());
             }
             else if (TruheAnderesFenster()) {   // u101: nicht mitten in eine Truhe, ein Pluendern oder einen Handel
                 TruheWill = false;
+                TruheMitInvWill = false;
                 TruheTestZuNach = 0;
                 TruheLog("ein anderes Fenster ist offen (Truhe, Pluendern, Handel) - nicht geoeffnet");
             }
@@ -948,6 +1555,8 @@ namespace GOTHIC_ENGINE {
 
     // Plugin.cpp, LoadBegin: offen beim Laden bzw. Weltwechsel - schliessen
     void CoopTruheLoadBegin() {
+        TruheHandelAktiv = false;   // u267 (P328): der Stand kommt aus dem Spielstand - Geliehenes nicht zurueckbuchen
+        TruheHandelGeliehen.clear();
         if (TruheOffenHier)
             TruheSchliessenHier("Laden");
         TruheWill = false;
@@ -1157,8 +1766,87 @@ namespace GOTHIC_ENGINE {
         return TruheQuestGenommen;
     }
 
+    // u270 (P335, Nutzer 15.11. zu u269 in Othello: "jetzt landet das Item im Coop inventar aber beide inventare schliessen sich"):
+    // Gothic schliesst eine Truhe ueber oCMobContainer::Close (Inventar zu, Fenster geloescht) - darum griff der Haken auf
+    // oCItemContainer::Close nie. Die Coop-Truhe bleibt beim Rechtsklick offen; Laden, Gespraech, Tod und GTs eigenes Schliessen
+    // gehen durch. Aufruf aus oCMobContainer_Close_Coop (CoopWorldSync.cpp); true = nicht schliessen
+    bool CoopTruheCloseVerhindern(oCMobContainer* m, oCNpc* npc, const void* ret) {
+        if (!m || m != CoopTruheObj || TruheSchliesstSelbst || !player || npc != player || !TruheOffenHier || IsLoadingLevel)
+            return false;
+        if (!TruheMitInvAn() || !TruheRechtsGedrueckt() || TruheImGespraech() || player->IsDead())
+            return false;
+        if (++TruheZuVerhindert == 1)
+            TruheLog("Coop-Truhe schliessen bei Rechtsklick verhindert, Aufrufer %s (P335)", TruheAufrufer(ret).c_str());
+        return true;
+    }
+
+    // --- u266 (P324): Quest-Gegenstaende im Coop-Inventar (Nutzer 15.11.: "vielleicht waere es sinnvoll wenn QuestItems immer im
+    // Coop-Inventar liegen und im normalen Inventar unsichtbar sind dann braucht man dieses gemeinsam auch nicht mehr", dann "der Brief ist
+    // noch nicht im Coop-Inventar gelandet"). Mit der Einstellung "Coop-Inventar mit dem Inventar" legt GT jeden Missions-Gegenstand, den
+    // der eigene Held neu bekommt, ins Coop-Inventar (CoopDialogSync.cpp, CoopMissionPulse) statt ihn dem Partner zu spiegeln (u96). Was
+    // man selbst herausnimmt (Lesen, Anlegen, Einloesen), bleibt im eigenen Inventar
+    bool CoopTruheQuestModus() {
+        return TruheCoop() && TruheMitInvAn() && TruheObj() != NULL;
+    }
+
+    void CoopTruheJetztPruefen() {
+        TruhePruefeHier();
+    }
+
+    // so viel von inst wurde in den letzten 10 s hier selbst herausgenommen - bis zu n davon verbrauchen (Rueckgabe: verbraucht)
+    int CoopTruheSelbstGenommen(const char* inst, int n) {
+        if (!inst || n <= 0)
+            return 0;
+        auto f = TruheSelbstGenommen.find(inst);
+        if (f == TruheSelbstGenommen.end() || GetCurrentMs() > f->second.ms + 10000)
+            return 0;
+        const int k = (std::min)(n, f->second.menge);
+        f->second.menge -= k;
+        return k;
+    }
+
+    // bis zu n Stueck von inst aus dem eigenen Inventar ins Coop-Inventar (angelegte und die Coop-Truhe nie). Rueckgabe: verschoben
+    int CoopTruheQuestHinein(const char* inst, int n) {
+        oCMobContainer* c = TruheObj();
+        if (!c || !player || !parser || !inst || n <= 0 || !strcmp(inst, TruheInst))
+            return 0;
+        const int idx = parser->GetIndex(zSTRING(inst));
+        if (idx <= 0)
+            return 0;
+        TruhePruefeHier();
+        std::string name;
+        int moved = 0;
+        WorldSyncApplying++;
+        while (moved < n) {
+            oCItem* have = player->IsInInv(idx, 1);
+            if (!have || have->HasFlag(ITM_FLAG_ACTIVE))
+                break;
+            if (name.empty())
+                name = have->name.ToChar();
+            const int k = (std::min)(n - moved, CoopItemAmount(have));
+            oCItem* r = player->RemoveFromInv(have, k);
+            if (r)
+                ogame->GetGameWorld()->RemoveVob(r);
+            moved += k;
+        }
+        WorldSyncApplying--;
+        if (moved <= 0)
+            return 0;
+        TruheAendernHier(inst, moved);
+        TruhePruefeHier();   // meldet es wie jede Aenderung hier
+        ChatLog(string::Combine(CoopTr("Quest-Gegenstand ins Coop-Inventar: %i x %s.", "Quest item moved to the coop inventory: %i x %s."),
+            moved, string(name.c_str())), zCOLOR(200, 220, 255, 255));
+        TruheLog("Quest-Gegenstand %s: %d ins Coop-Inventar (P324)", inst, moved);
+        return moved;
+    }
+
 #else   // Modul in dieser Engine nicht freigegeben
     void CoopTruheReceive(const json&, const std::string&) {}
+    bool CoopTruheQuestModus() { return false; }   // u266 (P324)
+    bool CoopTruheCloseVerhindern(oCMobContainer*, oCNpc*, const void*) { return false; }   // u270 (P335)
+    void CoopTruheJetztPruefen() {}
+    int CoopTruheSelbstGenommen(const char*, int) { return 0; }
+    int CoopTruheQuestHinein(const char*, int) { return 0; }
     void CoopTruhePulse() {}
     void CoopTruheLoadBegin() {}
     void CoopTruheNeuesSpiel() {}

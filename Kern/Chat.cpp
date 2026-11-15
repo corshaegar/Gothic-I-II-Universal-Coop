@@ -13,7 +13,14 @@
     {
         string text;
         zCOLOR color;
+        long long ms = 0;   // u267 (P329): seit wann sichtbar
     };
+
+    // u267 (P329, Nutzer 15.11.: "die Meldungen so machen dass sie eingeblendet und wieder ausgeblendet werden, weil wie es jetzt ist
+    // stacken sich die Nachrichten oben links am Bildschirm"): jede Zeile blendet in 0,3 s ein, steht 8 s und blendet in 1,5 s aus, danach
+    // faellt sie weg; hoechstens 8 Zeilen gleichzeitig (die aelteste geht zuerst)
+    static const long long ChatEinMs = 300, ChatStehtMs = 8000, ChatAusMs = 1500;
+    static const size_t ChatHoechstens = 8;
 
     class Chat
     {
@@ -24,15 +31,14 @@
         SafeQueue<ChatLine> readyToBeDisplatedLines;
     public:
         void Render() {
+            const long long now = (long long)GetTickCount64();
             while (!readyToBeDisplatedLines.isEmpty()) {
-                if (lines.size() < chatLines)
-                    lines.push_back(readyToBeDisplatedLines.dequeue());
-                else
-                {
-                    lines.erase(lines.begin());
-                    lines.push_back(readyToBeDisplatedLines.dequeue());
-                }
+                ChatLine l = readyToBeDisplatedLines.dequeue();
+                l.ms = now;
+                lines.push_back(l);
             }
+            while (!lines.empty() && (lines.size() > ChatHoechstens || now - lines.front().ms > ChatStehtMs + ChatAusMs))
+                lines.erase(lines.begin());   // u267 (P329)
 
             if (this->IsShowing() == true && !CoopRecordMode())   // u171: in Aufnahmen keine Meldungszeilen
             {
@@ -45,7 +51,17 @@
                 {
                     if (lines[i].text.Length() > 0)
                     {
-                        screen->SetFontColor(lines[i].color);
+                        // u267 (P329): einblenden bzw. ausblenden ueber die Deckkraft der Schrift
+                        const long long age = now - lines[i].ms;
+                        int a = 255;
+                        if (age < ChatEinMs)
+                            a = (int)(255 * age / ChatEinMs);
+                        else if (age > ChatStehtMs)
+                            a = (int)(255 - 255 * (age - ChatStehtMs) / ChatAusMs);
+                        a = a < 0 ? 0 : (a > 255 ? 255 : a);
+                        zCOLOR c = lines[i].color;
+                        c.alpha = (unsigned char)(c.alpha * a / 255);
+                        screen->SetFontColor(c);
                         screen->Print(50, lineDistance, zSTRING(lines[i].text));
 
                         screen->SetFontColor(color);

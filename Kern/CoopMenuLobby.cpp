@@ -279,10 +279,10 @@ namespace GOTHIC_ENGINE {
         if (Lobby.peers.empty()) { why = CoopTr("Noch kein Mitspieler verbunden.", "No player connected yet."); return false; }
         for (auto& p : Lobby.peers) {
             if (!p.second.hello && GetCurrentMs() > p.second.since + 8000) {
-                why = p.first + CoopTr(" antwortet nicht auf den Men" COOP_UE "-Abgleich - Fassung vor v40 oder schon im Spiel?", " does not answer the menu handshake - version before v40 or already in game?");
+                why = p.first + CoopTr(" antwortet im Men" COOP_UE " nicht - Fassung vor v40 oder schon im Spiel?", " does not answer the menu handshake - version before v40 or already in game?");
                 return false;
             }
-            if (!p.second.hello) { why = p.first + CoopTr(" ist verbunden, Abgleich l" COOP_AE "uft noch.", " is connected, handshake running."); return false; }
+            if (!p.second.hello) { why = p.first + CoopTr(" ist verbunden, Anmeldung l" COOP_AE "uft noch.", " is connected, handshake running."); return false; }
             if (!p.second.verOk && !p.second.why.empty()) { why = p.first + ": " + p.second.why; return false; }   // u198 (P209)
             if (!p.second.verOk) { why = p.first + CoopTr(" hat Fassung ", " has version ") + p.second.ver + CoopTr(", hier ", ", here ") + COOP_FASSUNG + CoopTr(" - bitte gleiche Fassung einspielen.", " - please install the same version."); return false; }
             if (!p.second.haveKnown) { why = CoopTr("Pr" COOP_UE "fe die gemeinsamen Spielst" COOP_AE "nde bei ", "Checking shared saves with ") + p.first + " ..."; return false; }
@@ -1022,6 +1022,16 @@ namespace GOTHIC_ENGINE {
             LobbyIngameSlots(e, op);
             return;
         }
+        // u264 (P320, Othello-Sitzung des Nutzers 14.11.: "Spielstand wird manchmal nicht direkt angezeigt obwohl der Client gejoint
+        // ist zb wenn der Client im Spiel ist und Host nicht" - Host-Log 90 s lang "FRIEND_1 antwortet nicht auf den Menue-Abgleich -
+        // Fassung vor v40 oder schon im Spiel?"): ein Client im Spiel beantwortete das "hello" des Hosts im Hauptmenue nicht, der Host
+        // zeigte keine gemeinsamen Staende. Jetzt antwortet er wie aus dem Menue; die Liste ("slots"/"have") laeuft danach wie im
+        // Esc-Menue (LobbyIngameSlots). Allgemein
+        if (op == "hello" && ClientThread && !ServerThread && !e.contains("by") && !e.contains("ingame")) {
+            LobbySendHello();
+            LobbyLog("Client im Spiel: der Host meldet sich aus dem Hauptmen" COOP_UE " - Antwort wie aus dem Men" COOP_UE " (P320)");
+            return;
+        }
         if (op != "hello" || !ServerThread || e.contains("by"))
             return;
         const std::string ver = e.contains("ver") && e["ver"].is_string() ? e["ver"].get<std::string>() : std::string("?");
@@ -1105,7 +1115,7 @@ namespace GOTHIC_ENGINE {
                 l2 = both > 0 ? CoopTr("Jetzt \"Spielstand w" COOP_AE "hlen\" - oder \"Neues Spiel\" (beide starten).", "Now \"Choose save\" - or \"New game\" (both start).")   // v91
                               : CoopTr("Kein gemeinsamer Stand - \"Spielstand w" COOP_AE "hlen\" (anderen laden) oder \"Neues Spiel\".", "No shared save - \"Choose save\" (load another) or \"New game\".");
                 if (!LobbyJointSaves())   // v75
-                    l2 = CoopTr("Spielst" COOP_AE "nde getrennt (Einstellungen > COOP > Abgleich): der Mitspieler l" COOP_AE "dt nicht mit.", "Separate saves (Settings > COOP > Sync): your partner does not load along.");
+                    l2 = CoopTr("Spielst" COOP_AE "nde getrennt (Einstellungen > COOP > Synchronisierung): der Mitspieler l" COOP_AE "dt nicht mit.", "Separate saves (Settings > COOP > Sync): your partner does not load along.");
                 if (p.second.othello != LobbyOthelloStamp())
                     l2 = CoopTr("Achtung: Othello-Skripte unterscheiden sich! ", "Warning: Othello scripts differ! ") + l2;
             }
@@ -1120,7 +1130,7 @@ namespace GOTHIC_ENGINE {
                 l1 = CoopTr("Verbindung beendet ...", "Connection closed ...");
             }
             else if (MyselfId == "_player_" || !Lobby.hostHello) {
-                l1 = CoopTr("Verbunden - Abgleich mit dem Host l" COOP_AE "uft ...", "Connected - handshake with the host ...");
+                l1 = CoopTr("Verbunden - Anmeldung beim Host l" COOP_AE "uft ...", "Connected - handshake with the host ...");
                 if (Lobby.connectedMs && GetCurrentMs() > Lobby.connectedMs + 8000)
                     l2 = CoopTr("Keine Antwort - hat der Host eine Fassung vor v40?", "No answer - does the host run a version before v40?");
             }

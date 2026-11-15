@@ -79,7 +79,17 @@ namespace GOTHIC_ENGINE {
         if (!spell || !player || TpRune() < 0)
             return NULL;
         oCMag_Book* book = player->GetSpellBook();
-        oCItem* it = book ? book->GetSpellItem(spell) : NULL;
+        if (!book)
+            return NULL;
+        // u272 (P342, Archolos-Logs 15.11. mit u254: Client 4-mal "C0000005 bei Gothic2.exe+0x1D5C7 (Lesen von 0xBF800000)" nach
+        // oCGame::HandleEvent -> oCSpell::GetName -> hier): GetSpellItem liefert fuer einen Zauber, der nicht im eigenen Zauberbuch steht
+        // (NPC, Coop-Figur), einen Muellzeiger - nur Zauber aus dem eigenen Buch fragen
+        bool imBuch = false;
+        for (int i = 0; i < book->spells.GetNumInList() && !imBuch; i++)
+            imBuch = book->spells[i] == spell;
+        if (!imBuch)
+            return NULL;
+        oCItem* it = book->GetSpellItem(spell);
         return it && it->GetInstance() == TpRuneIdx ? it : NULL;
     }
 
@@ -524,6 +534,30 @@ namespace GOTHIC_ENGINE {
             TpEquip(in, why);   // u238 (Nutzer 09.11.: "fester bestandteil"): eine neue Rune gleich ins Zauberbuch, wenn dort Platz ist
     }
 
+    // u272 (P338): ist das die Coop-Teleport-Rune? (Truhe, Coop-Inventar, Wegwerfen)
+    bool CoopIstTeleportRune(oCItem* it) {
+        return it && TpRune() >= 0 && it->GetInstance() == TpRuneIdx;
+    }
+
+    // u272 (P338, Nutzer 15.11.: "es sollte nicht moeglich sein die Teleport rune aus dem Inventar zu entfernen weder boden schmeissen,
+    // noch in truhe legen"): faellt die Coop-Rune des eigenen Helden (DoDropVob, Hooks.cpp), nimmt GT sie gleich wieder aus der Welt und
+    // legt sie zurueck ins Inventar und ins Zauberbuch - ohne Abgleich
+    void CoopTeleportRuneZurueck(oCItem* rune) {
+        if (!rune || !player || TpRune() < 0)
+            return;
+        rune->AddRef();
+        WorldSyncApplying++;
+        if (rune->GetHomeWorld())
+            ogame->GetGameWorld()->RemoveVob(rune);
+        oCItem* in = player->PutInInv(rune);
+        WorldSyncApplying--;
+        rune->Release();
+        TpLog("Rune sollte auf den Boden - %s (P338)", in ? "zurueck im Inventar" : "zurueck ins Inventar FEHLGESCHLAGEN");
+        if (in)
+            TpEquip(in, "Zurueck ins Inventar");
+        ChatLog(CoopTr("Die Teleport-Rune bleibt im Inventar.", "The teleport rune stays in your inventory."), zCOLOR(255, 200, 80, 255));
+    }
+
     // --- u238: genau eine Coop-Rune je Held, keine frei in der Welt ----------------------------------------------------
     //
     // Nutzer 09.11.: "die teleport rune ... soll auch fester bestandteil von G2 sein also egal ob mod oder nicht", "wenn irgendwo in
@@ -533,8 +567,7 @@ namespace GOTHIC_ENGINE {
     // Zauberbuch); sind es mehr, nimmt GT die uebrigen heraus - die im Zauberbuch bleibt. Liegt eine Coop-Rune frei in der Welt (nicht
     // in der Hand eines NPCs), entfernt GT sie, sobald sie zwei Pruefungen hintereinander dort lag - jeder Held hat ja seine eigene.
     // Jeder PC fuer sich (unter WorldSyncApplying, kein Abgleich), beim Partner verschwindet die Kopie ebenso. Allgemein (G1/G2, Mods).
-    static long long TpEineNextMs = 0, TpWeltNextMs = 0;
-    static std::set<oCItem*> TpFreiGesehen;   // in der letzten Pruefung frei in der Welt
+    static long long TpEineNextMs = 0;
 
     static void TpEineRunePulse() {
         if (!player || player->IsDead() || TpRune() < 0 || CoopHeroSwapped() || CoopWpIsWorld())
@@ -576,32 +609,8 @@ namespace GOTHIC_ENGINE {
         TpLog("%d Coop-Runen im Inventar - %d herausgenommen, eine bleibt (u238)", n, weg);
     }
 
-    static void TpWeltRunenPulse() {
-        oCWorld* w = ogame ? ogame->GetGameWorld() : NULL;
-        if (!w || TpRune() < 0 || CoopWpIsWorld())
-            return;
-        std::set<zCVob*> slots;
-        CoopCollectSlotVobs(slots);
-        std::set<oCItem*> jetzt;
-        std::vector<oCItem*> weg;
-        for (zCListSort<oCItem>* l = CoopWorldItemListFirst(w); l; l = l->next) {
-            oCItem* it = l->data;
-            if (!it || it->GetInstance() != TpRuneIdx || !CoopItemLiegtFrei(it, &slots, true))
-                continue;
-            if (TpFreiGesehen.count(it))
-                weg.push_back(it);
-            else
-                jetzt.insert(it);
-        }
-        TpFreiGesehen = jetzt;
-        if (weg.empty())
-            return;
-        WorldSyncApplying++;
-        for (oCItem* it : weg)
-            w->RemoveVob(it);
-        WorldSyncApplying--;
-        TpLog("%d Coop-Rune(n) lag(en) frei in der Welt - entfernt, jeder Held hat seine eigene (u238)", (int)weg.size());
-    }
+    // u272 (P338, Nutzer 15.11.: "das brauchen wir ja sowieso nicht mehr, da man es nicht entfernen kann"): TpWeltRunenPulse (u238) entfaellt -
+    // die Rune verlaesst das Inventar nicht mehr (DoDropVob, Truhen); er raeumte Coop-Runen weg, die zwei Pruefungen lang frei in der Welt lagen
 
     // u89: traegt die Rune das eigene Modell? Ueber den Namen (zCProgMeshProto::GetVisualName = Objektname) - GT haelt keinen
     // Zeiger mehr (Coop-Testlauf, Schritt "Rune mit eigenem Aussehen")
@@ -620,7 +629,6 @@ namespace GOTHIC_ENGINE {
         TpEnsureAt2 = now + 15000;
         TpPending = false;
         TpCasting = false;
-        TpFreiGesehen.clear();   // u238: Zeiger der alten Welt
         TpEquipNachLaden = true;
     }
 
@@ -706,10 +714,6 @@ namespace GOTHIC_ENGINE {
             TpEineNextMs = now + 2000;
             TpEineRunePulse();
         }
-        if (!IsSavingGame && now >= TpWeltNextMs) {
-            TpWeltNextMs = now + 3000;
-            TpWeltRunenPulse();
-        }
     }
 
 #else   // Modul in dieser Engine nicht freigegeben (CoopModulesReport)
@@ -720,6 +724,8 @@ namespace GOTHIC_ENGINE {
     void CoopTeleportPulse() {}
     void CoopTeleportKey() {}   // u226
     void CoopRuneLookInit() {}
+    bool CoopIstTeleportRune(oCItem*) { return false; }   // u272 (P338)
+    void CoopTeleportRuneZurueck(oCItem*) {}
     bool CoopTeleportAcross(const std::string&, std::string& why) { why = "Teleport-Rune in dieser Engine aus"; return false; }   // u39
     bool CoopTeleportAcrossBusy() { return false; }
     void CoopTeleportAcrossLoadEnd() {}   // u48

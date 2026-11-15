@@ -51,6 +51,48 @@ namespace GOTHIC_ENGINE {
                 st.c_str(), why);
     }
 
+    // u272 (P339, Nutzer 15.11.: "bei archolos und vielleicht allgemein wird das Licht der Fakel des Partners nicht anzeigt"): die brennende
+    // Fackel traegt ihr Licht als Kind-Vob aus der ZEN ihres Aussehens (oCItem::InitByScript). Fehlt dort ein zCVobLight (Mods mit eigenem
+    // Fackellicht per Skript nur am eigenen Helden), haengt GT der Fackel in der Hand der Coop-Figur ein eigenes dynamisches Licht an
+    bool CoopVobBaumMitLicht(zCTree<zCVob>* node, int tiefe) {
+        for (zCTree<zCVob>* c = node ? node->GetFirstChild() : NULL; c; c = c->GetNextChild()) {
+            zCVob* v = c->GetData();
+            if (v && zDYNAMIC_CAST<zCVobLight>(v))
+                return true;
+            if (tiefe > 0 && CoopVobBaumMitLicht(c, tiefe - 1))
+                return true;
+        }
+        return false;
+    }
+
+    // u273 (P343): nur Fackeln in der Hand der Coop-Figur werden vom Abgleich gesetzt oder entfernt
+    static bool CoopIstFackel(oCVob* v) {
+        oCItem* it = zDYNAMIC_CAST<oCItem>(v);
+        return it && it->HasFlag(ITM_FLAG_TORCH);
+    }
+
+    static void CoopFackelLicht(oCItem* it) {
+        if (!it || !it->HasFlag(ITM_FLAG_TORCH))
+            return;
+        zCWorld* w = it->GetHomeWorld();
+        const bool licht = CoopVobBaumMitLicht(it->globalVobTreeNode, 3);
+        static int gemeldet = 0;
+        if (gemeldet < 20) {
+            gemeldet++;
+            OthelloCompatLog("[%lld s, %s] Fackel der Coop-Figur: %s - %s (P339)", DiagSeconds(), DiagRole(), it->GetInstanceName().ToChar(),
+                licht ? "Licht aus der Fackel vorhanden" : w ? "kein Licht - GT haengt eines an" : "nicht in der Welt");
+        }
+        if (licht || !w || !it->globalVobTreeNode)
+            return;
+        zCVobLight* l = new zCVobLight();
+        l->lightData.isStatic = FALSE;
+        l->lightData.lightColor = zCOLOR(255, 170, 90, 255);
+        l->SetRange(1000.0f, TRUE);
+        l->SetPositionWorld(it->GetPositionWorld());
+        w->AddVobAsChild(l, it->globalVobTreeNode);
+        l->Release();   // die Welt haelt es; mit der Fackel geht es wieder
+    }
+
     class RemoteNpc
     {
     public:
@@ -421,7 +463,7 @@ namespace GOTHIC_ENGINE {
                 lookXFromServer = update["lx"].get<int>();
                 lookYFromServer = update["ly"].get<int>();
             }
-            if (hasModel && npc && !SmoothOn()) {   // v52: mit Glaetten setzt UpdateNpcBasedOnLastDataFromServer je Bild
+            if (hasModel && npc && !SmoothOn() && !(IsCoopPlayer(name) && npc->IsDead())) {   // v52: mit Glaetten setzt UpdateNpcBasedOnLastDataFromServer je Bild; u263 (P318): tote Figur dreht sich nicht
                 npc->ResetRotationsWorld();
                 npc->RotateWorldY(h);
             }
@@ -730,7 +772,7 @@ namespace GOTHIC_ENGINE {
             // RemoveVobFromWorld eine eigene Referenz - GTs Haken nimmt ihn bei Coop-Figuren schon aus der Welt, bis u87 konnte der
             // zweite Aufruf so an einem freigegebenen Objekt laufen
             auto leftHandItem = npc->GetLeftHand();
-            if (leftHandItem && CoopSlotVobAlive(npc, leftHandItem, "UpdateHand (links)"))
+            if (leftHandItem && CoopSlotVobAlive(npc, leftHandItem, "UpdateHand (links)") && CoopIstFackel(leftHandItem))   // u273 (P343)
             {
                 leftHandItem->AddRef();
                 npc->DoDropVob(leftHandItem);
@@ -744,15 +786,20 @@ namespace GOTHIC_ENGINE {
                 int insIndex = parser->GetIndex(leftItem.c_str());
                 if (insIndex > 0) {
                     auto newItem = CreateCoopItem(insIndex);
+                    if (newItem && !newItem->HasFlag(ITM_FLAG_TORCH)) {   // u273 (P343): nur Fackeln
+                        newItem->Release();
+                        newItem = NULL;
+                    }
                     if (newItem) {
                         syncedNpcItems[newItem] = true;
                         npc->SetLeftHand(newItem);
+                        CoopFackelLicht(newItem);   // u272 (P339)
                     }
                 }
             }
 
             auto rightHandItem = npc->GetRightHand();
-            if (rightHandItem && CoopSlotVobAlive(npc, rightHandItem, "UpdateHand (rechts)"))   // u88: wie links
+            if (rightHandItem && CoopSlotVobAlive(npc, rightHandItem, "UpdateHand (rechts)") && CoopIstFackel(rightHandItem))   // u88: wie links; u273 (P343)
             {
                 rightHandItem->AddRef();
                 npc->DoDropVob(rightHandItem);
@@ -766,9 +813,14 @@ namespace GOTHIC_ENGINE {
                 int insIndex = parser->GetIndex(rightItem.c_str());
                 if (insIndex > 0) {
                     auto newItem = CreateCoopItem(insIndex);
+                    if (newItem && !newItem->HasFlag(ITM_FLAG_TORCH)) {   // u273 (P343): nur Fackeln
+                        newItem->Release();
+                        newItem = NULL;
+                    }
                     if (newItem) {
                         syncedNpcItems[newItem] = true;
                         npc->SetRightHand(newItem);
+                        CoopFackelLicht(newItem);   // u272 (P339)
                     }
                 }
             }
@@ -1275,7 +1327,8 @@ namespace GOTHIC_ENGINE {
                     npc->SetWeaponMode2(lastWeaponMode);
                 }
 
-                if (lastHeadingFromServer != -1) {
+                // u263 (P318, Nutzer 14.11. zu Othello: "Leiche vom Mitspieler kann sich drehen"): eine tote Coop-Figur dreht sich nicht mit
+                if (lastHeadingFromServer != -1 && !(IsCoopPlayer(name) && npc->IsDead())) {
                     npc->ResetRotationsWorld();
                     npc->RotateWorldY(SmoothOn() ? SmoothedHeading(dt) : lastHeadingFromServer);
                 }

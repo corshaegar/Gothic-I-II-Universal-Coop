@@ -20,6 +20,8 @@ namespace GOTHIC_ENGINE {
         const void* desc;
         oCNpc* npc;
         int hp;
+        oCNpc* attacker;   // u260 (P312)
+        long long ms;      // u260 (P312)
     };
     static CoopDamageStart CoopDamageStarts[16];
     static unsigned CoopDamageStartNext = 0;
@@ -32,6 +34,19 @@ namespace GOTHIC_ENGINE {
         s.desc = desc;
         s.npc = npc;
         s.hp = hp;
+        s.attacker = desc ? ((const oCNpc::oSDamageDescriptor*)desc)->pNpcAttacker : NULL;   // u260 (P312)
+        s.ms = (long long)CurrentMs;
+    }
+
+    // u260 (P312): laeuft gerade ein Treffer des eigenen Helden auf diesen NPC (OnDamage_Hit eben begonnen)? Mods wie Xeres ziehen den
+    // Schaden in der Schadens-Wahrnehmung selbst ab (Npc_ChangeAttribute) - das gehoert dann zu diesem Treffer, nicht zu einem Skript
+    bool CoopDamageOwnHitRunning(oCNpc* npc) {
+        for (unsigned k = 0; k < 16; k++) {
+            const CoopDamageStart& s = CoopDamageStarts[(CoopDamageStartNext - 1 - k) % 16];
+            if (s.npc == npc && npc && s.attacker == player && (long long)CurrentMs - s.ms < 500)
+                return true;
+        }
+        return false;
     }
 
     // Aus dem OnDamage_Sound-Hook: HP vor genau diesem Treffer (neuester passender Eintrag).

@@ -1000,7 +1000,7 @@ namespace GOTHIC_ENGINE {
 
             auto objectName = string(npc->GetObjectName());
             CStringA name = "";
-            if (NamesCounter[objectName] == 1) {
+            if (firstRun && NamesCounter[objectName] == 1) {   // u258 (P309): einziger seiner Art - nur beim ersten Lauf nach dem Laden
                 name = objectName;
             }
             else {
@@ -1016,6 +1016,18 @@ namespace GOTHIC_ENGINE {
             }
 
             auto uniqueName = string::Combine("%s-%i", name, NamesCounter[name]);
+            // u258 (P309, Xeres-Volltest 14.11.): nach dem Laden hiess eine Molerat-Leiche "MOLERAT-1" (einzige ihrer Art beim ersten
+            // Lauf), ein spaeter eingesetzter Molerat bekam denselben Namen (NamesCounter blieb 1) - zwei NPCs gleichen Namens; beim
+            // Client wurde die eigene, eben eingefuegte Kopie nie uebernommen und griff den Helden bis zum Tod an. Spaeter erzeugte NPCs
+            // heissen jetzt immer "<Objekt>-DYNAMIC-<Wegpunkt>-n" (oben), und kein Name wird vergeben, den schon ein anderer NPC traegt.
+            // Allgemein.
+            for (int g = 0; g < 1000; g++) {
+                auto taken = UniqueNameToNpcList.find(uniqueName);
+                if (taken == UniqueNameToNpcList.end() || !taken->second || taken->second == npc)
+                    break;
+                NamesCounter[name] += 1;
+                uniqueName = string::Combine("%s-%i", name, NamesCounter[name]);
+            }
             UniqueNameToNpcList[uniqueName] = npc;
             NpcToUniqueNameList[npc] = uniqueName;
             CoopDiagNameAssigned(uniqueName, npc, firstRun);

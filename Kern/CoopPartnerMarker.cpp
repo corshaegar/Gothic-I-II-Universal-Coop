@@ -700,6 +700,13 @@ namespace GOTHIC_ENGINE {
     }
 
     static void PmDrawPartner(zCCamera* cam, oCNpc* n, long long now) {
+        // u263 (P317, Nutzer 14.11. zu Othello: "Im Kampf sollte der Name vom Mitspieler ausgeblendet werden um nicht zu verwirren"):
+        // solange der eigene Held oder der Mitspieler eine Waffe gezogen hat (Waffenmodus nicht 0), weder Name ueber dem Kopf noch Pfeil
+        // am Bildrand. Allgemein
+        if (player->GetWeaponMode() != 0 || n->GetWeaponMode() != 0) {
+            PmShownAt[n] = std::make_pair(now, 3);   // Coop-Testlauf: verarbeitet, im Kampf ausgeblendet
+            return;
+        }
         const zVEC3 head = PmHead(n);
         const zVEC3 at = n->GetPositionWorld();
         const zVEC3 me = player->GetPositionWorld();

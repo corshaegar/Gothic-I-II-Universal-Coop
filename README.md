@@ -15,16 +15,16 @@ plugin based on [GothicCoop / Gothic Together](https://gitlab.com/gothiccoop/got
 
 ## Versions
 
-Project version **0.11.1** – for each game/mod the coop version (it only goes up when something changes for that game):
+Project version **0.11.2** – for each game/mod the coop version (it only goes up when something changes for that game):
 
 | Game / mod | Coop version |
 |---|---|
-| Gothic I | u254 |
-| Gothic II | u254 |
-| Othello | u254 |
-| Legend of Ahssun | u254 |
-| The Chronicles of Myrtana: Archolos | u254 |
-| Xeres' Rückkehr | u254 |
+| Gothic I | u273 |
+| Gothic II | u273 |
+| Othello | u273 |
+| Legend of Ahssun | u273 |
+| The Chronicles of Myrtana: Archolos | u273 |
+| Xeres' Rückkehr | u273 |
 
 **Both PCs need the same coop version** – it is compared when connecting. It is shown at the bottom of the main menu
 ("GothicCoop uNN"). Changes per version: [`CHANGELOG.md`](CHANGELOG.md) (German: [`CHANGELOG.de.md`](CHANGELOG.de.md)).
@@ -140,7 +140,7 @@ patch 2.6) or Gothic 1 with Othello 4.x. Installer and ZIPs bring Union 1.0m for
 
 ### With the installer (recommended)
 
-1. Download `Gothic-I-II-Universal-Coop-0.11.1-Setup.exe` from [Releases](../../releases) and start it.
+1. Download `Gothic-I-II-Universal-Coop-0.11.2-Setup.exe` from [Releases](../../releases) and start it.
 2. Choose the **game folder** (the folder containing `system`; Steam and GOG folders are searched). There is no game to choose:
    the installer detects Gothic 1, Othello, Gothic 2 and the mods in the folder (e.g. Legend of Ahssun, Archolos) by content and shows which
    are supported. It installs the coop for the engine with the scripts of all variants – if the mod changes later (GothicStarter,
@@ -154,7 +154,7 @@ Without a window: `Setup.exe /still /ordner:"<game folder>" [/spiel:g1|g2|othell
 
 ### With the ZIP
 
-1. Download `Gothic-I-II-Universal-Coop-0.11.1.zip` – one ZIP for all games.
+1. Download `Gothic-I-II-Universal-Coop-0.11.2.zip` – one ZIP for all games.
 2. Copy the contents of **one** of its folders into the game folder (where `system` is) and replace existing files:
    `Gothic 1 + Othello` for Gothic 1 (also with Othello), `Gothic 2 + Mods` for Gothic 2 (also with Legend of Ahssun, Archolos and
    other mods).

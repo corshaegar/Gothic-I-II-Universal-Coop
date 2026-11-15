@@ -6,6 +6,34 @@ Jeder Abschnitt nennt die Projektversion und für jedes Spiel und jede Mod die C
 oben. Ganz unten folgt die Vorgeschichte: der Othello-Coop 0.1.0–0.1.2 (github.com/corshaegar/Othello-Coop) und die
 unveröffentlichten Fassungen u1–u61, aus denen 0.2.0 hervorging. So ist hier jede Änderung seit der allerersten Fassung festgehalten.
 
+## 0.11.2 – Coop-Inventar neben dem Inventar, Teleport-Rune, Fackel des Mitspielers, Absturz-Korrekturen (Gothic I u273, Gothic II u273, Othello u273, Legend of Ahssun u273, Archolos u273, Xeres' Rückkehr u273)
+
+Viele dieser Änderungen stammen aus gemeinsamen Spielrunden in Othello und Archolos und aus Fehlermeldungen von Spielern – vielen Dank!
+
+**Neu**
+
+- **Das Coop-Inventar öffnet sich zusammen mit dem Inventar** (u265–u272): Es erscheint neben dem eigenen Inventar, sobald man dieses öffnet – nicht beim Plündern, Handeln oder Stehlen, nicht an einer Truhe und nicht im Gespräch. Ein Rechtsklick legt einen Gegenstand hinüber, mit gehaltener Taste mehrere; im Coop-Fenster holt der Rechtsklick ihn wieder heraus. Linksklick und Aktionstaste rüsten aus oder benutzen wie gewohnt, Alt wirft auf den Boden, Tab und die Coop-Taste wechseln zwischen den Fenstern, Esc schließt beide. Das stellt jeder für sich ein: *Einstellungen > COOP > Synchronisierung > Coop-Inventar mitöffnen*.
+- **Gegenstände im Coop-Inventar lassen sich direkt verwenden** (u265–u267): Pfeile und Bolzen für den gezogenen Bogen oder die Armbrust, der passende Schlüssel oder Dietriche an verschlossenen Türen und Truhen, das Werkzeug, das eine Werkbank verlangt, und Waren beim Handeln. Eine kurze Meldung sagt, wenn etwas aus dem Coop-Inventar genommen wurde.
+- **Quest-Gegenstände landen im Coop-Inventar** (u266): Ist die Einstellung oben an, kommt jeder Quest-Gegenstand, den der eigene Held erhält, direkt ins Coop-Inventar – so haben ihn beide.
+- **Meldungen blenden sich ein und wieder aus** (u267), statt sich oben links zu stapeln.
+- **Aufgeräumte Einstellungen** (u266–u272): „Steam-Freunde“ und „Coop-Fenster“ stehen nicht mehr in der COOP-Liste (beide bleiben über das Mehrspieler-Menü erreichbar). „Abgleich“ heißt jetzt „Synchronisierung“, bei den Tasten steht „Standard“ statt „Vorgaben“, und die Hilfe beschreibt das Coop-Inventar.
+- **Der Name des Mitspielers wird im Kampf ausgeblendet** (u263), damit er nicht stört.
+
+**Korrekturen**
+
+- **Absturz bei Zauber-Tasten und beim Ziehen einer Rune** (u272): Der Coop gibt der Teleport-Rune im Zauberkreis ihren eigenen Namen. Bei einem Zauber, der nicht im Zauberbuch des eigenen Helden stand, suchte er an der falschen Stelle, und das Spiel stürzte ab – in den Archolos-Logs viermal, immer beim Client, und auch, wenn man die Teleport-Rune ein zweites Mal zog.
+- **„Error: PulseMyself“ in Archolos** (u272): Ein Gegenstand in der Hand oder im Zauberbuch, den das Spiel schon entfernt hatte, brachte den Coop beim Auslesen zum Absturz. Solche Gegenstände werden jetzt vorher geprüft.
+- **Die Teleport-Rune geht nicht mehr verloren** (u272): Sie lässt sich weder wegwerfen noch in eine Truhe oder ins Coop-Inventar legen.
+- **Die Fackel des Mitspielers ist wieder zu sehen – samt Licht** (u272–u273): Eine brennende Fackel in der Hand des Mitspielers wurde nie auf den anderen PC übertragen, dort blieb es dunkel. Jetzt werden Fackeln übertragen (nur Fackeln – was der Mitspieler isst oder trinkt, zeigen weiterhin die Animationen). Bringt die Fackel einer Mod kein eigenes Licht mit, ergänzt der Coop eins.
+- **Gespräche des Mitspielers waren nicht zu hören** (u272): Stand die eigene Kopie des NPCs woanders, etwa auf einer anderen Bank, fielen die Zeilen des Mitspielers stillschweigend weg. Jetzt laufen sie, solange der Mitspieler in Hörweite ist, und NPCs, die sitzen oder gerade eine Animation zeigen, beginnen sofort zu sprechen.
+- **Bogen und Armbrust verschossen in Othello keine Pfeile** (u263) – weder beim Host noch beim Client.
+- **Nach dem Laden hatte der Mitspieler volle Lebenspunkte** (u263); seine Leiche dreht sich nicht mehr mit, und eine Waffe in seiner Hand verschwindet nicht mehr, wenn er stirbt oder bewusstlos wird (u264).
+- **Die Liste der Spielstände fehlte** (u264), wenn der Client schon im Spiel war und der Host noch im Hauptmenü.
+- **NPCs in der Nähe zeigen auf beiden PCs dieselbe Daueranimation** (u262), etwa betende Novizen.
+- **In den Steuerungs-Einstellungen von Othello lassen sich die Zeilen wieder anklicken** (u267).
+- **Xeres' Rückkehr** (u258–u261): Tötet der Client einen Gegner mit Skript-Schaden (etwa durch eine besondere Waffe), gibt das jetzt Erfahrung wie ein normaler Treffer; die Uhr der Mod und weitere Werte, die zu jedem PC gehören, werden nicht mehr zwischen den Spielern kopiert.
+- **Weniger Ruckler durch die Logdatei** (u255): Das Coop-Log bleibt für die ganze Sitzung offen, statt für jede Zeile neu geöffnet zu werden.
+
 ## 0.11.1 – Stillstand beim Host alle 5 Sekunden, Archolos aus Steam (Gothic I u254, Gothic II u254, Othello u254, Legend of Ahssun u254, Archolos u254, Xeres' Rückkehr u254)
 
 Gefunden in den Logs zweier Spieler, die am 12.11.2026 Archolos zusammen gespielt haben.

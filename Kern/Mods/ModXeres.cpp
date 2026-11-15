@@ -51,6 +51,12 @@ namespace GOTHIC_ENGINE {
                 "TIMECOUNTER_REAL", "TIMECOUNTER_FOG", "FRAMECOUNTER", "TIMEAN", "SOMEUNIMPORTANTRANDOMVALUE", "MOD_QUATSCHTNICHTCOUNTER",
                 "INVENTORY_OPEN", "LOGSTATE_POSY", "MOD_KAMPFLAEUFT", "FIRSTF8MALUS", "HP_PER_LEVEL", "MOD_SAVEOTHER", "HEROATLIGHT",
                 "AUTOSAVE_COUNTER", "AUTOSAVE_BLOCKER", "CURRENTLEVEL2",
+                // u258 (P310, Xeres-Volltest 14.11.: "MOD_LASTLOADED: hier 46, Partner 83"): Zeitpunkt des letzten Ladens
+                // (TIMECOUNTER_REAL dieses PCs) gegen doppelte Ausloeser beim Levelwechsel
+                "MOD_LASTLOADED",
+                // u261 (P313, Xeres-Volltest 14.11.: "TIMECOUNTER_MIN: hier 9, Partner 8"): Spielzeit-Uhr - TIMESHOWER zaehlt auf jedem PC
+                // jede Sekunde hoch (Anzeige nur mit TIMEAN); abgeglichen lief die Minute zu schnell. Blut-Zaehler wie MOD_GIFTCOUNTER (sonst ungenutzt)
+                "TIMECOUNTER_SEK", "TIMECOUNTER_MIN", "TIMECOUNTER_H", "MOD_BLUTCOUNTER",
                 // Lorenfahrt: das Rad startet sie beim Benutzer, DAUERFUNC_01 versetzt dann den eigenen Helden Wegpunkt um Wegpunkt (LOREWP) -
                 // abgeglichen fuhr der Held des Partners mit
                 "LOREEISGEBIETMINE01", "LOREEISGEBIETSW01", "LOREKHORINIS", "LORERELENDEL", "MOD_LORECOUNTER", "RIDINGLORRY",

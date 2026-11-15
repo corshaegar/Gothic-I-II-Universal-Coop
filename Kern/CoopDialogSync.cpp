@@ -1162,14 +1162,15 @@ namespace GOTHIC_ENGINE {
             gfa = parser && parser->GetIndex(zSTRING("GFA_INIT")) >= 0;
             spine = parser && parser->GetIndex(zSTRING("SPINE_INIT")) >= 0;
             if (lib || gfa || spine)
-                DialogLog("Skripte mit %s%s%s%s: deren Ganzzahlen bleiben je PC (_..., MEM_, MEMINT_, INSTRINT_, CURSOR_, GAMESTATE%s%s%s; P190, P197)",
+                DialogLog("Skripte mit %s%s%s%s: deren Ganzzahlen bleiben je PC (_..., MEM_, MEMINT_, INSTRINT_, CALLINT_, CURSOR_, GAMESTATE%s%s%s; P190, P197, P314)",
                     lib ? "Ikarus" : "", lego ? "/LeGo" : "", gfa ? ", Gothic Free Aim" : "", spine ? ", Spine" : "",
                     lego ? ", NEXTHANDLE, PM_, PRINT_, BUFF_, BUFFLIST_, TRIA_" : "", gfa ? ", GFA_" : "", spine ? ", SPINE_" : "");
         }
         if (!nm)
             return false;
+        // u261 (P314): auch CALLINT_RESULT (Ikarus: Ergebnis von CALL__*, Xeres-Volltest 14.11.: "CALLINT_RESULT: nur hier (3)")
         if (lib && (nm[0] == '_' || !strncmp(nm, "MEM_", 4) || !strncmp(nm, "MEMINT_", 7) || !strncmp(nm, "INSTRINT_", 9) ||
-            !strncmp(nm, "CURSOR_", 7) || !strcmp(nm, "GAMESTATE")))
+            !strncmp(nm, "CALLINT_", 8) || !strncmp(nm, "CURSOR_", 7) || !strcmp(nm, "GAMESTATE")))
             return true;
         if (lego && (!strcmp(nm, "NEXTHANDLE") || !strncmp(nm, "PM_", 3) || !strncmp(nm, "PRINT_", 6) || !strncmp(nm, "BUFF_", 5) ||
             !strncmp(nm, "BUFFLIST_", 9) || !strncmp(nm, "TRIA_", 5) || !strcmp(nm, "HERO_LASTHP")))
@@ -1719,9 +1720,21 @@ namespace GOTHIC_ENGINE {
             DialogLog("Zeile %s von %s: %s hier nicht vorhanden", l.o.c_str(), l.by.c_str(), !fig ? "Coop-Figur" : n.c_str());
             return false;
         }
-        const zVEC3 d = speaker->GetPositionWorld() - player->GetPositionWorld();
-        if (d.Length() > DIALOG_HEAR_RANGE)
+        // u272 (P340, Nutzer 15.11.: "die Dialoge spielen beim Mitspieler nicht ab wenn Spieler gerade mit einem NPC redet ... wenn diese in
+        // einer Animation oder am Sitzen sind"): bis u271 entschied nur die Lage des Sprechers HIER - stand seine Kopie hier woanders (andere
+        // Bank, Tagesablauf je PC), fiel die Zeile ohne Logzeile weg. Jetzt reicht es auch, wenn der Partner, der das Gespraech fuehrt, in
+        // Hoerweite ist; jede ausgelassene Zeile steht im Log
+        const float dSprecher = (speaker->GetPositionWorld() - player->GetPositionWorld()).Length();
+        const float dPartner = fig ? (fig->GetPositionWorld() - player->GetPositionWorld()).Length() : 1e9f;
+        if (dSprecher > DIALOG_HEAR_RANGE && dPartner > DIALOG_HEAR_RANGE) {
+            static int gemeldetWeit = 0;
+            if (gemeldetWeit < 30) {
+                gemeldetWeit++;
+                DialogLog("Zeile %s von %s ausgelassen - ausser Hoerweite (Sprecher %.0f m, Partner %.0f m; P340)", l.o.c_str(), l.by.c_str(),
+                    dSprecher / 100.0f, fig ? dPartner / 100.0f : -1.0f);
+            }
             return false;
+        }
         // u234 (P279, Nutzer: "die zeile von jorn war nicht zu sehen" - beim Client begann sie dank P278 vorn, aber den Ton mit dem Untertitel
         // legt Gothic als eigenen Befehl an, und der kam wieder hinter Jorns Tagesablauf-Befehle): ein anderer Trialog-Sprecher wird hier fuer das
         // Gespraech des Partners angehalten wie der Gespraechs-NPC (Befehlsliste leer, Szenenbefehle bleiben, Tagesablauf ruht) - bis es endet
@@ -1738,6 +1751,16 @@ namespace GOTHIC_ENGINE {
         // Liste - wie bei Gothic eine Nachricht mit hohem Vorrang
         if (wer && wer != npc && l.s != "h")
             msg->SetHighPriority(TRUE);
+        // u272 (P340): sitzt der Sprecher hier (Mob) oder steht er nicht (Animation), kommt die Zeile vorn in seine Liste - wie im Trialog
+        if (l.s != "h" && (speaker->GetInteractMob() || (speaker->anictrl && !speaker->anictrl->IsStanding()))) {
+            msg->SetHighPriority(TRUE);
+            static int gemeldetSitz = 0;
+            if (gemeldetSitz < 30) {
+                gemeldetSitz++;
+                DialogLog("Zeile %s von %s: Sprecher %s sitzt bzw. steht nicht - Zeile vorn (P340; %s)", l.o.c_str(), l.by.c_str(),
+                    (wer ? l.w : n).c_str(), DialogEmKurz(speaker).c_str());
+            }
+        }
         DialogInjecting++;
         speaker->GetEM()->OnMessage(msg, speaker);
         DialogInjecting--;
@@ -3140,6 +3163,11 @@ namespace GOTHIC_ENGINE {
     static std::vector<std::pair<json, std::string>> MiWaiting;
     static void MiApply(const json& d, const std::string& by);
 
+    bool CoopTruheQuestModus();                                // u266 (P324): CoopTruhe.cpp
+    void CoopTruheJetztPruefen();
+    int CoopTruheSelbstGenommen(const char* inst, int n);
+    int CoopTruheQuestHinein(const char* inst, int n);
+
     // Game_Loop (CoopDialogSyncPulse): Bestand vergleichen, Aenderungen an den Partner
     // u149 (P152, Lauf b118: "Missions-Gegenstaende: ALTESSCHWERT -4, ITAT_CRAWLERQUEEN -4, ITKE_FOCUS4 -1 ... - an den Partner gespiegelt", beim Host "gespiegelt: ALTESSCHWERT -4 ..."): Verwandelt ist player das Tier mit
     // leerem Inventar, das galt als Verlust aller Missions-Gegenstaende und nahm sie auch dem Partner. Solange nicht vergleichen; danach neu aufnehmen, der Held hat sein Inventar wieder
@@ -3183,6 +3211,27 @@ namespace GOTHIC_ENGINE {
         MiBase = cur;
         if (d.empty())
             return;
+        // u266 (P324): mit der Einstellung "Coop-Inventar mit dem Inventar" gehen neue Missions-Gegenstaende des eigenen Helden ins
+        // Coop-Inventar statt gespiegelt zu werden (es gehoert beiden); selbst Herausgenommenes bleibt im eigenen Inventar
+        if (CoopTruheQuestModus()) {
+            CoopTruheJetztPruefen();
+            std::string wohin;
+            for (auto& x : d) {
+                const std::string inst = x.at(0).get<std::string>();
+                const int delta = x.at(1).get<int>();
+                if (delta <= 0)
+                    continue;
+                const int frei = CoopTruheSelbstGenommen(inst.c_str(), delta);
+                const int n = delta > frei ? CoopTruheQuestHinein(inst.c_str(), delta - frei) : 0;
+                if (n > 0) {
+                    MiBase[inst] -= n;
+                    wohin += (wohin.empty() ? "" : ", ") + inst + " " + std::to_string(n);
+                }
+            }
+            if (!wohin.empty())
+                DialogLog("Missions-Gegenstaende ins Coop-Inventar (P324): %s", wohin.c_str());
+            return;
+        }
         json j;
         j["mi"] = d;
         DialogSend(j, SYNC_DIALOG_STATE);
@@ -3494,6 +3543,20 @@ namespace GOTHIC_ENGINE {
                     || !StoryValueOk(val) || StoryIsHeroVar(sym) || DlgNeverSync(sym->name.ToChar())   // v31: Heldenwerte nie uebernehmen (auch von aelteren Fassungen)
                     || (e.contains("q") && DlgGuildVars.count(sym)))   // u85: Werte aus Gilden-Infos nicht ueber den Story-Abgleich
                     continue;
+                // u261 (P314, Xeres-Volltest 14.11.: der Host schloss MOD_BLUTCOUNTER und TIMECOUNTER_SEK nach 21 s aus ("aendert sich
+                // staendig"), uebernahm sie aber noch 16-mal vom Client, bis dieser sie selbst ausschloss - die eigenen Werte sprangen): was
+                // hier als staendig wechselnd oder Zeiger ausgeschlossen ist, gilt auch vom Partner nicht. Ablauf- und Zaehler-Variablen des
+                // Profils (CoopModStartVar, CoopModDeltaVar) behalten ihren eigenen Weg. Allgemein
+                {
+                    auto ns = DlgSlotIndex.find(std::make_pair(sym, k));
+                    if (ns != DlgSlotIndex.end() && ns->second < (int)StoryNoisy.size() && StoryNoisy[ns->second] &&
+                        !CoopModStartVar(sym->name.ToChar()) && !CoopModDeltaVar(sym->name.ToChar())) {
+                        static int noisyLogged = 0;
+                        if (noisyLogged++ < 20)
+                            DialogLog("Story-Abgleich: %s von %s nicht uebernommen - aendert sich hier staendig (P314)", sym->name.ToChar(), by.c_str());
+                        continue;
+                    }
+                }
                 int old = 0;
                 sym->GetValue(old, k);
                 // u207 (P241): Ablauf-Zaehler - vom Partner nur der Start, und nur, wenn hier noch nichts laeuft
@@ -4657,6 +4720,8 @@ namespace GOTHIC_ENGINE {
         DialogLog("Host-Ereignis: AI_Teleport(%s, %s) beim Client -> auch beim Host (P200)", NpcToUniqueNameList[npc].ToChar(), wp->ToChar());
     }
 
+    bool CoopDamageOwnHitRunning(oCNpc* npc);   // CoopDamage.cpp, u260 (P312)
+
     static int __cdecl CoopExtNpcChangeAttribute() {
         oCNpc* npc = NULL;
         if (HostEvForward() && !HostEvInDeathScript() && zCParser::GetParser() == parser) {
@@ -4673,13 +4738,26 @@ namespace GOTHIC_ENGINE {
             }
         }
         const int r = OrigNpcChangeAttribute ? OrigNpcChangeAttribute() : 0;
+        // u260 (P312, Xeres-Volltest ab Minental 14.11.: "Test-NPC toeten + EP-Regel: ... beim Partner tot ... Partner-EP 815 -> 815"):
+        // Xeres zieht den Kampfschaden in der Schadens-Wahrnehmung selbst ab (Npc_ChangeAttribute). Toetete der eigene Held einen NPC des
+        // Hosts, ging das als Skript-Tod an den Host (P200) - der toetete "ohne EP", bevor der Treffer selbst ankam; Kill-EP und der
+        // Anteil des Partners fehlten. Gehoert der Abzug zu einem laufenden Treffer des eigenen Helden auf diesen NPC, geht er mit dem
+        // Treffer an den Host (Schadensmessung), nicht als Skript-Tod. Allgemein
         if (npc && npc->GetAttribute(NPC_ATR_HITPOINTS) <= 0) {
-            json j;
-            j["f"] = "killreq";
-            j["n"] = NpcToUniqueNameList[npc].ToChar();
-            HostEvSend(j);
-            DialogLog("Host-Ereignis: ein Skript toetet %s beim Client (Npc_ChangeAttribute) -> auch beim Host (P200)",
-                NpcToUniqueNameList[npc].ToChar());
+            if (CoopDamageOwnHitRunning(npc)) {
+                static int logged = 0;
+                if (logged++ < 20)
+                    DialogLog("Host-Ereignis: %s faellt durch den eigenen Treffer (Schaden aus dem Skript der Mod) - geht als Treffer an den Host, nicht als Skript-Tod (P312)",
+                        NpcToUniqueNameList[npc].ToChar());
+            }
+            else {
+                json j;
+                j["f"] = "killreq";
+                j["n"] = NpcToUniqueNameList[npc].ToChar();
+                HostEvSend(j);
+                DialogLog("Host-Ereignis: ein Skript toetet %s beim Client (Npc_ChangeAttribute) -> auch beim Host (P200)",
+                    NpcToUniqueNameList[npc].ToChar());
+            }
         }
         return r;
     }
@@ -4958,6 +5036,10 @@ namespace GOTHIC_ENGINE {
     static std::map<oCNpc*, long long> HostEvScriptTeleMs;          // Host: zuletzt von einem eigenen Skript versetzt
     static unsigned HostEvExeBegin = 0, HostEvExeEnd = 0, HostEvDllBegin = 0, HostEvDllEnd = 0;
     static int HostEvTelePosLogged = 0, CoopTestTelePosSent = 0, CoopTestTelePosApplied = 0;
+    // u256 (P308): Selbsttest "Fleischwanze Ikarus-Teleport beim Client gilt beim Host" - zuletzt uebernommene Skript-Lage je NPC-Name
+    // mit Zeit (nur beim Host gefuellt). Die Wanze laeuft beim Host nach dem Versetzen gleich weiter (Lauf u255: 7,1 m nach 2 s, 3,6 m
+    // nach 8,6 s vom Ziel) - die Pruefung braucht die Lage, die der Host uebernommen hat, nicht nur die jetzige
+    static std::map<std::string, std::pair<zVEC3, long long>> CoopTestTelePosLast;
 
     static void HostEvModuleRange(HMODULE h, unsigned& begin, unsigned& end) {
         const BYTE* base = (const BYTE*)h;
@@ -5081,6 +5163,7 @@ namespace GOTHIC_ENGINE {
             return;
         }
         const zVEC3 p(e.value("x", 0.f), e.value("y", 0.f), e.value("z", 0.f));
+        CoopTestTelePosLast[n] = std::make_pair(p, (long long)CurrentMs);   // u256 (P308)
         if ((npc->GetPositionWorld() - p).LengthApprox() < 100.f)
             return;
         HostEvApplying++;
@@ -5103,6 +5186,16 @@ namespace GOTHIC_ENGINE {
         if (logged++ < 40)
             DialogLog("Host-Ereignis: Skript-Lage von %s des Clients %s (%s) uebernommen: %.0f/%.0f/%.0f (P235)", n.c_str(), by.c_str(),
                 e.value("how", std::string("?")).c_str(), p.n[0], p.n[1], p.n[2]);
+    }
+
+    // u256 (P308): Selbsttest - Skript-Lage, die der Host fuer diesen NPC zuletzt uebernommen hat, und ihr Alter
+    bool CoopTestTelePosOf(const std::string& name, zVEC3& pos, long long& ageMs) {
+        auto it = CoopTestTelePosLast.find(name);
+        if (it == CoopTestTelePosLast.end())
+            return false;
+        pos = it->second.first;
+        ageMs = (long long)CurrentMs - it->second.second;
+        return true;
     }
 
     // u204 (P235): Selbsttest - Aufruf wie Ikarus' CALL__thiscall aus einem Code-Puffer im Heap (mov ecx, this; push arg; call func; ret)
@@ -6812,6 +6905,7 @@ namespace GOTHIC_ENGINE {
     bool CoopAblaufLaeuft(long long) { return false; }           // u243 (P290)
     void CoopTimeRequestReceive(json&, const std::string&) {}   // u204 (P232)
     bool CoopTestScriptThiscall(unsigned, void*, const void*) { return false; }   // u204 (P235)
+    bool CoopTestTelePosOf(const std::string&, zVEC3&, long long&) { return false; }   // u256 (P308)
     void CoopStorySendAllNpcs(const char*) {}
     void CoopDialogSyncLoadKind(bool) {}   // u140
     json CoopWorldEntryVarsGet(const std::string&) { return json::array(); }

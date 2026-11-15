@@ -7,6 +7,34 @@ At the very bottom you will find the history before the first release: the Othel
 (github.com/corshaegar/Othello-Coop) and the unreleased versions u1–u61 that became 0.2.0. This way, every change since the very
 first version is recorded here.
 
+## 0.11.2 – Coop inventory next to your inventory, teleport rune, the partner's torch, crash fixes (Gothic I u273, Gothic II u273, Othello u273, Legend of Ahssun u273, Archolos u273, Xeres' Rückkehr u273)
+
+Many of these changes come from game sessions in Othello and Archolos and from players' bug reports – thank you!
+
+**New**
+
+- **The coop inventory opens together with your inventory** (u265–u272): It appears next to your own inventory whenever you open it – not while looting, trading or stealing, not at a chest and not in a conversation. Right-click moves one item over, holding the button moves more; in the coop window, right-click takes one out again. Left-click and the action key equip or use items as usual, Alt drops them on the ground, Tab and the coop key switch between the two windows, Esc closes both. Each player decides for themselves: *Settings > COOP > Sync > Open coop inventory too*.
+- **Items in the coop inventory can be used directly** (u265–u267): arrows and bolts for a drawn bow or crossbow, the right key or lockpicks at a locked door or chest, the tool a workbench needs, and goods when trading. A short message tells you when something was taken from the coop inventory.
+- **Quest items go to the coop inventory** (u266): With the setting above switched on, every quest item your hero receives goes straight into the coop inventory, so both players have it.
+- **Messages fade in and out** (u267) instead of piling up in the top left corner.
+- **Tidier settings** (u266–u272): "Steam friends" and "Coop window" are no longer in the COOP settings list (both remain available in the multiplayer menu), and the help page describes the coop inventory.
+- **The partner's name is hidden during combat** (u263), so it does not get in the way.
+
+**Fixes**
+
+- **Crash when pressing a spell key or drawing a rune** (u272): The coop gives the teleport rune its own name in the spell circle. For a spell that was not in the hero's own spell book, it looked in the wrong place and the game crashed – four times in the Archolos logs, always on the client, and also when the teleport rune was drawn a second time.
+- **"Error: PulseMyself" in Archolos** (u272): An item in the hero's hand or spell book that the game had already removed crashed the coop when it read it. Such items are now checked first.
+- **The teleport rune can no longer be lost** (u272): It can no longer be dropped or put into a chest or the coop inventory.
+- **The partner's torch is visible again – with its light** (u272–u273): A burning torch in the partner's hand was never transferred to the other PC, so it stayed dark there. Torches are now transferred (only torches – what the partner eats or drinks is still shown by the animations). If a mod's torch brings no light of its own, the coop adds one.
+- **The partner's conversations could not be heard** (u272): If your copy of the NPC stood somewhere else – on another bench, for example – the partner's lines were silently skipped. They now play as long as your partner is within earshot, and NPCs who sit or play an animation start talking right away.
+- **Bows and crossbows shot no arrows in Othello** (u263) – neither for the host nor for the client.
+- **After loading, the partner had full health** (u263); the partner's body no longer turns after death, and a weapon in the partner's hand no longer disappears on death or knock-out (u264).
+- **The list of saved games was missing** (u264) when the client was already in the game while the host was still in the main menu.
+- **NPCs nearby show the same looping animation on both PCs** (u262), novices praying, for example.
+- **In Othello's control settings, the rows can be clicked again** (u267).
+- **Xeres' Rückkehr** (u258–u261): When the client kills an enemy with script damage (from a special weapon, for example), it now gives experience like a normal hit; the mod's clock and other values that belong to each PC are no longer copied between the players.
+- **Fewer stutters from the log file** (u255): The coop log stays open for the whole session instead of being opened again for every line.
+
 ## 0.11.1 – Host stuttering every 5 seconds, Archolos started from Steam (Gothic I u254, Gothic II u254, Othello u254, Legend of Ahssun u254, Archolos u254, Xeres' Rückkehr u254)
 
 Found in the logs of two players who played Archolos together on 12 Nov 2026.

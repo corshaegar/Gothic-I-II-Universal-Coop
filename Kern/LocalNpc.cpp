@@ -1,4 +1,6 @@
 namespace GOTHIC_ENGINE {
+
+    bool CoopSlotVobAlive(oCNpc* npc, const void* vob, const char* where);   // u272 (P341): Helpers.cpp
     int CoopDiffHpBase(oCNpc* n);   // v70: CoopDifficulty.cpp - Grundwert skalierter Lebenspunkte (sonst -1)
 
     class LocalNpc
@@ -24,6 +26,7 @@ namespace GOTHIC_ENGINE {
         int lastWeaponMode;
         int lastSyncHp = -1;
         int lastSyncMaxHp;
+        long long lastHpSentMs = 0;   // u263 (P318): eigener Held - HP auch ohne Aenderung alle 5 s
         int lastProtections[8];
         int lastTalents[4];
         int lastBodyState;
@@ -72,7 +75,7 @@ namespace GOTHIC_ENGINE {
                 this->SyncWeapons();
                 this->SyncProtection();
                 this->SyncTalents();
-                //this->SyncHand();
+                this->SyncHand();   // u273 (P343): nur Fackeln (Upstream v60 hatte den Hand-Abgleich ganz aus)
 
                 // u69 (Dauertest u65/u67: Pruefrunde "Spieltag und Uhrzeit gleich" bis 24 Spielminuten auseinander): nach einem
                 // gemeinsamen Laden ist der Client spaeter fertig (er holt den Stand vom Host) - seine Uhr stand bis zum naechsten Paket
@@ -251,9 +254,28 @@ namespace GOTHIC_ENGINE {
                 // ihm fuer immer. Darum laeuft sie noch, alle 5 s als "loop" - der Empfaenger startet sie nur, wenn sie bei ihm
                 // nicht schon laeuft. Allgemein GT.
                 lastLoopSentMs = CurrentMs;
-                const zSTRING aniName = lastAnimation->GetAniName();
-                if (aniName.Length() > 1 && aniName.ToChar()[0] == 'S' && aniName.ToChar()[1] == '_' && model->IsAniActive(lastAnimation)) {
-                    loopAniName = aniName.ToChar();
+                // u262 (P315, Xeres-Volltest ab Minental 14.11., zweimal: zwei Novizen im Smalltalk beim Host "S_WALK", beim Partner
+                // "S_RUN" - Stehen im Geh- statt im Laufmodus; ihr Start kam, als der Client sie noch nicht kannte): nach einer Geste
+                // (T_DIALOGGESTURE_..) war die zuletzt gestartete Animation keine Schleife, die Schleife darunter lief weiter und ging nie
+                // wieder hinaus. Jetzt die laufende Schleife der Grundebene (Ebene 1), sonst wie bisher die zuletzt gestartete. Allgemein GT
+                auto isLoop = [](zCModelAni* a) {
+                    if (!a)
+                        return false;
+                    const zSTRING n = a->GetAniName();
+                    return n.Length() > 1 && n.ToChar()[0] == 'S' && n.ToChar()[1] == '_';
+                };
+                zCModelAni* loop = NULL;
+                for (int i = 0; i < model->numActiveAnis && i < zMDL_MAX_ANIS_PARALLEL; i++) {
+                    zCModelAniActive* a = model->aniChannels[i];
+                    if (a && a->protoAni && a->protoAni->layer == 1) {
+                        loop = a->protoAni;
+                        break;
+                    }
+                }
+                if (!isLoop(loop) || IsAniBlockedForAll(loop))
+                    loop = (isLoop(lastAnimation) && model->IsAniActive(lastAnimation)) ? lastAnimation : NULL;
+                if (loop) {
+                    loopAniName = loop->GetAniName().ToChar();
                     addUpdate(SYNC_ANIMATION);
                 }
             }
@@ -285,9 +307,20 @@ namespace GOTHIC_ENGINE {
         void SyncHand() {
             auto leftHand = npc->GetLeftHand();
             auto rightHand = npc->GetRightHand();
+            // u272 (P341, Absturz-Meldung 15.11. aus Archolos mit u254: "Error: PulseMyself"): ein schon freigegebener Gegenstand in der Hand
+            // (Mod-Skripte, Engine) brachte GetInstanceName zum Absturz - erst pruefen; tot wird er aus dem Slot ausgetragen
+            if (leftHand && !CoopSlotVobAlive(npc, leftHand, "SyncHand (links)"))
+                leftHand = NULL;
+            if (rightHand && !CoopSlotVobAlive(npc, rightHand, "SyncHand (rechts)"))
+                rightHand = NULL;
 
-            auto leftHandInstanceName = leftHand ? leftHand->GetInstanceName() : "NULL";
-            auto rightHandInstanceName = rightHand ? rightHand->GetInstanceName() : "NULL";
+            // u273 (P343, Nutzer 15.11.: "das Licht der Fackel des Partners wird nicht angezeigt"; Volltest u272: Figur beim Partner mit leerer
+            // linker Hand): nur eine Fackel in der Hand geht zum Partner - Essen, Trinken usw. zeigen seine Animationen, und eine gezogene
+            // Waffe darf seine Figur nicht verlieren
+            oCItem* leftItem = zDYNAMIC_CAST<oCItem>(leftHand);
+            oCItem* rightItem = zDYNAMIC_CAST<oCItem>(rightHand);
+            zSTRING leftHandInstanceName = leftItem && leftItem->HasFlag(ITM_FLAG_TORCH) ? leftItem->GetInstanceName() : zSTRING("NULL");
+            zSTRING rightHandInstanceName = rightItem && rightItem->HasFlag(ITM_FLAG_TORCH) ? rightItem->GetInstanceName() : zSTRING("NULL");
 
             if (!leftHandInstanceName.Compare(lastLeftHandInstanceName) || !lastRightHandInstanceName.Compare(rightHandInstanceName)) {
                 addUpdate(SYNC_HAND);
@@ -368,8 +401,13 @@ namespace GOTHIC_ENGINE {
                 return; // BDT_50011_Addon_Raven souls attack cutscene hack
             }
 
-            if (currentHp != lastSyncHp || currentMaxHp != lastSyncMaxHp) {
+            // u263 (P318, Othello-Sitzung des Nutzers 14.11.: "Beim Laden wird der Mitspieler mit vollem HP geladen", "Leiche vom
+            // Mitspieler ... hat z. B. 4 HP und ist nicht tot obwohl er gestorben ist"): HP gingen nur bei einer Aenderung hinaus. Setzte der
+            // Host die Figur nach dem Laden neu ein (Instanz mit vollen HP), blieb dieser Wert stehen, bis sich die HP aenderten; ebenso ein
+            // veralteter Wert vor dem Tod. Der eigene Held schickt seine HP jetzt zusaetzlich alle 5 s. Allgemein
+            if (currentHp != lastSyncHp || currentMaxHp != lastSyncMaxHp || (npc == player && CurrentMs - lastHpSentMs >= 5000)) {
                 addUpdate(SYNC_HP);
+                lastHpSentMs = CurrentMs;
 
                 lastSyncHp = currentHp;
                 lastSyncMaxHp = currentMaxHp;
@@ -433,6 +471,9 @@ namespace GOTHIC_ENGINE {
                     if (spellID >= 0)
                     {
                         oCItem* item = book->GetSpellItem(spellID);
+                        // u272 (P341, Absturz-Meldung 15.11. mit u254: Coop-Rune ausgeruestet, beim zweiten Ziehen Absturz): nur lebende Gegenstaende lesen
+                        if (item && !CoopSlotVobAlive(npc, item, "Zauberbuch"))
+                            item = NULL;
                         if (item)
                         {
                             auto itemName = item->GetInstanceName();

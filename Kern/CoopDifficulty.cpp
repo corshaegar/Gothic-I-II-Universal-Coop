@@ -672,7 +672,7 @@ namespace GOTHIC_ENGINE {
                     ChatLog(string::Combine(CoopTr("Schwierigkeitsgrad%s: %s", "Difficulty%s: %s"), string(ClientThread && !ServerThread ? " (Host)" : ""),
                         string(DiffDescribe(eff, CoopLangEn != 0).c_str())));
                 if (syncChanged)
-                    ChatLog(string::Combine(CoopTr("Abgleich%s: %s", "Sync%s: %s"), string(ClientThread && !ServerThread ? " (Host)" : ""),
+                    ChatLog(string::Combine(CoopTr("Synchronisierung%s: %s", "Sync%s: %s"), string(ClientThread && !ServerThread ? " (Host)" : ""),
                         string(SyncDescribe(eff, CoopLangEn != 0).c_str())));
             }
             DiffLastEff = eff;
@@ -700,8 +700,8 @@ namespace GOTHIC_ENGINE {
                         off += std::string(off.empty() ? "" : ", ") + CoopTr("Tagebuch", "diary");
                     if (eff.sw)
                         off += std::string(off.empty() ? "" : ", ") + CoopTr("Gegenst" COOP_AE "nde/Truhen", "items/chests");
-                    ChatLog(string::Combine(CoopTr("Achtung: nicht abgeglichen wird: %s (Host: Einstellungen > COOP > Abgleich)",
-                        "Note: not synchronized: %s (host: Settings > COOP > Sync)"), string(off.c_str())), zCOLOR(255, 190, 0, 255));
+                    ChatLog(string::Combine(CoopTr("Achtung: nicht synchronisiert wird: %s (Host: Einstellungen > COOP > Synchronisierung)",
+                        "Note: not shared: %s (host: Settings > COOP > Sync)"), string(off.c_str())), zCOLOR(255, 190, 0, 255));
                     OthelloCompatLog("[%lld s, %s] Abgleich: Hinweis im Chat - nicht abgeglichen: %s", DiagSeconds(), DiagRole(), off.c_str());
                 }
             }

@@ -2091,9 +2091,12 @@ namespace GOTHIC_ENGINE {
             ChestOpenedLocal(_this);
     }
 
+    bool CoopTruheCloseVerhindern(oCMobContainer* m, oCNpc* npc, const void* ret);   // u270 (P335): CoopTruhe.cpp
     void __fastcall oCMobContainer_Close_Coop(oCMobContainer* _this, void* vtable, oCNpc* npc);
     CInvoke<void(__thiscall*)(oCMobContainer*, oCNpc*)> Ivk_oCMobContainer_Close_Coop(CoopAddr::oCMobContainer_Close, &oCMobContainer_Close_Coop, COOP_IVK(World));
     void __fastcall oCMobContainer_Close_Coop(oCMobContainer* _this, void* vtable, oCNpc* npc) {
+        if (CoopTruheCloseVerhindern(_this, npc, _ReturnAddress()))   // u270 (P335): Coop-Truhe bleibt beim Rechtsklick offen
+            return;
         Ivk_oCMobContainer_Close_Coop(_this, npc);
         if (_this && _this != CoopTruheObj && npc && npc == player)   // u97: die Coop-Truhe gleicht CoopTruhe.cpp ab
             ChestClosedLocal(_this);
@@ -2523,11 +2526,16 @@ namespace GOTHIC_ENGINE {
     // u177: LoA-Lauf u174 (Client, 19:52): derselbe Absturz trotz Haken - DoShootArrow liest die Munition der Waffe IN DER HAND
     // (G2A 0x0074471C bzw. 0x007447BB: GetSlotItem(NPC_NODE_LEFTHAND) im Bogen-, GetSlotItem(NPC_NODE_RIGHTHAND) im Armbrust-Modus,
     // dann [Waffe+0x264]), nicht die angelegte. Beim Abbild war die Armbrust angelegt, die Hand aber leer. Jetzt beides pruefen
+    // u263 (P316, Othello-Sitzung des Nutzers 14.11. mit u260: "Bogenschiessen ist irgendwie nicht moeglich weder als Host noch als
+    // Client es fliegen einfach keine Pfeile" - Log: "Schuss ohne Fernkampfwaffe abgefangen: PC_HERO (Kampfmodus 5, Held)" bei Host und
+    // Client, ebenso bei den Schuetzen ORG_818_RATFORD und ORG_819_DRAX): in Othello liefert GetEquippedRangedWeapon beim gezogenen Bogen
+    // NULL - der Haken hielt jeden Schuss an. Entscheidend ist die Waffe in der Hand (u177): im Bogen-/Armbrust-Modus zaehlt nur noch sie,
+    // die angelegte Waffe nur ausserhalb dieser Modi. Allgemein
     int __fastcall oCNpc_DoShootArrow_Coop(oCNpc* _this, void* vtable, int autoAim) {
         if (_this) {
             const char* node = _this->fmode == 5 ? "ZS_LEFTHAND" : _this->fmode == 6 ? "ZS_RIGHTHAND" : NULL;   // Bogen links, Armbrust rechts
-            const bool noWeapon = !_this->GetEquippedRangedWeapon();
-            const bool emptyHand = !noWeapon && node && !_this->GetSlotItem(zSTRING(node));
+            const bool emptyHand = node && !_this->GetSlotItem(zSTRING(node));
+            const bool noWeapon = !node && !_this->GetEquippedRangedWeapon();
             if (noWeapon || emptyHand) {
                 if (++CoopShootGuards <= 20)
                     WorldSyncLog("Schuss %s abgefangen: %s (Kampfmodus %d, %s) - kein Pfeil, sonst Zugriffsfehler (P180)",

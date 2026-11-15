@@ -1052,7 +1052,7 @@ instance MENUITEM_OPT_COOP(C_MENU_ITEM_DEF)
 {
 	backpic = MENU_ITEM_BACK_PIC;
 	text[0] = "COOP";
-	text[1] = "Coop: Kamera, Schwierigkeit, Abgleich, Tasten, Hilfe ...";
+	text[1] = "Coop: Kamera, Schwierigkeit, Synchronisierung, Tasten, Hilfe ...";
 	posx = 0;
 	posy = MENU_OPT_START_Y + MENU_OPT_DY * 6;
 	dimx = 8192;
@@ -1070,15 +1070,13 @@ instance MENU_OPT_COOP(C_MENU_DEF)
 	items[1] = "MENUITEM_OPTCOOP_CAM";
 	items[2] = "MENUITEM_OPTCOOP_DIFF";
 	items[3] = "MENUITEM_OPTCOOP_SYNC";
-	items[4] = "MENUITEM_OPTCOOP_STEAM";
-	items[5] = "MENUITEM_OPTCOOP_KEYS";
-	items[6] = "MENUITEM_OPTCOOP_MARK";
-	items[7] = "MENUITEM_OPTCOOP_WINDOW";
-	items[8] = "MENUITEM_OPTCOOP_HELP";
-	items[9] = "MENUITEM_OPTCOOP_LANG";
-	items[10] = "MENUITEM_OPTCOOP_LANG_CHOICE";
-	items[11] = "MENUITEM_OPTCOOP_BACK";
-	items[12] = "MENUITEM_OPTCOOP_VERSION";
+	items[4] = "MENUITEM_OPTCOOP_KEYS";
+	items[5] = "MENUITEM_OPTCOOP_MARK";
+	items[6] = "MENUITEM_OPTCOOP_HELP";
+	items[7] = "MENUITEM_OPTCOOP_LANG";
+	items[8] = "MENUITEM_OPTCOOP_LANG_CHOICE";
+	items[9] = "MENUITEM_OPTCOOP_BACK";
+	items[10] = "MENUITEM_OPTCOOP_VERSION";
 	defaultoutgame = 1;
 	defaultingame = 1;
 	flags = flags | MENU_SHOW_INFO;
@@ -1129,7 +1127,7 @@ instance MENUITEM_OPTCOOP_DIFF(C_MENU_ITEM_DEF)
 instance MENUITEM_OPTCOOP_SYNC(C_MENU_ITEM_DEF)
 {
 	backpic = MENU_ITEM_BACK_PIC;
-	text[0] = "Abgleich";
+	text[0] = "Synchronisierung";
 	text[1] = "Was beide teilen: Quests, Tagebuch, Gegenstände und Truhen, Spielstände - der Host gibt vor.";
 	posx = 0;
 	posy = MENU_OPT_START_Y + MENU_OPT_DY * 2;
@@ -1164,7 +1162,7 @@ instance MENUITEM_OPTCOOP_LANG(C_MENU_ITEM_DEF)
 	text[1] = "Sprache der Coop-Menüs und -Meldungen (links/rechts): Deutsch oder English.";
 	fontname = MENU_FONT_SMALL;
 	posx = 1000;
-	posy = MENU_OPT_START_Y + MENU_OPT_DY * 7 + 100;
+	posy = MENU_OPT_START_Y + MENU_OPT_DY * 6 + 100;
 	dimx = 3800;
 	dimy = 400;
 	onselaction[0] = SEL_ACTION_UNDEF;
@@ -1179,7 +1177,7 @@ instance MENUITEM_OPTCOOP_LANG_CHOICE(C_MENU_ITEM_DEF)
 	text[0] = "Deutsch|English";
 	fontname = MENU_FONT_SMALL;
 	posx = 5000;
-	posy = MENU_OPT_START_Y + MENU_OPT_DY * 7 + 100 + 25;
+	posy = MENU_OPT_START_Y + MENU_OPT_DY * 6 + 100 + 25;
 	dimx = MENU_SLIDER_DX;
 	dimy = MENU_CHOICE_DY;
 	onchgsetoption = "coopLang";
@@ -1197,7 +1195,7 @@ instance MENUITEM_OPTCOOP_KEYS(C_MENU_ITEM_DEF)
 	text[0] = "Coop-Tasten";
 	text[1] = "Jede Coop-Taste frei belegen - auch Inventar und Teleport.";
 	posx = 0;
-	posy = MENU_OPT_START_Y + MENU_OPT_DY * 4;
+	posy = MENU_OPT_START_Y + MENU_OPT_DY * 3;
 	dimx = 8192;
 	dimy = 750;
 	onselaction[0] = SEL_ACTION_STARTMENU;
@@ -1212,7 +1210,7 @@ instance MENUITEM_OPTCOOP_MARK(C_MENU_ITEM_DEF)
 	text[0] = "Mitspieler-Anzeige";
 	text[1] = "Name, Entfernung, Pfeil am Rand, Farbe, Karte.";
 	posx = 0;
-	posy = MENU_OPT_START_Y + MENU_OPT_DY * 5;
+	posy = MENU_OPT_START_Y + MENU_OPT_DY * 4;
 	dimx = 8192;
 	dimy = 750;
 	onselaction[0] = SEL_ACTION_STARTMENU;
@@ -1241,9 +1239,9 @@ instance MENUITEM_OPTCOOP_HELP(C_MENU_ITEM_DEF)
 	backpic = MENU_ITEM_BACK_PIC;
 	text[0] = "Hilfe";
 	text[1] = "Alle Coop-Tasten und das Wichtigste auf einen Blick.";
-	posx = 4192;
-	posy = MENU_OPT_START_Y + MENU_OPT_DY * 6;
-	dimx = 3000;
+	posx = 0;
+	posy = MENU_OPT_START_Y + MENU_OPT_DY * 5;
+	dimx = 8192;
 	dimy = MENU_OPT_DY;
 	onselaction[0] = SEL_ACTION_STARTMENU;
 	onselaction_s[0] = "MENU_COOP_HELP";
@@ -1849,9 +1847,11 @@ instance MENU_OPT_COOP_SYNC(C_MENU_DEF)
 	items[12] = "MENUITEM_OPTSYNC_CONNECT_CHOICE";
 	items[13] = "MENUITEM_COOPSYNC_WORLDCHANGE";
 	items[14] = "MENUITEM_OPTSYNC_WORLDCHANGE_CHOICE";
-	items[15] = "MENUITEM_OPTCOOPSYNC_NOTE";
-	items[16] = "MENUITEM_OPTCOOP_BACK";
-	items[17] = "MENUITEM_OPTCOOPSYNC_VERSION";
+	items[15] = "MENUITEM_COOPSYNC_MITINV";
+	items[16] = "MENUITEM_OPTSYNC_MITINV_CHOICE";
+	items[17] = "MENUITEM_OPTCOOPSYNC_NOTE";
+	items[18] = "MENUITEM_OPTCOOP_BACK";
+	items[19] = "MENUITEM_OPTCOOPSYNC_VERSION";
 	defaultoutgame = 1;
 	defaultingame = 1;
 	flags = flags | MENU_SHOW_INFO;
@@ -1859,7 +1859,7 @@ instance MENU_OPT_COOP_SYNC(C_MENU_DEF)
 
 instance MENUITEM_OPTCOOPSYNC_HEADLINE(C_MENU_ITEM_DEF)
 {
-	text[0] = "Abgleich";
+	text[0] = "Synchronisierung";
 	type = MENU_ITEM_TEXT;
 	posx = 0;
 	posy = MENU_TITLE_Y - 400;
@@ -1875,7 +1875,7 @@ instance MENUITEM_COOPSYNC_QUESTS(C_MENU_ITEM_DEF)
 	text[0] = "Quests";
 	text[1] = "Quest-Fortschritt: erzählte Dialoge, Variablen, NPC-Zustände, Quest-EP - beide auf demselben Stand.";
 	posx = 1000;
-	posy = MENU_OPT_START_Y + MENU_OPT_DY * 0;
+	posy = MENU_OPT_START_Y - MENU_OPT_DY / 2 + MENU_OPT_DY * 0;
 	dimx = 4000;
 	dimy = 600;
 	onselaction[0] = SEL_ACTION_UNDEF;
@@ -1890,7 +1890,7 @@ instance MENUITEM_OPTSYNC_QUESTS_CHOICE(C_MENU_ITEM_DEF)
 	text[0] = "an|aus";
 	fontname = MENU_FONT_SMALL;
 	posx = 5000;
-	posy = MENU_OPT_START_Y + MENU_OPT_DY * 0 + MENU_CHOICE_YPLUS;
+	posy = MENU_OPT_START_Y - MENU_OPT_DY / 2 + MENU_OPT_DY * 0 + MENU_CHOICE_YPLUS;
 	dimx = MENU_SLIDER_DX;
 	dimy = MENU_CHOICE_DY;
 	onchgsetoption = "coopSyncQuests";
@@ -1906,7 +1906,7 @@ instance MENUITEM_COOPSYNC_LOG(C_MENU_ITEM_DEF)
 	text[0] = "Tagebuch";
 	text[1] = "Tagebuch-Themen und -Einträge des einen erscheinen auch beim anderen.";
 	posx = 1000;
-	posy = MENU_OPT_START_Y + MENU_OPT_DY * 1;
+	posy = MENU_OPT_START_Y - MENU_OPT_DY / 2 + MENU_OPT_DY * 1;
 	dimx = 4000;
 	dimy = 600;
 	onselaction[0] = SEL_ACTION_UNDEF;
@@ -1921,7 +1921,7 @@ instance MENUITEM_OPTSYNC_LOG_CHOICE(C_MENU_ITEM_DEF)
 	text[0] = "an|aus";
 	fontname = MENU_FONT_SMALL;
 	posx = 5000;
-	posy = MENU_OPT_START_Y + MENU_OPT_DY * 1 + MENU_CHOICE_YPLUS;
+	posy = MENU_OPT_START_Y - MENU_OPT_DY / 2 + MENU_OPT_DY * 1 + MENU_CHOICE_YPLUS;
 	dimx = MENU_SLIDER_DX;
 	dimy = MENU_CHOICE_DY;
 	onchgsetoption = "coopSyncLog";
@@ -1937,7 +1937,7 @@ instance MENUITEM_COOPSYNC_WORLD(C_MENU_ITEM_DEF)
 	text[0] = "Gegenstände/Truhen";
 	text[1] = "Truhen und Gegenstände am Boden: der Host führt den Bestand, was einer nimmt, ist für beide weg.";
 	posx = 1000;
-	posy = MENU_OPT_START_Y + MENU_OPT_DY * 2;
+	posy = MENU_OPT_START_Y - MENU_OPT_DY / 2 + MENU_OPT_DY * 2;
 	dimx = 4000;
 	dimy = 600;
 	onselaction[0] = SEL_ACTION_UNDEF;
@@ -1952,7 +1952,7 @@ instance MENUITEM_OPTSYNC_WORLD_CHOICE(C_MENU_ITEM_DEF)
 	text[0] = "an|aus";
 	fontname = MENU_FONT_SMALL;
 	posx = 5000;
-	posy = MENU_OPT_START_Y + MENU_OPT_DY * 2 + MENU_CHOICE_YPLUS;
+	posy = MENU_OPT_START_Y - MENU_OPT_DY / 2 + MENU_OPT_DY * 2 + MENU_CHOICE_YPLUS;
 	dimx = MENU_SLIDER_DX;
 	dimy = MENU_CHOICE_DY;
 	onchgsetoption = "coopSyncWorld";
@@ -1966,14 +1966,14 @@ instance MENUITEM_COOPSYNC_SAVES(C_MENU_ITEM_DEF)
 {
 	backpic = MENU_ITEM_BACK_PIC;
 	text[0] = "Spielstände";
-	text[1] = "Gemeinsam: zusammen speichern und laden, Abgleich-Sicherungen. Getrennt: jeder speichert und lädt selbst.";
+	text[1] = "Gemeinsam: zusammen speichern und laden, mit gemeinsamer Sicherung beim Verbinden. Getrennt: jeder speichert und lädt selbst.";
 	posx = 1000;
-	posy = MENU_OPT_START_Y + MENU_OPT_DY * 3;
+	posy = MENU_OPT_START_Y - MENU_OPT_DY / 2 + MENU_OPT_DY * 3;
 	dimx = 4000;
 	dimy = 600;
 	onselaction[0] = SEL_ACTION_UNDEF;
 	flags = flags | IT_EFFECTS_NEXT;
-	userString[2] = "Saves"; userString[3] = "Shared: save and load together, sync backups. Separate: everyone saves and loads alone.";
+	userString[2] = "Saves"; userString[3] = "Sync: save and load together, sync backups. Separate: everyone saves and loads alone.";
 };
 
 instance MENUITEM_OPTSYNC_SAVES_CHOICE(C_MENU_ITEM_DEF)
@@ -1983,7 +1983,7 @@ instance MENUITEM_OPTSYNC_SAVES_CHOICE(C_MENU_ITEM_DEF)
 	text[0] = "gemeinsam|getrennt";
 	fontname = MENU_FONT_SMALL;
 	posx = 5000;
-	posy = MENU_OPT_START_Y + MENU_OPT_DY * 3 + MENU_CHOICE_YPLUS;
+	posy = MENU_OPT_START_Y - MENU_OPT_DY / 2 + MENU_OPT_DY * 3 + MENU_CHOICE_YPLUS;
 	dimx = MENU_SLIDER_DX;
 	dimy = MENU_CHOICE_DY;
 	onchgsetoption = "coopSyncSaves";
@@ -1999,12 +1999,12 @@ instance MENUITEM_COOPSYNC_AUTOSAVE(C_MENU_ITEM_DEF)
 	text[0] = "Auto-Sicherung";
 	text[1] = "Gemeinsame Sicherung des Hosts in festen Abständen (reservierte Slots 6-9), der Mitspieler speichert mit.";
 	posx = 1000;
-	posy = MENU_OPT_START_Y + MENU_OPT_DY * 4;
+	posy = MENU_OPT_START_Y - MENU_OPT_DY / 2 + MENU_OPT_DY * 4;
 	dimx = 4000;
 	dimy = 600;
 	onselaction[0] = SEL_ACTION_UNDEF;
 	flags = flags | IT_EFFECTS_NEXT;
-	userString[2] = "Autosave"; userString[3] = "Shared host backup at fixed intervals (reserved slots 6-9), the player saves along.";
+	userString[2] = "Autosave"; userString[3] = "Sync host backup at fixed intervals (reserved slots 6-9), the player saves along.";
 };
 
 instance MENUITEM_OPTSYNC_AUTOSAVE_CHOICE(C_MENU_ITEM_DEF)
@@ -2014,7 +2014,7 @@ instance MENUITEM_OPTSYNC_AUTOSAVE_CHOICE(C_MENU_ITEM_DEF)
 	text[0] = "aus|3 min|5 min|10 min|15 min|20 min|30 min";
 	fontname = MENU_FONT_SMALL;
 	posx = 5000;
-	posy = MENU_OPT_START_Y + MENU_OPT_DY * 4 + MENU_CHOICE_YPLUS;
+	posy = MENU_OPT_START_Y - MENU_OPT_DY / 2 + MENU_OPT_DY * 4 + MENU_CHOICE_YPLUS;
 	dimx = MENU_SLIDER_DX;
 	dimy = MENU_CHOICE_DY;
 	onchgsetoption = "coopAutoSaveEvery";
@@ -2030,7 +2030,7 @@ instance MENUITEM_COOPSYNC_CONNECT(C_MENU_ITEM_DEF)
 	text[0] = "Beim Verbinden";
 	text[1] = "Verbindet sich ein Mitspieler im Spiel: Stand des Hosts übernehmen (eigener Held bleibt) oder eigenen behalten.";
 	posx = 1000;
-	posy = MENU_OPT_START_Y + MENU_OPT_DY * 5;
+	posy = MENU_OPT_START_Y - MENU_OPT_DY / 2 + MENU_OPT_DY * 5;
 	dimx = 4000;
 	dimy = 600;
 	onselaction[0] = SEL_ACTION_UNDEF;
@@ -2045,7 +2045,7 @@ instance MENUITEM_OPTSYNC_CONNECT_CHOICE(C_MENU_ITEM_DEF)
 	text[0] = "Host-Stand|eigener Stand";
 	fontname = MENU_FONT_SMALL;
 	posx = 5000;
-	posy = MENU_OPT_START_Y + MENU_OPT_DY * 5 + MENU_CHOICE_YPLUS;
+	posy = MENU_OPT_START_Y - MENU_OPT_DY / 2 + MENU_OPT_DY * 5 + MENU_CHOICE_YPLUS;
 	dimx = MENU_SLIDER_DX;
 	dimy = MENU_CHOICE_DY;
 	onchgsetoption = "coopConnectTake";
@@ -2061,7 +2061,7 @@ instance MENUITEM_COOPSYNC_WORLDCHANGE(C_MENU_ITEM_DEF)
 	text[0] = "Weltwechsel";
 	text[1] = "Geht einer durch einen Weltübergang: alle wechseln gemeinsam (wer durchgeht, bestätigt vorher) oder jeder für sich.";
 	posx = 1000;
-	posy = MENU_OPT_START_Y + MENU_OPT_DY * 6;
+	posy = MENU_OPT_START_Y - MENU_OPT_DY / 2 + MENU_OPT_DY * 6;
 	dimx = 4000;
 	dimy = 600;
 	onselaction[0] = SEL_ACTION_UNDEF;
@@ -2076,7 +2076,7 @@ instance MENUITEM_OPTSYNC_WORLDCHANGE_CHOICE(C_MENU_ITEM_DEF)
 	text[0] = "gemeinsam|getrennt";
 	fontname = MENU_FONT_SMALL;
 	posx = 5000;
-	posy = MENU_OPT_START_Y + MENU_OPT_DY * 6 + MENU_CHOICE_YPLUS;
+	posy = MENU_OPT_START_Y - MENU_OPT_DY / 2 + MENU_OPT_DY * 6 + MENU_CHOICE_YPLUS;
 	dimx = MENU_SLIDER_DX;
 	dimy = MENU_CHOICE_DY;
 	onchgsetoption = "coopWorldChange";
@@ -2086,16 +2086,49 @@ instance MENUITEM_OPTSYNC_WORLDCHANGE_CHOICE(C_MENU_ITEM_DEF)
 	userString[2] = "together|separate";
 };
 
+// u265 (P321), u267 (P330): Coop-Inventar mitoeffnen (Gothic.ini [GOTHICCOOP] coopInvMitInventar, Standard an) - jeder stellt selbst ein
+instance MENUITEM_COOPSYNC_MITINV(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_ITEM_BACK_PIC;
+	text[0] = "Coop-Inventar mitöffnen";
+	text[1] = "Üffnet sich mit dem Inventar. Rechtsklick legt hinüber, Tab und Coop-Taste wechseln. Stellt jeder selbst ein.";
+	posx = 1000;
+	posy = MENU_OPT_START_Y - MENU_OPT_DY / 2 + MENU_OPT_DY * 7;
+	dimx = 4000;
+	dimy = 600;
+	onselaction[0] = SEL_ACTION_UNDEF;
+	flags = flags | IT_EFFECTS_NEXT;
+	userString[2] = "Open coop inventory too"; userString[3] = "Opens with your inventory. Right-click moves items over, Tab and the coop key switch. Each player sets this.";
+};
+
+instance MENUITEM_OPTSYNC_MITINV_CHOICE(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_CHOICE_BACK_PIC;
+	type = MENU_ITEM_CHOICEBOX;
+	fontname = MENU_FONT_SMALL;
+	dimx = MENU_SLIDER_DX;
+	dimy = MENU_CHOICE_DY;
+	flags = flags & ~IT_SELECTABLE;
+	flags = flags | IT_TXT_CENTER;
+	text[0] = "aus|an";
+	posx = 5000;
+	posy = MENU_OPT_START_Y - MENU_OPT_DY / 2 + MENU_OPT_DY * 7 + MENU_CHOICE_YPLUS;
+	onchgsetoption = "coopInvMitInventar";
+	onchgsetoptionsection = "GOTHICCOOP";
+	userString[2] = "off|on";
+};
+
 instance MENUITEM_OPTCOOPSYNC_NOTE(C_MENU_ITEM_DEF)
 {
 	fontname = MENU_FONT_SMALL;
-	text[0] = "Gilt im Coop für alle Spieler, der Host gibt sie vor.";
+	text[0] = "Der Host gibt diese Einstellungen für alle vor - das Coop-Inventar stellt jeder selbst ein.";
 	type = MENU_ITEM_TEXT;
 	posx = 0;
-	posy = MENU_OPT_START_Y + MENU_OPT_DY * 7;
+	posy = MENU_OPT_START_Y - MENU_OPT_DY / 2 + MENU_OPT_DY * 8;
 	dimx = 8192;
 	dimy = 350;
 	flags = IT_CHROMAKEYED | IT_TRANSPARENT | IT_TXT_CENTER;
+	userString[2] = "The host sets these for everyone - the coop inventory is up to each player.";
 };
 
 // --- v82: Esc-Menü im Spiel - "Hauptmenü" (zurück zum Startbildschirm, ohne Neustart) ----------------------------------
@@ -2129,7 +2162,7 @@ instance MENUITEM_COOPINGAME_LOAD(C_MENU_ITEM_DEF)
 	onselaction[0] = SEL_ACTION_STARTMENU;
 	onselaction_s[0] = "MENU_COOP_LOAD";
 	flags = flags | IT_TXT_CENTER;
-	userString[2] = "Choose save"; userString[3] = "Shared coop saves - the host loads for both, as player the request goes to the host.";
+	userString[2] = "Choose save"; userString[3] = "Sync coop saves - the host loads for both, as player the request goes to the host.";
 };
 
 instance MENU_COOP_TITLE(C_MENU_DEF)
@@ -2551,7 +2584,7 @@ instance MENUITEM_COOPKEYS_LBL_JOIN(C_MENU_ITEM_DEF)
 {
 	backpic = MENU_ITEM_BACK_PIC;
 	text[0] = "Beitreten / Pause als Client";
-	text[1] = "Verbindet mit dem Host bzw. hält als Client den Abgleich an.";
+	text[1] = "Verbindet mit dem Host bzw. pausiert als Client die Synchronisierung.";
 	fontname = MENU_FONT_SMALL;
 	posx = 1000;
 	posy = 3230;
@@ -2679,11 +2712,12 @@ instance MENUITEM_COOPKEYS_NOTE2(C_MENU_ITEM_DEF)
 	flags = IT_CHROMAKEYED | IT_TRANSPARENT | IT_TXT_CENTER;
 };
 
+
 instance MENUITEM_COOPKEYS_RESET(C_MENU_ITEM_DEF)
 {
 	backpic = MENU_ITEM_BACK_PIC;
-	text[0] = "Vorgaben";
-	text[1] = "Alle Coop-Tasten auf die Vorgaben zurücksetzen.";
+	text[0] = "Standard";
+	text[1] = "Alle Coop-Tasten auf Standard zurücksetzen.";
 	posx = 1000;
 	posy = MENU_BACK_Y;
 	dimx = 3000;
@@ -3559,7 +3593,7 @@ instance MENUITEM_COOPINTRO_SETTINGS(C_MENU_ITEM_DEF)
 {
 	backpic = MENU_ITEM_BACK_PIC;
 	text[0] = "Einstellungen";
-	text[1] = "Kamera, Schwierigkeit, Abgleich, Anzeige, Sprache.";
+	text[1] = "Kamera, Schwierigkeit, Synchronisierung, Anzeige, Sprache.";
 	posx = 4192;
 	posy = 5650;
 	dimx = 3000;

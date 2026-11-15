@@ -236,6 +236,17 @@ namespace GOTHIC_ENGINE {
             CoopCrashGuardLog("DropAllInHand", _this);
             return;
         }
+        // u264 (P319, Nutzer 14.11. zu Othello: "Waffe verschwindet beim Mitspieler nach dem Tod"): DoDie und DropUnconscious lassen
+        // alles aus den Haenden fallen - beim Client der eigene Held, beim Host die Figur (CoopHitAuthority: DoDie an der Figur). Im
+        // Coop steht ein toter Spieler wieder auf (Wiederbeleben), die Waffe lag dann in der Welt bzw. fehlte der Figur. Coop-Spieler
+        // (eigener Held und Figuren) behalten jetzt, was sie in den Haenden halten. Allgemein
+        if (_this && (ServerThread || ClientThread) && (_this == player || IsCoopPlayer(_this->GetObjectName()))) {
+            static CoopDiagBudget dropBudget = { 0, 0 };
+            if (CoopDiagAllow(dropBudget, 10))
+                OthelloCompatLog("[%lld s, %s] Tod/K.o.: %s behaelt, was in den Haenden ist (Coop-Spieler, P319)", DiagSeconds(), DiagRole(),
+                    _this == player ? "eigener Held" : _this->GetObjectName().ToChar());
+            return;
+        }
         Ivk_oCNpc_DropAllInHand_Coop(_this);
     }
 
@@ -2207,6 +2218,9 @@ namespace GOTHIC_ENGINE {
         return Ivk_oCNpc_EV_TakeVob_Coop(_this, msg);
     }
 
+    bool CoopIstTeleportRune(oCItem* it);        // u272 (P338): CoopTeleport.cpp
+    void CoopTeleportRuneZurueck(oCItem* rune);
+
     int __fastcall oCNpc_DoDropVob(oCNpc*, void*, zCVob*);
 #if ENGINE >= Engine_G2
     CInvoke<int(__thiscall*)(oCNpc*, zCVob*)> Ivk_oCNpc_DoDropVob(0x00744DD0, &oCNpc_DoDropVob);
@@ -2221,6 +2235,16 @@ namespace GOTHIC_ENGINE {
         // (Dauerlauf u87/u88: AddVob an einem geloeschten Objekt -> Fenster "An Assertion Failed"); Freigabe nur, wenn danach noch
         // jemand haelt (Helpers.cpp)
         CoopDropHold(_this, vob, "DoDropVob");
+        // u272 (P338): die Coop-Rune des eigenen Helden faellt nicht - zurueck ins Inventar, der Partner sieht nichts fallen
+        if (vob && _this == player && CoopIstTeleportRune(vob->CastTo<oCItem>())) {
+            oCItem* rune = vob->CastTo<oCItem>();
+            WorldSyncApplying++;
+            const int r = Ivk_oCNpc_DoDropVob(_this, vob);
+            WorldSyncApplying--;
+            CoopDropRelease(_this, vob, "DoDropVob");
+            CoopTeleportRuneZurueck(rune);
+            return r;
+        }
         if (Myself && _this && _this->IsAPlayer() && vob && (!_this->IsDead() && !_this->IsUnconscious()))
         {
             if (auto pItem = vob->CastTo<oCItem>())

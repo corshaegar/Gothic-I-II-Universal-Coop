@@ -4809,7 +4809,7 @@ namespace GOTHIC_ENGINE {
         else if (Disturbed && silence < 1000) {
             Disturbed = false;
             DisturbHero.valid = false;
-            ChatLog(CoopTr("Verbindung wieder da - voller Abgleich.", "Connection back - full sync."));
+            ChatLog(CoopTr("Verbindung wieder da - alles wird neu synchronisiert.", "Connection back - full sync."));
             SaveSyncLog("Verbindung wieder da nach %lld s", (CurrentMs - DisturbSince) / 1000);
             if (!IsCoopPaused) {
                 CoopResyncRequest("Verbindungsstoerung vorbei");
@@ -4931,7 +4931,7 @@ namespace GOTHIC_ENGINE {
             CoopCheckKind = 0;
             if (r < 0 || !CoopCanSaveNow(why)) {   // jemand beschaeftigt (oder der Host inzwischen selbst)
                 CoopHostSyncRetryMs = CurrentMs + 60000;
-                ChatLog(string::Combine(CoopTr("Abgleich verschoben (%s) - neuer Versuch in 1 Minute.", "Sync postponed (%s) - retrying in 1 minute."), string(why.c_str())), zCOLOR(255, 200, 80, 255));
+                ChatLog(string::Combine(CoopTr("Synchronisierung verschoben (%s) - neuer Versuch in 1 Minute.", "Sync postponed (%s) - retrying in 1 minute."), string(why.c_str())), zCOLOR(255, 200, 80, 255));
                 SaveSyncLog("Abgleich verschoben: %s - neuer Versuch in 1 Minute", why.c_str());
                 CoopNotifyMenuPeersWait(why);
                 return;
@@ -4942,7 +4942,7 @@ namespace GOTHIC_ENGINE {
                 return;
             if (!CoopCanSaveNow(why)) {   // v39: nicht mehr nach 60 s aufgeben - jede Minute neu
                 CoopHostSyncRetryMs = CurrentMs + 60000;
-                ChatLog(string::Combine(CoopTr("Abgleich verschoben: Host besch" "\xE4" "ftigt (%s) - neuer Versuch in 1 Minute.", "Sync postponed: host busy (%s) - retrying in 1 minute."), string(why.c_str())), zCOLOR(255, 200, 80, 255));
+                ChatLog(string::Combine(CoopTr("Synchronisierung verschoben: Host besch" "\xE4" "ftigt (%s) - neuer Versuch in 1 Minute.", "Sync postponed: host busy (%s) - retrying in 1 minute."), string(why.c_str())), zCOLOR(255, 200, 80, 255));
                 SaveSyncLog("Abgleich verschoben: Host beschaeftigt (%s)", why.c_str());
                 CoopNotifyMenuPeersWait("Host: " + why);
                 return;
@@ -5180,18 +5180,18 @@ namespace GOTHIC_ENGINE {
         if (!IsPlayerTalkingWithAnybody() && CoopKeyHit(CK_SYNC)) {   // u226 (P264): Taste aus Coop-Tasten (Vorgabe F6)
             if (!ServerThread && (IsCoopPaused || JoinPending || PausePending)) {   // v76
                 ChatLog(IsCoopPaused ? string((std::string(CoopTr("Erst die Pause beenden (", "End the pause first (")) + CoopKeyText(CK_JOIN) + ").").c_str())
-                    : string(CoopTr("Abgleich l" "\xE4" "uft schon - bitte warten.", "Sync already running - please wait.")), zCOLOR(255, 200, 80, 255));
+                    : string(CoopTr("Synchronisierung l" "\xE4" "uft schon - bitte warten.", "Sync already running - please wait.")), zCOLOR(255, 200, 80, 255));
             }
             else if (ServerThread) {
                 CoopHostSyncPending = true;
                 CoopHostSyncSince = CurrentMs;
                 CoopHostSyncMenuOnly = false;   // v71
-                ChatLog(CoopTr("Abgleich: gemeinsame Sicherung, danach " "\xFC" "bernehmen alle die Host-Welt.", "Sync: shared backup, then everyone takes over the host's world."));
+                ChatLog(CoopTr("Synchronisierung: gemeinsame Sicherung, danach " "\xFC" "bernehmen alle die Host-Welt.", "Sync: shared backup, then everyone takes over the host's world."));
             }
             else {
                 json j;
                 SaveSyncSend(j, SYNC_STATE_REQ);
-                ChatLog(CoopTr("Abgleich beim Host angefordert.", "Sync requested from the host."));
+                ChatLog(CoopTr("Synchronisierung beim Host angefordert.", "Sync requested from the host."));
             }
         }
     }
@@ -5271,7 +5271,7 @@ namespace GOTHIC_ENGINE {
             return true;
         }
         if (JoinPending || TakeJob.active || RemoteLoadPending || IsLoadingLevel) {
-            ChatLog(IsCoopPaused ? CoopTr("Fortsetzen l" "\xE4" "uft schon - bitte warten.", "Resume already running - please wait.") : CoopTr("Abgleich l" "\xE4" "uft - Pause erst danach.", "Sync running - pause afterwards."), zCOLOR(255, 200, 80, 255));
+            ChatLog(IsCoopPaused ? CoopTr("Fortsetzen l" "\xE4" "uft schon - bitte warten.", "Resume already running - please wait.") : CoopTr("Synchronisierung l" "\xE4" "uft - Pause erst danach.", "Sync running - pause afterwards."), zCOLOR(255, 200, 80, 255));
             return true;
         }
         if (!IsCoopPaused) {
