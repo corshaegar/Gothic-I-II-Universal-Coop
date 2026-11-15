@@ -1,6 +1,7 @@
 # Bauen: Ausgaben und Eingaben (Renderer, Steam, Union, GD3D11-ZIP), nicht im Repo
 /Bau/
 /Installer/obj/
+/Installer/dxvk/
 /Kern/Bin/
 /Kern/PDB/
 /Kern/G1 MD Release/

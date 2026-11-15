@@ -45,6 +45,25 @@ UNION_FILES = [
     ('system/msvcr100.dll', 770384, '1221A09484964A6F38AF5E34EE292B9AFEFCCB3DC6E55435FD3AAF7C235D9067'),
 ]
 
+# u274 (P344): DXVK 3.1.1, 32 Bit (Nutzer 15.11.: Archolos stuerzte mit GD3D11 auf einer AMD-Karte bei jedem neuen Spiel ab, mit DXVK
+# nicht) - Teil 9, der Installer fragt nur bei einer AMD-Karte; Groesse, SHA-256
+DXVK_FILES = [
+    ('system/d3d11.dll', 8192014, 'F44543CBE5C40202915A02ED6E9AC8140C3524E846AE67B01F6FAA79485D1FD3'),
+    ('system/dxgi.dll', 5877774, 'ABD1449DC28D536A4289C256AE7F4B6BBD15FA552792B7170C2DDECE473C8BDA'),
+]
+
+
+def dxvk_files(folder):
+    """u274 (P344): die zwei DXVK-Dateien aus einem Ordner, geprueft gegen DXVK_FILES - [(Pfad, Daten)]"""
+    out = []
+    for rel, size, want in DXVK_FILES:
+        p = os.path.join(folder, os.path.basename(rel))
+        data = open(p, 'rb').read()
+        if len(data) != size or hashlib.sha256(data).hexdigest().upper() != want:
+            sys.exit('%s ist nicht DXVK 3.1.1 (SHA-256 %s)' % (p, sha16(data)))
+        out.append((rel, data))
+    return out
+
 
 def union_files(folder):
     """die sieben Union-Dateien aus einem Spielordner, geprueft gegen UNION_FILES - [(Pfad, Daten)]"""
@@ -128,6 +147,7 @@ def main():
                     help='Spielordner mit Union 1.0m (die Dateien werden gegen UNION_FILES geprueft)')
     ap.add_argument('--ausgabe', help='anderer Zielpfad')
     ap.add_argument('--force', action='store_true', help='vorhandenen Installer ersetzen')
+    ap.add_argument('--dxvk-dir', default=os.path.join(INST, 'dxvk'), help='u274: Ordner mit d3d11.dll und dxgi.dll von DXVK 3.1.1 (32 Bit)')
     a = ap.parse_args()
     f = a.fassung
     projekt = versionen()['projekt']
@@ -135,6 +155,7 @@ def main():
     if os.path.exists(out) and not a.force:
         sys.exit('%s gibt es schon - mit --force ersetzen' % out)
     union = union_files(a.union_dir)
+    dxvk = dxvk_files(a.dxvk_dir)   # u274 (P344)
 
     import makezip_g1, makezip_g2, makezip_mod   # nur Texte und Listen (main laeuft beim Import nicht)
 
@@ -196,11 +217,14 @@ def main():
     lz, tx = pfade.LIZENZEN, os.path.join(pfade.INSTALLER, 'texte')
     for p, n in ([(os.path.join(lz, 'GothicCoop-AGPL-3.0.txt'), None), (os.path.join(lz, 'GD3D11-GPL-3.0.txt'), None),
                   (os.path.join(lz, 'ENet-LICENSE.txt'), None), (os.path.join(lz, 'nlohmann-json-LICENSE.MIT.txt'), None),
-                  (os.path.join(tx, 'GothicCoop-HINWEIS.txt'), None), (os.path.join(tx, 'GD3D11-HERKUNFT.txt'), None)] +
+                  (os.path.join(tx, 'GothicCoop-HINWEIS.txt'), None), (os.path.join(tx, 'GD3D11-HERKUNFT.txt'), None),
+                  (os.path.join(tx, 'DXVK-LICENSE.txt'), None)] +
                  [(p, 'GD3D11-' + os.path.basename(p)) for p in pfade.RENDERER_PATCHES]):
         entries.append((7, 0, 'GothicCoop-Lizenzen/' + (n or os.path.basename(p)), src(p)))
     for rel, data in union:
         entries.append((8, 0, rel, data))
+    for rel, data in dxvk:   # u274 (P344): Teil 9 - nur auf Rueckfrage bei einer AMD-Karte
+        entries.append((9, 0, rel, data))
 
     seen = set()
     for comp, _, path, _ in entries:
@@ -236,7 +260,7 @@ def main():
     payload = os.path.join(OBJ, 'payload.bin')
     open(payload, 'wb').write(head.getvalue() + blob.getvalue())
     names = {1: 'Coop Gothic 1', 2: 'Coop Gothic 2', 3: 'Othello-Skripte', 4: 'Renderer G1 coop8', 5: 'Renderer G2 coop9',
-             6: 'GD3D11 ' + a.gd3d11_ver, 7: 'Lizenzen', 8: 'Union 1.0m'}
+             6: 'GD3D11 ' + a.gd3d11_ver, 7: 'Lizenzen', 8: 'Union 1.0m', 9: 'DXVK 3.1.1 (u274)'}
     for comp in sorted(per):
         n, r, p = per[comp]
         print('Teil %d %-18s %5d Dateien %10d -> %9d Bytes' % (comp, names[comp], n, r, p))

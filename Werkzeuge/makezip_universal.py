@@ -28,6 +28,7 @@ import pfade
 G1, G2, UNION = 'Gothic 1 + Othello', 'Gothic 2 + Mods', 'Union 1.0m (nur wenn Union fehlt)'
 STEAM1, STEAM2 = 'Steam fuer Gothic 1 (nur Coop ueber Steam)', 'Steam fuer Gothic 2 (nur Coop ueber Steam, nicht bei Archolos)'
 STEAMDATEIEN = ('system/steam_api.dll', 'system/steam_appid.txt')
+DXVK = 'DXVK fuer AMD-Grafikkarten (nur mit GD3D11)'   # u274 (P344)
 
 LIESMICH = """Gothic-I-II-Universal-Coop {p} (Coop {f}) - ein Paket fuer alle Spiele
 
@@ -48,6 +49,10 @@ Dateien ersetzen:
                          nur fuer "Coop ueber Steam" und nur, wenn im Spielordner noch keine system\\steam_api.dll
                          liegt. Bringt das Spiel eine eigene mit (Archolos), diese NICHT ersetzen - sonst startet es
                          nicht mehr; der Coop laeuft dann ueber IP.
+  "{d}"
+                         nur mit AMD-Grafikkarte und GD3D11: system\\d3d11.dll und system\\dxgi.dll (DXVK 3.1.1)
+                         in den Spielordner kopieren - mit AMDs DirectX-11-Treiber stuerzt Gothic sonst leicht ab
+                         (zu wenig Speicher fuer das 32-Bit-Spiel). Lizenz: DXVK-LICENSE.txt.
 Der Coop-Renderer (system\\GD3D11\\Bin) wirkt nur mit installiertem GD3D11 v17.9.7 (der Installer bringt es mit).
 
 Beide PCs brauchen dieselbe Coop-Fassung ({f}). Mehr in GothicCoop-LIESMICH.txt im jeweiligen Ordner, zu Othello und Legend
@@ -73,6 +78,10 @@ existing files:
                          only for "coop over Steam", and only if the game folder has no system\\steam_api.dll yet.
                          If the game brings its own (Archolos), do NOT replace it - the game would no longer start;
                          the coop then runs over IP.
+  "{d}"
+                         only with an AMD graphics card and GD3D11: copy system\\d3d11.dll and system\\dxgi.dll
+                         (DXVK 3.1.1) into the game folder - with AMD's DirectX 11 driver Gothic easily crashes
+                         otherwise (not enough memory for the 32-bit game). License: DXVK-LICENSE.txt.
 The coop renderer (system\\GD3D11\\Bin) only works with GD3D11 v17.9.7 installed (the installer brings it).
 
 Both PCs need the same coop version ({f}). More in GothicCoop-LIESMICH.txt in each folder (German).
@@ -126,7 +135,12 @@ def main():
         sys.exit('Union-Dateien unvollstaendig: %d von %d' % (len(union_seen), len(union)))
     if steam_seen != 2 * len(STEAMDATEIEN):
         sys.exit('Steam-Dateien unvollstaendig: %d von %d' % (steam_seen, 2 * len(STEAMDATEIEN)))
-    fmt = dict(p=projekt, f=a.fassung, g1=G1, g2=G2, u=UNION, s1=STEAM1, s2=STEAM2)
+    # u274 (P344): DXVK fuer AMD-Grafikkarten - eigener Ordner, nur mit GD3D11 zu kopieren (Dateien wie im Installer geprueft)
+    jetzt = time.localtime()[:6]
+    for rel, data in installer_bau.dxvk_files(os.path.join(installer_bau.INST, 'dxvk')):
+        entries.append((DXVK + '/' + rel, data, jetzt))
+    entries.append((DXVK + '/DXVK-LICENSE.txt', open(os.path.join(installer_bau.INST, 'texte', 'DXVK-LICENSE.txt'), 'rb').read(), jetzt))
+    fmt = dict(p=projekt, f=a.fassung, g1=G1, g2=G2, u=UNION, s1=STEAM1, s2=STEAM2, d=DXVK)
     texts = [('LIESMICH.txt', LIESMICH.format(**fmt).replace('\n', '\r\n').encode('cp1252')),
              ('README.txt', README.format(**fmt).replace('\n', '\r\n').encode('cp1252'))]
     tmp = out + '.part'

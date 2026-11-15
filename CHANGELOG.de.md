@@ -6,6 +6,12 @@ Jeder Abschnitt nennt die Projektversion und für jedes Spiel und jede Mod die C
 oben. Ganz unten folgt die Vorgeschichte: der Othello-Coop 0.1.0–0.1.2 (github.com/corshaegar/Othello-Coop) und die
 unveröffentlichten Fassungen u1–u61, aus denen 0.2.0 hervorging. So ist hier jede Änderung seit der allerersten Fassung festgehalten.
 
+## 0.11.3 – DXVK für AMD-Grafikkarten (Gothic I u273, Gothic II u273, Othello u273, Legend of Ahssun u273, Archolos u273, Xeres' Rückkehr u273)
+
+**Neu**
+
+- **DXVK für AMD-Grafikkarten** (Installer und ZIP): Auf einem PC mit AMD Radeon RX 9070 GRE stürzte Archolos bei jedem neuen Spiel ab – beim ersten Musikwechsel, gleich in Jorns erstem Gespräch –, auf zwei PCs mit NVIDIA-Karten nie. Gothic ist ein 32-Bit-Programm, und mit dem Renderer GD3D11 belegt AMDs DirectX-11-Treiber so viel von dessen Speicher, dass Archolos nicht einmal mehr eine Musikdatei laden konnte. DXVK 3.1.1 übersetzt DirectX 11 in Vulkan und braucht deutlich weniger Speicher – damit läuft das Spiel. Der Installer erkennt jetzt eine AMD-Karte und bietet an, DXVK zusammen mit GD3D11 mitzuinstallieren (empfohlen; „Letzte Installation rückgängig“ nimmt es wieder heraus). Eine vorhandene `system\d3d11.dll` wird nie ersetzt. In der ZIP liegt DXVK in einem eigenen Ordner. Das gilt für alle Spiele, nicht nur für Archolos.
+
 ## 0.11.2 – Coop-Inventar neben dem Inventar, Teleport-Rune, Fackel des Mitspielers, Absturz-Korrekturen (Gothic I u273, Gothic II u273, Othello u273, Legend of Ahssun u273, Archolos u273, Xeres' Rückkehr u273)
 
 Viele dieser Änderungen stammen aus gemeinsamen Spielrunden in Othello und Archolos und aus Fehlermeldungen von Spielern – vielen Dank!

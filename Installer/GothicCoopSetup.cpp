@@ -83,7 +83,7 @@ static const wchar_t* T(const wchar_t* de, const wchar_t* en) {
 // --- Nutzlast ------------------------------------------------------------------------------------------------------------
 // u195: C_COOP_G1/C_COOP_G2 = Coop der Engine (alle Skriptsaetze, Anleitungen aller Varianten), C_COOP_OTH = nur noch Othellos
 // Skriptsatz fuer system\Autorun (kommt nach C_COOP_G1, wenn der Ordner Othello ist)
-enum Comp { C_COOP_G1 = 1, C_COOP_G2 = 2, C_COOP_OTH = 3, C_RND_G1 = 4, C_RND_G2 = 5, C_GD3D11 = 6, C_DOCS = 7, C_UNION = 8 };
+enum Comp { C_COOP_G1 = 1, C_COOP_G2 = 2, C_COOP_OTH = 3, C_RND_G1 = 4, C_RND_G2 = 5, C_GD3D11 = 6, C_DOCS = 7, C_UNION = 8, C_DXVK = 9 };
 enum EntryFlags { F_KEEP = 1, F_STORED = 2 };
 enum Game { G_G1 = 0, G_G2 = 1, G_OTH = 2, G_LOA = 3, G_NONE = -1 };   // u195: G_LOA = Gothic 2 mit Legend of Ahssun
 
@@ -235,6 +235,33 @@ static int UnionFiles() {
         if (e.comp == C_UNION)
             n++;
     return n;
+}
+
+// u274 (P344): die mitgelieferten DXVK-Dateien (Teil 9) - Anzahl
+static int DxvkFiles() {
+    int n = 0;
+    for (auto& e : Entries)
+        if (e.comp == C_DXVK)
+            n++;
+    return n;
+}
+
+// u274 (P344, Nutzer 15.11.: Archolos stuerzte mit GD3D11 auf einer AMD Radeon bei jedem neuen Spiel ab, mit DXVK nicht): steckt eine
+// AMD-Grafikkarte im PC? (PCI-Hersteller 1002 oder "AMD"/"Radeon" im Namen eines Bildschirm-Adapters)
+static bool AmdGpu(std::wstring* name = NULL) {
+    DISPLAY_DEVICEW dd;
+    for (DWORD n = 0; ; n++) {
+        ZeroMemory(&dd, sizeof(dd));
+        dd.cb = sizeof(dd);
+        if (!EnumDisplayDevicesW(NULL, n, &dd, 0))
+            break;
+        if (wcsstr(dd.DeviceID, L"VEN_1002") || wcsstr(dd.DeviceString, L"AMD") || wcsstr(dd.DeviceString, L"Radeon")) {
+            if (name)
+                *name = dd.DeviceString;
+            return true;
+        }
+    }
+    return false;
 }
 
 static const wchar_t* const UNION_REMOVE = L"system\\dinput.dll";   // u62: entfernt der Union-Installer (SystemPack-Lader)
@@ -1002,7 +1029,7 @@ static RendererMode PlanRenderer(const GameInfo& i, bool wanted, bool replaceFor
     return R_BASE_AND_COOP;
 }
 
-static std::vector<const Entry*> Plan(const GameInfo& i, RendererMode r, bool withUnion) {
+static std::vector<const Entry*> Plan(const GameInfo& i, RendererMode r, bool withUnion, bool withDxvk) {
     std::vector<const Entry*> v;
     const int coop = i.exeG2 ? C_COOP_G2 : C_COOP_G1;   // u195: der Coop der Engine, fuer alle Mods darin
     const int rnd = i.exeG2 ? C_RND_G2 : C_RND_G1;
@@ -1023,6 +1050,8 @@ static std::vector<const Entry*> Plan(const GameInfo& i, RendererMode r, bool wi
         add(C_GD3D11);
     if (r != R_NONE)
         add(rnd);
+    if (withDxvk && r != R_NONE)   // u274 (P344): DXVK nur zusammen mit dem Renderer
+        add(C_DXVK);
     add(coop);
     if (!i.exeG2 && i.othello)   // u195: Othellos Skriptsatz nach Autorun (die Skript-Weiche der DLL haelt ihn danach passend)
         add(C_COOP_OTH);
@@ -1036,6 +1065,7 @@ struct Ctx {
     Game game = G_NONE;
     bool renderer = true, replaceForeignDdraw = false;
     bool unionFiles = false, unionDeclined = false;   // u62: Union-Dateien mitinstallieren, falls Union fehlt / Nutzer will ohne Union
+    bool dxvk = false;   // u274 (P344): DXVK fuer AMD-Grafikkarten mitinstallieren
     HWND ui = NULL;
     std::vector<std::wstring> log;
 };
@@ -1254,7 +1284,12 @@ static int DoInstall(Ctx& c) {
     std::wstring rwhy;
     const RendererMode rm = PlanRenderer(i, c.renderer, c.replaceForeignDdraw, rwhy);
     Log(c, std::wstring(T(L"Renderer: ", L"Renderer: ")) + rwhy);
-    const std::vector<const Entry*> plan = Plan(i, rm, withUnion);
+    // u274 (P344): DXVK nur mit Renderer und nur, wenn noch keine system\d3d11.dll da ist (eine eigene bleibt unberuehrt)
+    const bool withDxvk = c.dxvk && rm != R_NONE && DxvkFiles() > 0 && !FileExists(c.dir + L"\\system\\d3d11.dll");
+    if (withDxvk)
+        Log(c, T(L"DXVK 3.1.1: für die AMD-Grafikkarte mitinstalliert (system\\d3d11.dll, system\\dxgi.dll; Rückgängig nimmt es wieder heraus).",
+            L"DXVK 3.1.1: installed along for the AMD graphics card (system\\d3d11.dll, system\\dxgi.dll; undo removes it again)."));
+    const std::vector<const Entry*> plan = Plan(i, rm, withUnion, withDxvk);
     // erst alles entpacken und pruefen - kaputte Nutzlast aendert nichts am Spielordner
     std::vector<std::vector<unsigned char>> data(plan.size());
     for (size_t k = 0; k < plan.size(); k++)
@@ -1449,6 +1484,14 @@ static void UiRefresh(HWND h) {
         else
             line(T(L"Union: FEHLT – der Coop braucht Union 1.0m mit zParserExtender (selbst installieren).",
                 L"Union: MISSING – the coop needs Union 1.0m with zParserExtender (install it yourself)."));
+        {   // u274 (P344)
+            std::wstring gpu;
+            if (DxvkFiles() && AmdGpu(&gpu))
+                line(FileExists(dir + L"\\system\\d3d11.dll")
+                    ? std::wstring(T(L"Grafikkarte: ", L"Graphics card: ")) + gpu + T(L" – system\\d3d11.dll ist schon da (bleibt).", L" – system\\d3d11.dll already present (kept).")
+                    : std::wstring(T(L"Grafikkarte: ", L"Graphics card: ")) + gpu + T(L" – DXVK für GD3D11 empfohlen (Rückfrage beim Installieren).",
+                        L" – DXVK recommended for GD3D11 (you will be asked when installing)."));
+        }
         line(i.coopState == 2 ? std::wstring(T(L"Coop: ", L"Coop: ")) + Fassung + T(L" ist schon installiert.", L" is already installed.")
             : i.coopState == 1 ? std::wstring(T(L"Coop: andere Fassung vorhanden – wird durch ", L"Coop: another version present – replaced by ")) + Fassung + T(L" ersetzt.", L".")
             : std::wstring(T(L"Coop: noch nicht installiert.", L"Coop: not installed yet.")));
@@ -1517,6 +1560,7 @@ static std::wstring SelfArgs(HWND h) {
 
 static bool UiBusy = false;    // Installation laeuft (Fenster nicht schliessen)
 static bool NoUnionAsk = false;   // /ohneunion
+static bool NoDxvkAsk = false;    // u274 (P344): /ohnedxvk
 
 static void UiInstall(HWND h) {
     Ctx& c = UiCtx;
@@ -1547,6 +1591,18 @@ static void UiInstall(HWND h) {
             return;
         c.unionFiles = r == IDYES;
         c.unionDeclined = r == IDNO;
+    }
+    // u274 (P344): AMD-Grafikkarte und Renderer - DXVK anbieten (empfohlen); eine vorhandene system\d3d11.dll bleibt
+    c.dxvk = false;
+    std::wstring gpuName;
+    if (c.renderer && DxvkFiles() && !NoDxvkAsk && AmdGpu(&gpuName) && !FileExists(c.dir + L"\\system\\d3d11.dll")) {
+        const int rd = MessageBoxW(h, (std::wstring(T(L"AMD-Grafikkarte erkannt (", L"AMD graphics card detected (")) + gpuName +
+            T(L").\n\nMit dem Renderer GD3D11 stürzt Gothic auf AMD-Karten leicht ab: AMDs DirectX-11-Treiber belegt in 32-Bit-Spielen viel Speicher. DXVK 3.1.1 (system\\d3d11.dll und system\\dxgi.dll) behebt das.\n\nDXVK mitinstallieren? (empfohlen; „Letzte Installation rückgängig“ nimmt es wieder heraus)",
+                L").\n\nWith the GD3D11 renderer, Gothic easily crashes on AMD cards: AMD's DirectX 11 driver uses a lot of memory in 32-bit games. DXVK 3.1.1 (system\\d3d11.dll and system\\dxgi.dll) fixes this.\n\nInstall DXVK along? (recommended; \"Undo last installation\" removes it again)")).c_str(),
+            L"GothicCoop", MB_YESNOCANCEL | MB_ICONQUESTION);
+        if (rd == IDCANCEL)
+            return;
+        c.dxvk = rd == IDYES;
     }
     SetDlgItemTextW(h, IDC_STATUS, L"");
     UiLock(h, true);
@@ -1767,6 +1823,10 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
             UiCtx.unionFiles = true;
         else if (_wcsicmp(a.c_str(), L"/ohneunion") == 0)
             NoUnionAsk = true;
+        else if (_wcsicmp(a.c_str(), L"/dxvk") == 0)   // u274 (P344)
+            UiCtx.dxvk = true;
+        else if (_wcsicmp(a.c_str(), L"/ohnedxvk") == 0)
+            NoDxvkAsk = true;
         else if (_wcsicmp(a.c_str(), L"/los") == 0)
             AutoStart = true;
         else if (ArgValue(a, L"/spiel:", v)) {
@@ -1796,6 +1856,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
         c.renderer = InitRenderer;
         c.replaceForeignDdraw = UiCtx.replaceForeignDdraw;
         c.unionFiles = UiCtx.unionFiles;
+        c.dxvk = UiCtx.dxvk;   // u274 (P344)
         if (c.dir.empty() || badGame)   // u195: ohne /spiel erkennt DoInstall das Spiel
             return 2;
         return undo ? DoUndo(c) : DoInstall(c);

@@ -7,6 +7,12 @@ At the very bottom you will find the history before the first release: the Othel
 (github.com/corshaegar/Othello-Coop) and the unreleased versions u1–u61 that became 0.2.0. This way, every change since the very
 first version is recorded here.
 
+## 0.11.3 – DXVK for AMD graphics cards (Gothic I u273, Gothic II u273, Othello u273, Legend of Ahssun u273, Archolos u273, Xeres' Rückkehr u273)
+
+**New**
+
+- **DXVK for AMD graphics cards** (installer and ZIP): On a PC with an AMD Radeon RX 9070 GRE, Archolos crashed at the start of every new game – at the first music change, in Jorn's very first conversation – while two PCs with NVIDIA cards never did. Gothic is a 32-bit program, and with the GD3D11 renderer, AMD's DirectX 11 driver takes up so much of its memory that Archolos could no longer even load a music file. DXVK 3.1.1 translates DirectX 11 to Vulkan and needs far less memory – with it, the game runs. The installer now detects an AMD card and offers to install DXVK together with GD3D11 (recommended; "Undo last installation" removes it again). An existing `system\d3d11.dll` is never replaced. In the ZIP, DXVK has its own folder. This applies to every game, not only to Archolos.
+
 ## 0.11.2 – Coop inventory next to your inventory, teleport rune, the partner's torch, crash fixes (Gothic I u273, Gothic II u273, Othello u273, Legend of Ahssun u273, Archolos u273, Xeres' Rückkehr u273)
 
 Many of these changes come from game sessions in Othello and Archolos and from players' bug reports – thank you!
