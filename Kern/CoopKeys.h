@@ -20,6 +20,7 @@ namespace GOTHIC_ENGINE {
         // entfernt werden ... das coop sicherungen fenster ist auch schon veraltet, es ist bereits in den Menues integriert"): F9/F8
         // (Liste der Coop-Sicherungen) und Shift+F12 (Weltprozess an/aus) entfallen - die Liste steht unter Esc > Spielstand waehlen,
         // der Weltprozess startet wie bisher von selbst
+        CK_NOTFALL,      // u283 (P366): Notfall - haengenden Dialog bzw. festhaengenden Helden loesen (Vorgabe Shift+F8)
         CK_COUNT
     };
 

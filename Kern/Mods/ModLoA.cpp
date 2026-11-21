@@ -161,6 +161,8 @@ namespace GOTHIC_ENGINE {
                 // MISVAR_TRIV_TOT (setzen auch Gespraeche)
                 "MISVAR_K4_GM_KILL_ONCE": "GOLDMINE", "MISVAR_UNDEADDRAGON_INV_GIVEN": "TOA"
             },
+            // u275 (P347): zweite Welt fuer den Coop-Test - LoAs Skripte haben kein STARTUP_NEWWORLD (bis u273 lief der Test in Khorinis)
+            "testWorld": "LOA\\WUESTE.ZEN",
             "vobSync": [
                 // u201 (P226, Liste Nr. 10): per Ikarus im eigenen Prozess geaendert - Kollision der Barrikade und Bruecke beim Nest-Ausheben
                 // (Kapitel 5; beim Partner blieb die Barrikade fest), Blutspur (REVEALBLOOD), Folterbaenke (EVT_GROM*: visualAlpha), Bild

@@ -8,7 +8,7 @@ Inhalt (Ordner wie im Spielordner, zum Entpacken in den Gothic-Ordner):
   system/GothicCoopConfig.json          Vorgaben - ohne sie beendet GT das Spiel beim Start (Plugin.cpp)
   system/GothicCoopMod.vorlage.json     Vorlage fuer ein Mod-Profil (ab u194, inaktiv - Mods\\CoopModProfile.h)
   system/steam_api.dll, steam_appid.txt Steam-Verbindung (assets\\steam: Steam API mit SteamAPI_InitFlat, App 65540)
-  system/GD3D11/Bin/g1_avx2.dll         Coop-Renderer (ab u42 coop8, wirkt nur mit installiertem GD3D11)
+  system/GD3D11/Bin/g1_avx2.dll         Coop-Renderer (ab u42 coop8, ab u295 coop10; wirkt nur mit installiertem GD3D11)
   system/GothicCoop/Skripte/g1|othello/ beide Skriptsaetze der Gothic-1-Engine (u195, P204: die Skript-Weiche der DLL legt beim
                                         Start den Satz des erkannten Spiels nach system\\Autorun - ein Paket fuer Gothic 1 und Othello)
   GothicCoop-LIESMICH.txt               kurze Anleitung (dazu die der anderen Variante: -Othello.txt bzw. -Gothic1.txt)
@@ -49,7 +49,7 @@ Ab u42 (Versuch): Weltprozess auch in Gothic 1 - ist ein Mitspieler in einer and
 startet ein zweites, unsichtbares Gothic auf dem eigenen PC, laedt den neuesten Spielstand und jene Welt; das
 Zuschau-Fenster (Shift+F5, blauer Rahmen) zeigt den Mitspieler dort. Sein Ordner liegt im Gothic-Ordner
 ("Gothic\\Gothic_CoopWelt", legt GT selbst an; braucht ein NTFS-Laufwerk). Shift+F12 beendet ihn bzw. startet ihn wieder.
-Beide PCs brauchen den Renderer coop8 aus dieser ZIP.
+Beide PCs brauchen den Renderer aus dieser ZIP (ab u295 coop10: ist in GD3D11 HDR an, hat auch das Zuschau-Fenster HDR).
 Ab u62 (Projekt Gothic-I-II-Universal-Coop 0.2.0, Quelltext: https://github.com/corshaegar/Gothic-I-II-Universal-Coop):
 Union 1.0m liegt als Dateien bei.
 Ab u85: Gilden gelten je Held - Gilden-Dialoge teilen nur Helden derselben Gilde. Ab u96: Missions-Gegenstaende sind gemeinsam:
@@ -104,7 +104,7 @@ def main():
     ap.add_argument('--dll', help='Vorgabe builds\\<fassung>\\Gothic1Coop-<fassung>.dll')
     ap.add_argument('--othello', action='store_true', help='u62: Paket fuer Gothic 1 mit Othello (Othello-Skripte und -LIESMICH, ohne Union)')
     ap.add_argument('--scripts', help='Vorgabe pfade.SKRIPTE g1 bzw. othello')
-    ap.add_argument('--renderer', default=pfade.RENDERER['g1'], help='"-" = weglassen')   # u42: coop8 (Weltprozess)
+    ap.add_argument('--renderer', default=pfade.RENDERER['g1'], help='"-" = weglassen')   # u42: coop8 (Weltprozess), u295: coop10 (HDR im Zuschau-Fenster)
     ap.add_argument('--steam', default='', help='"-" = weglassen')
     ap.add_argument('--union-dir', help='Spielordner mit Union 1.0m (Vorgabe wie installer_bau.py), "-" = weglassen')
     ap.add_argument('--name', help='Dateiname der ZIP (Vorgabe "Gothic-I-II-Universal-Coop Gothic I <fassung>.zip" bzw. "... Othello ...")')

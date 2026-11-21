@@ -70,6 +70,10 @@ namespace GOTHIC_ENGINE {
         std::string dir;        // eigene Kopie (Slot- oder Archivordner, mit \ am Ende) - Bild und Angaben fuer die Vorschau
         int slot = 0;           // Slot mit dieser Kennung (eigene Kopie), 0 = nur im Archiv
         std::string key;        // Sortierung "JJJJMMTThhmm" + Unix-Zeit
+        // u280 (P357): kind "bk" = Zeile "beim Partner" - meine Kopie dieses Stands liegt nur noch als Sicherung bei ihm (u55); from/pc =
+        // seine Spieler- und PC-Kennung. partnerBk = ihm fehlt seine Kopie, hier liegt seine Sicherung (er holt sie beim Laden zurueck)
+        std::string from, pc;
+        bool partnerBk = false;
     };
     void CoopSaveSyncListJoint(std::vector<CoopListEntry>& out);
     int CoopSaveSyncPrepareSlot(const std::string& sid, std::string& why);
@@ -217,9 +221,13 @@ namespace GOTHIC_ENGINE {
     static std::string TestSaveKind = "test"; // u47: Art und Name dieser Sicherung (Weltwechsel: "weltwechsel")
     static std::string TestSaveName = "Coop-Test ";
     static long long TestSaveSetMs = 0;       // u237 (P282): seit wann sie wartet (der Mitspieler kann gerade nicht mitspeichern)
+    // u293 (P391): Menue-Speichern wartet auf den Mitspieler
+    static int MenuSaveWaitSlot = -1;
+    static std::string MenuSaveWaitName;
+    static long long MenuSaveWaitSince = 0;
     static bool CoopOwnSaveCall = false;      // u237 (P282): CoopDoSave ruft Write_Savegame - der Haken laesst das durch
     static bool SaveStatePeers();             // u237 (P282): Speicherbereitschaft (unten, bei CoopCheckResult)
-    static void SaveStateSend(bool ok, const std::string& why);
+    static void SaveStateSend(bool ok, const std::string& why, bool inv = false);
     // u47 (P88): Sicherung vor dem Betreten einer Welt (CoopWorlds.cpp CoopEnterGate) - danach die Weltdatei dieser Welt von dem
     // holen, der dort ist bzw. zuletzt dort war
     struct CoopEnterJob {
@@ -1806,7 +1814,8 @@ namespace GOTHIC_ENGINE {
         CoopLookApplyOwn("eigener Held wiederhergestellt");   // v55: gewaehltes Aussehen (CoopLook.cpp)
 
         const std::string lage = CoopHeroPlace(h, hostPos, hostAt);   // v22/v89, u168 (P175)
-        SaveSyncLog("eigener Held wiederhergestellt: Stufe %d, %d Gegenstaende (%d ausgeruestet), vorher %d entfernt, %s%s", h.level, added, equipped,
+        SaveSyncLog("eigener Held wiederhergestellt: Stufe %d, HP %d/%d, %d Gegenstaende (%d ausgeruestet), vorher %d entfernt, %s%s", h.level,
+            h.atr[NPC_ATR_HITPOINTS], h.atr[NPC_ATR_HITPOINTSMAX], added, equipped,
             removed, lage.c_str(), again ? " (erneut eingesetzt, Bezug: Held des Stands beim Laden)" : "");
     }
 
@@ -1859,16 +1868,18 @@ namespace GOTHIC_ENGINE {
         return false;
     }
 
-    static bool CoopCanSaveNow(std::string& why) {
+    static bool CoopCanSaveNow(std::string& why, bool invOk = false) {
         if (IsLoadingLevel || IsSavingGame) { why = CoopTr("Laden/Speichern l" "\xE4" "uft", "loading/saving"); return false; }
         if (!player || !ogame->savegameManager) { why = CoopTr("kein Held", "no hero"); return false; }
         if (player->IsDead() || player->IsUnconscious()) { why = CoopTr("Held tot/bewusstlos", "hero dead/unconscious"); return false; }
         // u149 (P152): Lauf b118: "Slot 8 gespeichert" mit der Fleischwanze als Spieler, nach dem Laden war das Tier der Held (Gilde 23, Kampftalente 0, Inventar leer). Eigene Sicherung, Auto-Sicherung und Mitspeichern warten
         if (CoopHeroSwapped()) { why = CoopTr("Held verwandelt", "hero transformed"); return false; }
         if (IsPlayerTalkingWithAnybody() || !oCInformationManager::GetInformationManager().IsDone) { why = CoopTr("Dialog", "dialogue"); return false; }
-        if (player->inventory2.IsOpen()) { why = CoopTr("Inventar offen", "inventory open"); return false; }
+        // u281 (P360): invOk (nur Bereitschaftsmeldung) - ein offenes eigenes Inventar (keine Truhe der Welt) schliesst GT beim Mitspeichern
+        const bool invZu = invOk && player->inventory2.IsOpen() && !player->GetInteractMob();
+        if (player->inventory2.IsOpen() && !invZu) { why = CoopTr("Inventar offen", "inventory open"); return false; }
         const int bs = player->GetBodyState();
-        if (bs > BS_SPRINT) { why = CoopTr("Held besch" "\xE4" "ftigt (K" "\xF6" "rperzustand ", "hero busy (body state ") + std::to_string(bs) + ")"; return false; }
+        if (bs > BS_SPRINT && !(invZu && bs == BS_INVENTORY)) { why = CoopTr("Held besch" "\xE4" "ftigt (K" "\xF6" "rperzustand ", "hero busy (body state ") + std::to_string(bs) + ")"; return false; }
         if (CoopSzeneSperrt(why))   // u243 (P290)
             return false;
         return true;
@@ -3078,11 +3089,13 @@ namespace GOTHIC_ENGINE {
     // weg, aeltere Fassung ohne Meldung). Das Mitspeichern selbst bleibt wie bisher (wartet, bis es geht). Allgemein (G1/G2).
     struct PeerSaveState {
         bool ok = true;
+        bool inv = false;   // u281 (P360): kann nur wegen des offenen Inventars nicht - beim Mitspeichern schliesst er es
         std::string why, nick;
         long long ms = 0;
     };
     static std::map<std::string, PeerSaveState> PeerSave;   // Mitspieler (Rolle) -> letzte Meldung
     static int OwnSaveOkSent = -1;
+    static int OwnSaveInvSent = -1;   // u281 (P360)
     static std::string OwnSaveWhySent;
     static long long OwnSaveStateMs = 0;
 
@@ -3098,13 +3111,15 @@ namespace GOTHIC_ENGINE {
         return CoopCanSaveNow(why);
     }
 
-    static void SaveStateSend(bool ok, const std::string& why) {
+    static void SaveStateSend(bool ok, const std::string& why, bool inv) {   // u281 (P360): Vorgabe inv = false in der Deklaration oben
         OwnSaveOkSent = ok ? 1 : 0;
+        OwnSaveInvSent = inv ? 1 : 0;
         OwnSaveWhySent = why;
         OwnSaveStateMs = CurrentMs;
         json j;
         j["st"] = 1;
         j["ok"] = ok ? 1 : 0;
+        j["inv"] = inv ? 1 : 0;   // u281 (P360)
         j["why"] = why;
         j["nick"] = std::string(MyNickname.ToChar());
         SaveSyncSend(j, SYNC_SAVE_READY);
@@ -3115,11 +3130,12 @@ namespace GOTHIC_ENGINE {
             OwnSaveOkSent = -1;
             return;
         }
-        std::string why;
+        std::string why, why2;
         const bool ok = OwnSaveReady(why);
-        const bool changed = (ok ? 1 : 0) != OwnSaveOkSent || why != OwnSaveWhySent;
+        const bool inv = !ok && player && CoopCanSaveNow(why2, true);   // u281 (P360): nur das eigene Inventar ist offen
+        const bool changed = (ok ? 1 : 0) != OwnSaveOkSent || (inv ? 1 : 0) != OwnSaveInvSent || why != OwnSaveWhySent;
         if ((changed && CurrentMs >= OwnSaveStateMs + 250) || CurrentMs >= OwnSaveStateMs + 2000)
-            SaveStateSend(ok, why);
+            SaveStateSend(ok, why, inv);
     }
 
     static void SaveStateReceive(const std::string& who, const json& e) {
@@ -3134,18 +3150,20 @@ namespace GOTHIC_ENGINE {
                 SaveSyncLog("%s kann %s mitspeichern%s%s (P282)", who.c_str(), ok ? "wieder" : "gerade nicht", ok ? "" : ": ", ok ? "" : why.c_str());
         }
         s.ok = ok;
+        s.inv = !ok && e.contains("inv") && e["inv"].is_number() && e["inv"].get<int>() != 0;   // u281 (P360)
         s.why = why;
         s.ms = CurrentMs;
     }
 
     // kann ein Mitspieler gerade nicht mitspeichern? why = "Diego: Dialog"
-    static bool PeerSaveBusy(std::string& why) {
+    // u281 (P360): invOk - Menue-Speichern: wer nur das eigene Inventar offen hat, schliesst es beim Mitspeichern und haelt nichts auf
+    static bool PeerSaveBusy(std::string& why, bool invOk = false) {
         why.clear();
         if (!SaveStatePeers())
             return false;
         for (auto const& p : PeerSave) {
             const PeerSaveState& s = p.second;
-            if (s.ok || CurrentMs > s.ms + 60000)
+            if (s.ok || (invOk && s.inv) || CurrentMs > s.ms + 60000)
                 continue;
             why += std::string(why.empty() ? "" : ", ") + (s.nick.empty() ? p.first : s.nick) + ": " +
                 (s.why.empty() ? std::string(CoopTr("besch\xE4" "ftigt", "busy")) : s.why);
@@ -3167,15 +3185,31 @@ namespace GOTHIC_ENGINE {
         std::string why;
         bool refuse = false;
         try {
-            refuse = !CoopOwnSaveCall && slot >= 0 && SaveSyncAktiv() && !CoopSyncSuspended() && CoopRuleSaves() && PeerSaveBusy(why);
+            refuse = !CoopOwnSaveCall && slot >= 0 && SaveSyncAktiv() && !CoopSyncSuspended() && CoopRuleSaves() && PeerSaveBusy(why, true);   // u281 (P360)
         }
         catch (...) {
             refuse = false;
         }
+        // u282 (P363, Nutzer 18.11.: "Das Speichern soll nicht moeglich sein, so lange einer auf dem Boden liegt"): eigener Held liegt bzw. tot -
+        // liegt der Mitspieler, meldet er "Held tot/bewusstlos" und PeerSaveBusy lehnt ab
+        if (!refuse && !CoopOwnSaveCall && slot >= 0 && player && (ServerThread || ClientThread) && (player->IsUnconscious() || player->IsDead())) {
+            ChatLog(string(CoopTr("Nicht gespeichert - du liegst am Boden.", "Not saved - you are down.")), zCOLOR(255, 200, 80, 255));
+            SaveSyncLog("Speichern in Slot %d abgelehnt - eigener Held liegt am Boden (P363)", slot);
+            return;
+        }
         if (refuse) {
-            ChatLog(string((std::string(CoopTr("Nicht gespeichert - der Mitspieler kann gerade nicht mitspeichern (", "Not saved - your partner cannot save right now (")) +
-                why + CoopTr("). Gleich noch einmal versuchen.", "). Try again in a moment.")).c_str()), zCOLOR(255, 200, 80, 255));
-            SaveSyncLog("Speichern in Slot %d abgelehnt - der Mitspieler kann gerade nicht mitspeichern (%s) (P282)", slot, why.c_str());
+            // u293 (P391, Nutzer 19.11.: "Speichern ist nicht immer moeglich"): P282 lehnte sofort ab - im Kampf meldete der Host fast
+            // jede Sekunde "kann gerade nicht mitspeichern: Held beschaeftigt (Koerperzustand 26)" (Schlag, Parade, Sprung), das traf fast
+            // jeden Versuch. Jetzt Slot und Namen merken und bis zu 20 s warten (HandleMenuSaveWait), dann selbst speichern.
+            MenuSaveWaitSlot = slot;
+            MenuSaveWaitName.clear();
+            oCSavegameInfo* wInfo = ogame && ogame->savegameManager ? ogame->savegameManager->GetSavegame(slot) : NULL;
+            if (wInfo)
+                MenuSaveWaitName = wInfo->m_Name.ToChar();
+            MenuSaveWaitSince = CurrentMs;
+            ChatLog(string((std::string(CoopTr("Speichern wartet, bis der Mitspieler mitspeichern kann (", "Saving waits until your partner can save too (")) +
+                why + CoopTr(") - h\xF6" "chstens 20 Sekunden.", ") - at most 20 seconds.")).c_str()), zCOLOR(255, 200, 80, 255));
+            SaveSyncLog("Speichern in Slot %d wartet - der Mitspieler kann gerade nicht mitspeichern (%s) (P391)", slot, why.c_str());
             return;
         }
         Ivk_CGameManager_Write_Savegame_Coop(_this, slot);
@@ -4685,6 +4719,16 @@ namespace GOTHIC_ENGINE {
             return;
         }
         const CoopSaveMeta& next = RemoteSaveQueue.front();
+        // u281 (P360, Test Othello u278 17.11.: "Wieso geht das Speichern nicht, wenn das Inventar offen ist?" - Log Host 2634 s: "Speichern in
+        // Slot 11 abgelehnt - der Mitspieler kann gerade nicht mitspeichern (Spieler: Inventar offen)"): wer mitspeichert, schliesst ein offenes
+        // eigenes Inventar (keine Truhe der Welt, kein Gespraech) und speichert, sobald es zu ist - wie Gothic vor dem eigenen Speichern
+        if (player && player->inventory2.IsOpen() && !player->GetInteractMob() && !IsPlayerTalkingWithAnybody()) {
+            player->CloseInventory();
+            const std::string wer = CoopPartnerNick.empty() ? next.by : CoopPartnerNick;
+            ChatLog(string::Combine(CoopTr("%s speichert - dein Inventar wurde geschlossen.", "%s is saving - your inventory was closed."),
+                string(wer.c_str())), zCOLOR(255, 220, 120, 255));
+            SaveSyncLog("Mitspeichern %s: eigenes Inventar offen - geschlossen (P360)", next.sid.c_str());
+        }
         std::string why;
         if (!CoopCanSaveNow(why)) {
             // v39: nicht mehr nach 60 s aufgeben ("Staende weichen ab") - jede Minute melden und weiter versuchen, bis es klappt
@@ -5107,6 +5151,37 @@ namespace GOTHIC_ENGINE {
         SaveSyncLog("Auto-Sicherung (alle %d min) in Slot %d - %lld ms nach der Faelligkeit", autoMin, slot, CurrentMs - CoopAutoSaveFaelligMs);
     }
 
+    // u293 (P391): wartendes Menue-Speichern - sobald beide koennen, mit dem eingegebenen Namen in denselben Slot speichern; nach 20 s aufgeben
+    static void HandleMenuSaveWait() {
+        if (MenuSaveWaitSlot < 0)
+            return;
+        std::string why, eigen;
+        const bool peer = PeerSaveBusy(why, true);
+        const bool own = !CoopCanSaveNow(eigen, true);
+        if (peer || own) {
+            if (CurrentMs - MenuSaveWaitSince > 20000) {
+                const std::string grund = peer ? why : eigen;
+                ChatLog(string((std::string(CoopTr("Nicht gespeichert - nach 20 Sekunden ging es noch nicht (", "Not saved - still not possible after 20 seconds (")) +
+                    grund + ").").c_str()), zCOLOR(255, 200, 80, 255));
+                SaveSyncLog("Speichern in Slot %d verworfen - nach 20 s ging es noch nicht (%s) (P391)", MenuSaveWaitSlot, grund.c_str());
+                MenuSaveWaitSlot = -1;
+            }
+            return;
+        }
+        const int slot = MenuSaveWaitSlot;
+        const std::string name = MenuSaveWaitName;
+        const long long gewartet = CurrentMs - MenuSaveWaitSince;
+        MenuSaveWaitSlot = -1;
+        if (player && player->inventory2.IsOpen())
+            player->CloseInventory();
+        CoopDoSave(slot, name);   // Art "manuell": CoopSavingKind und CoopSavingForAuto bleiben leer
+        char zeile[160];
+        _snprintf(zeile, sizeof(zeile), CoopTr("Gespeichert (Slot %d).", "Saved (slot %d)."), slot);
+        zeile[sizeof(zeile) - 1] = 0;
+        ChatLog(string(zeile), zCOLOR(255, 200, 80, 255));
+        SaveSyncLog("Speichern in Slot %d nach %lld ms Warten ausgefuehrt (P391)", slot, gewartet);
+    }
+
     // u30: Testsicherung des Coop-Testlaufs (CoopSaveSyncTestSave) - wie jede Sicherung am Ende des Bilds; ist der Held gerade
     // beschaeftigt, im naechsten Bild (der Testlauf fragt bis 20 s nach)
     static void HandleTestSave() {
@@ -5223,6 +5298,11 @@ namespace GOTHIC_ENGINE {
         CoopMoveResetPulse();   // u10: CoopPlace.cpp (bis u9 HandleMoveReset)
         if (HandleOwnListLoad())   // v91: auch ohne Coop (Liste im Esc-Menue)
             return;
+        if (MenuSaveWaitSlot >= 0 && (IsLoadingLevel || !SaveSyncAktiv())) {   // u293 (P391)
+            SaveSyncLog("Wartendes Speichern in Slot %d verworfen (%s) (P391)", MenuSaveWaitSlot, IsLoadingLevel ? "Laden" : "keine Verbindung");
+            ChatLog(string(CoopTr("Nicht gespeichert.", "Not saved.")), zCOLOR(255, 200, 80, 255));
+            MenuSaveWaitSlot = -1;
+        }
         if (!SaveSyncAktiv() || IsLoadingLevel)
             return;
         SaveStatePulse();   // u237 (P282): eigene Speicherbereitschaft an die Mitspieler
@@ -5255,6 +5335,7 @@ namespace GOTHIC_ENGINE {
         HandleHostSync();
         HandleAutoSave();
         HandleTestSave();   // u30
+        HandleMenuSaveWait();   // u293 (P391)
         HandleSyncTriggers();
         DrawDesyncWarn();
     }
@@ -5749,6 +5830,110 @@ namespace GOTHIC_ENGINE {
         std::sort(out.begin(), out.end(), [](const CoopListEntry& x, const CoopListEntry& y) { return x.key > y.key; });
     }
 
+    // u282 (P364): alle Coop-Spieler besiegt - der Host laedt den neuesten gemeinsamen Stand dieses Durchlaufs (ohne Treffer im Durchlauf den
+    // neuesten ueberhaupt) wie aus der Liste im Esc-Menue (CoopSaveSyncLoadSoon); der Mitspieler laedt mit. was = Name des Stands bzw. Grund
+    bool CoopSaveSyncLoadNewestJoint(std::string& was) {
+        std::vector<CoopListEntry> own;
+        CoopSaveSyncListJoint(own);
+        const CoopListEntry* best = NULL;
+        for (auto const& e : own)
+            if (!e.sid.empty() && (CoopCurrentRun.empty() || e.run == CoopCurrentRun)) {
+                best = &e;
+                break;
+            }
+        if (!best)
+            for (auto const& e : own)
+                if (!e.sid.empty()) {
+                    best = &e;
+                    break;
+                }
+        if (!best) {
+            was = CoopTr("kein gemeinsamer Stand", "no shared save");
+            return false;
+        }
+        std::string why;
+        const int slot = CoopSaveSyncPrepareSlot(best->sid, why);
+        if (slot < 1) {
+            was = why;
+            return false;
+        }
+        was = best->name.empty() ? best->sid : best->name;
+        CoopSaveSyncLoadSoon(slot);
+        return true;
+    }
+
+    // u280 (P357, Test Othello u273 16.11.: "Wenn der Mitspieler den Save eines Standes hat, der auch den kompletten Fortschritt unseres
+    // NPCs beinhaltet samt Ausruestung und Inventar, dann soll dieser uns auch angezeigt werden ... Das soll natuerlich auch in die andere
+    // Richtung gelten"): Staende, deren Kopie des PCs pc hier als Sicherung beim Partner liegt (<Kennung>__von_<pc> mit Held, u55),
+    // neueste zuerst. Fehlt ihm die eigene Kopie, zeigt er sie als Zeile "beim Partner" (CoopMenuLobby.cpp, LobbyAnswerSlots)
+    void CoopSaveSyncBackupsOf(const std::string& pc, std::vector<CoopListEntry>& out) {
+        out.clear();
+        if (pc.empty())
+            return;
+        CoopArchiveScan();
+        const std::string suf = CoopUpperName("__von_" + pc);
+        for (auto const& a : CoopArchiveIndex) {
+            const std::string& k = a.first;
+            if (k.size() <= suf.size() || k.compare(k.size() - suf.size(), suf.size(), suf) != 0)
+                continue;
+            CoopSaveMeta m;
+            if (!CoopReadMeta(a.second, m) || m.sid.empty() || CoopUpperName(m.sid) + suf != k || CoopListTechnical(m) ||
+                !CoopFileExists(a.second + "COOPHERO.TXT"))
+                continue;
+            CoopListEntry e;
+            e.sid = m.sid;
+            e.run = m.run;
+            e.name = m.name;
+            e.time = m.time;
+            e.kind = "bk";
+            e.key = CoopListKey(m.stime, m.time);
+            out.push_back(e);
+        }
+        std::sort(out.begin(), out.end(), [](const CoopListEntry& x, const CoopListEntry& y) { return x.key > y.key; });
+    }
+
+    // u280 (P357): Zeile "beim Partner" gewaehlt - meine eigene Kopie aus der Sicherung beim Partner zurueckholen (wie beim Laden ohne
+    // eigene Kopie, u55: BkPulse; im Hauptmenue beim Host CoopSaveSyncMenuHostPulse). Danach ist es wieder ein eigener gemeinsamer Stand.
+    // false = nicht noetig bzw. nicht moeglich (why)
+    bool CoopSaveSyncFetchBackup(const CoopListEntry& e, std::string& why) {
+        if (e.sid.empty() || e.pc.empty()) {
+            why = CoopTr("ohne Kennung", "no id");
+            return false;
+        }
+        if (!SaveSyncAktiv()) {
+            why = CoopTr("nicht verbunden", "not connected");
+            return false;
+        }
+        if (!CoopOwnCopyDir(e.sid).empty()) {
+            why = CoopTr("eigene Kopie ist schon da", "own copy is already here");
+            return false;
+        }
+        if (BkPendingBack(e.sid)) {
+            why = CoopTr("wird schon geholt", "already being fetched");
+            return false;
+        }
+        BkEnqueue(e.sid, e.from, e.pc, e.run, true, "aus der Liste (Zeile beim Partner, P357)");
+        if (!BkPendingBack(e.sid)) {
+            why = CoopTr("Partner unbekannt", "partner unknown");
+            return false;
+        }
+        return true;
+    }
+
+    // u280 (P357): laeuft das Zurueckholen dieser Kennung noch (CoopMenuLobby.cpp, LobbyBackupPulse)?
+    bool CoopSaveSyncFetchingBackup(const std::string& sid) {
+        return BkPendingBack(sid);
+    }
+
+    // u280 (P357): Host im Hauptmenue - Dateien senden und Sicherung beim Partner (Zurueckholen aus der Liste). Bis u279 lief beides im
+    // Hauptmenue nur beim Client (CoopSaveSyncMenuPulse); Ladeauftrag und Uebernahme bleiben dort
+    void CoopSaveSyncMenuHostPulse() {
+        if (!ServerThread || !SaveSyncAktiv())
+            return;
+        CoopPumpFileOut();
+        BkPulse();
+    }
+
     // Stand einer Kennung ladebereit machen: liegt die eigene Kopie in einem Slot, dieser; sonst aus dem Archiv in den naechsten
     // Coop-Slot (CoopNextReservedSlot, sicher ersetzt wie F9-Liste und Ladewunsch). -1 = nicht moeglich (why).
     int CoopSaveSyncPrepareSlot(const std::string& sid, std::string& why) {
@@ -6022,5 +6207,10 @@ namespace GOTHIC_ENGINE {
     std::string CoopSaveSyncNewRun(const std::string&) { return std::string(); }
     void CoopSaveSyncNotePartnerNick(const std::string&) {}
     void CoopSaveSyncKnownRuns(std::set<std::string>& out) { out.clear(); }
+    void CoopSaveSyncBackupsOf(const std::string&, std::vector<CoopListEntry>& out) { out.clear(); }   // u280 (P357)
+    bool CoopSaveSyncFetchBackup(const CoopListEntry&, std::string& why) { why = "Speichern-Modul aus"; return false; }
+    bool CoopSaveSyncFetchingBackup(const std::string&) { return false; }
+    void CoopSaveSyncMenuHostPulse() {}
+    bool CoopSaveSyncLoadNewestJoint(std::string& was) { was = "Speichern-Modul aus"; return false; }   // u282 (P364)
 #endif
 }

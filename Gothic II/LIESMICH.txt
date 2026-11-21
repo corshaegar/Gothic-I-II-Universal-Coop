@@ -1,7 +1,7 @@
-GothicCoop u273 - Gothic 2 Die Nacht des Raben ohne Mod (Union-Coop, erste Fassung fuer Gothic 2)
+GothicCoop u297 - Gothic 2 Die Nacht des Raben ohne Mod (Union-Coop, erste Fassung fuer Gothic 2)
 
 Voraussetzung: Gothic 2 Die Nacht des Raben (Fassung 2.6). Union 1.0m (mit zParserExtender) liegt bei.
-Beide PCs brauchen dieselbe GothicCoop-Fassung (u273).
+Beide PCs brauchen dieselbe GothicCoop-Fassung (u297).
 
 Installation: den Inhalt dieser ZIP in den Gothic-2-Ordner entpacken (den Ordner, in dem "system" liegt) und
 vorhandene Dateien ersetzen. War Union noch nicht installiert: danach system\dinput.dll entfernen (der Lader von
@@ -13,7 +13,7 @@ SystemPack - Union laedt SystemPack selbst). Bequemer und rueckgaengig machbar: 
   system\steam_api.dll und steam_appid.txt (39510)   fuer "Coop ueber Steam" (Steam muss laufen) - nicht, wenn das Spiel
                                   eine eigene steam_api.dll mitbringt (Archolos: sonst startet es nicht mehr; in der
                                   Universal-ZIP liegen beide darum in einem eigenen Ordner)
-  system\GD3D11\Bin\g2a_avx2.dll  Coop-Renderer (GD3D11 v17.9.7 + coop9) - nur wirksam, wenn GD3D11 installiert ist
+  system\GD3D11\Bin\g2a_avx2.dll  Coop-Renderer (GD3D11 v17.9.7 + coop10) - nur wirksam, wenn GD3D11 installiert ist
                                   (3D-Vorschau der Figur, Zuschau-Fenster beim Mitspieler, eigenes Log im Weltprozess,
                                   ab coop8 das Bild des Weltprozesses im Zuschau-Fenster). Er passt nur zu den Shadern von
                                   GD3D11 v17.9.7: Bringt eine Mod eine andere Fassung mit (Xeres' Rueckkehr: v17.9.4), diese
@@ -117,6 +117,7 @@ Coop-Inventar - eine gemeinsame Truhe; die Taste (Vorgabe I, Einstellungen > COO
 gleichzeitig offen haben, der Inhalt liegt beim Host und im Spielstand, Gegenstaende daraus zaehlen bei Quests. Ab u105: Auto-Sicherung
 auch alle 3 Minuten. Ab u135 (Renderer coop9): kein Absturz mehr beim Speichern mit offenem Zuschau-Fenster, wenn in den
 GD3D11-Einstellungen AtmosphericScattering aus ist; das Zuschau-Fenster zeigt dann statt des Himmels die Nebelfarbe.
+Ab u295 (Renderer coop10): ist in GD3D11 HDR an, hat auch das Zuschau-Fenster HDR.
 Ab u194: Mod-Profil als Datei - eine Mod, die der Coop nicht kennt, bekommt ihre Anpassungen (Skriptwerte, die je PC bleiben,
 Vorgaben fuer Coop-Schalter, Hinweise) ohne neue DLL ueber system\GothicCoopMod-<Ini>.json (<Ini> = Spiel-Ini der Mod ohne
 ".ini", z. B. GothicCoopMod-LoA.json). Vorlage mit Erklaerung: system\GothicCoopMod.vorlage.json. Beide PCs brauchen dieselbe

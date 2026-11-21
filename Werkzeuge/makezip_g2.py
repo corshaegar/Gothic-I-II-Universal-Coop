@@ -40,7 +40,7 @@ SystemPack - Union laedt SystemPack selbst). Bequemer und rueckgaengig machbar: 
   system\\steam_api.dll und steam_appid.txt (39510)   fuer "Coop ueber Steam" (Steam muss laufen) - nicht, wenn das Spiel
                                   eine eigene steam_api.dll mitbringt (Archolos: sonst startet es nicht mehr; in der
                                   Universal-ZIP liegen beide darum in einem eigenen Ordner)
-  system\\GD3D11\\Bin\\g2a_avx2.dll  Coop-Renderer (GD3D11 v17.9.7 + coop9) - nur wirksam, wenn GD3D11 installiert ist
+  system\\GD3D11\\Bin\\g2a_avx2.dll  Coop-Renderer (GD3D11 v17.9.7 + coop10) - nur wirksam, wenn GD3D11 installiert ist
                                   (3D-Vorschau der Figur, Zuschau-Fenster beim Mitspieler, eigenes Log im Weltprozess,
                                   ab coop8 das Bild des Weltprozesses im Zuschau-Fenster). Er passt nur zu den Shadern von
                                   GD3D11 v17.9.7: Bringt eine Mod eine andere Fassung mit (Xeres' Rueckkehr: v17.9.4), diese
@@ -144,6 +144,7 @@ Coop-Inventar - eine gemeinsame Truhe; die Taste (Vorgabe I, Einstellungen > COO
 gleichzeitig offen haben, der Inhalt liegt beim Host und im Spielstand, Gegenstaende daraus zaehlen bei Quests. Ab u105: Auto-Sicherung
 auch alle 3 Minuten. Ab u135 (Renderer coop9): kein Absturz mehr beim Speichern mit offenem Zuschau-Fenster, wenn in den
 GD3D11-Einstellungen AtmosphericScattering aus ist; das Zuschau-Fenster zeigt dann statt des Himmels die Nebelfarbe.
+Ab u295 (Renderer coop10): ist in GD3D11 HDR an, hat auch das Zuschau-Fenster HDR.
 Ab u194: Mod-Profil als Datei - eine Mod, die der Coop nicht kennt, bekommt ihre Anpassungen (Skriptwerte, die je PC bleiben,
 Vorgaben fuer Coop-Schalter, Hinweise) ohne neue DLL ueber system\\GothicCoopMod-<Ini>.json (<Ini> = Spiel-Ini der Mod ohne
 ".ini", z. B. GothicCoopMod-LoA.json). Vorlage mit Erklaerung: system\\GothicCoopMod.vorlage.json. Beide PCs brauchen dieselbe
@@ -203,7 +204,7 @@ def main():
     ap.add_argument('fassung')
     ap.add_argument('--dll', help='Vorgabe builds\\<fassung>\\Gothic2Coop-<fassung>.dll')
     ap.add_argument('--scripts', default=pfade.SKRIPTE['g2'])
-    ap.add_argument('--renderer', default=pfade.RENDERER['g2'], help='"-" = weglassen (ab u10; u33: coop7, u38: coop8, u135: coop9)')
+    ap.add_argument('--renderer', default=pfade.RENDERER['g2'], help='"-" = weglassen (ab u10; u33: coop7, u38: coop8, u135: coop9, u295: coop10)')
     ap.add_argument('--union-dir', help='Spielordner mit Union 1.0m (Vorgabe wie installer_bau.py), "-" = weglassen')
     ap.add_argument('--name', help='Dateiname der ZIP (Vorgabe "Gothic-I-II-Universal-Coop Gothic II <fassung>.zip")')
     ap.add_argument('--force', action='store_true', help='vorhandene ZIP ersetzen')

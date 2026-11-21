@@ -1,12 +1,12 @@
 {
  "_hinweis": "u62 (Nutzer: \"mach für jede Mod einzeln eine Version sowas wie u56 etc. und für das Gesamt projekt eine version zb 0.1.1\"): projekt = Version der Veröffentlichung (GitHub-Release), je Spiel/Mod die Coop-Fassung, mit der es zuletzt geändert wurde (sie zählt nur, wenn sich am Coop für dieses Spiel etwas ändert)",
- "projekt": "0.11.3",
+ "projekt": "0.12.0",
  "mods": {
-  "Gothic I": "u273",
-  "Gothic II": "u273",
-  "Othello": "u273",
-  "Legend of Ahssun": "u273",
-  "The Chronicles of Myrtana: Archolos": "u273",
-  "Xeres' Rückkehr": "u273"
+  "Gothic I": "u297",
+  "Gothic II": "u297",
+  "Othello": "u297",
+  "Legend of Ahssun": "u297",
+  "The Chronicles of Myrtana: Archolos": "u297",
+  "Xeres' Rückkehr": "u297"
  }
 }

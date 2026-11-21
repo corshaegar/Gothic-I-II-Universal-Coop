@@ -497,15 +497,75 @@ namespace GOTHIC_ENGINE {
         return _wcsicmp(subst.c_str(), (L"\\??\\" + WpWide(target)).c_str()) == 0;
     }
 
+    // u295 (P397, Client-Log Othello-Test u292): Der Spielordner war samt Weltordner weitergegeben worden - beim Kopieren wurden aus
+    // den Ordner-Verknuepfungen echte Ordner mit Inhalt (z. B. DirectMusic), der Weltprozess startete nie. Solche Eintraege werden
+    // nicht geloescht, sondern nach <Spiel>\CoopBackup\Weltordner-<Zeit>\... verschoben (gleiches Laufwerk: nur umbenannt).
+    static std::string WpAsideRoot() {
+        static const std::string root = [] {
+            SYSTEMTIME t;
+            GetLocalTime(&t);
+            char buf[64];
+            _snprintf(buf, sizeof(buf), "Weltordner-%04d-%02d-%02d_%02d-%02d-%02d", (int)t.wYear, (int)t.wMonth, (int)t.wDay, (int)t.wHour, (int)t.wMinute, (int)t.wSecond);
+            buf[sizeof(buf) - 1] = 0;
+            return CoopGameRoot() + "\\CoopBackup\\" + std::string(buf);
+        }();
+        return root;
+    }
+
+    static bool WpMoveAside(const std::string& path, std::string& to) {
+        const std::string gr = CoopGameRoot();
+        std::string rel;
+        if (path.size() > gr.size() + 1 && _strnicmp(path.c_str(), gr.c_str(), gr.size()) == 0 && path[gr.size()] == '\\')
+            rel = path.substr(gr.size() + 1);
+        else {
+            const size_t p = path.find_last_of("\\/");
+            rel = p == std::string::npos ? path : path.substr(p + 1);
+        }
+        to = WpAsideRoot() + "\\" + rel;
+        // Elternordner von "to" Stufe fuer Stufe anlegen (vorhandene sind kein Fehler)
+        for (size_t i = gr.size() + 1; i < to.size(); i++) {
+            if (to[i] != '\\')
+                continue;
+            const std::string part = to.substr(0, i);
+            if (!CreateDirectoryA(part.c_str(), NULL) && GetLastError() != ERROR_ALREADY_EXISTS) {
+                to = "Fehler " + std::to_string(GetLastError());
+                return false;
+            }
+        }
+        if (GetFileAttributesA(to.c_str()) != INVALID_FILE_ATTRIBUTES) {
+            const std::string base = to;
+            for (int n = 2; n <= 9; n++) {
+                to = base + "_" + std::to_string(n);
+                if (GetFileAttributesA(to.c_str()) == INVALID_FILE_ATTRIBUTES)
+                    break;
+            }
+        }
+        if (!MoveFileExA(path.c_str(), to.c_str(), 0)) {
+            to = "Fehler " + std::to_string(GetLastError());
+            return false;
+        }
+        return true;
+    }
+
     // Ordner-Verknuepfung (Junction) link -> target, ohne Adminrechte. Steht dort eine alte Verknuepfung oder ein leerer Ordner,
-    // wird er ersetzt; ein Ordner mit Inhalt bleibt unangetastet (Fehler).
+    // wird er ersetzt; ein Ordner mit Inhalt wird seit u295 (P397) nach CoopBackup verschoben (nicht geloescht).
     static bool WpMakeJunction(const std::string& link, const std::string& target, std::string& why) {
         if (WpIsJunctionTo(link, target))
             return true;
         const DWORD a = GetFileAttributesA(link.c_str());
         if (a != INVALID_FILE_ATTRIBUTES && (!(a & FILE_ATTRIBUTE_DIRECTORY) || !RemoveDirectoryA(link.c_str()))) {
-            why = link + " ist eine Datei oder ein Ordner mit Inhalt - nicht angefasst";
-            return false;
+            if (a & FILE_ATTRIBUTE_REPARSE_POINT) {
+                why = link + " ist eine Datei oder ein Ordner mit Inhalt - nicht angefasst";
+                return false;
+            }
+            std::string nach;
+            if (!WpMoveAside(link, nach)) {
+                why = link + " ist eine Datei oder ein Ordner mit Inhalt - nicht verschoben (" + nach + ")";
+                return false;
+            }
+            static int asideLogs = 0;
+            if (asideLogs++ < 30)
+                WpLog("Weltordner: %s war eine echte Datei bzw. ein echter Ordner (Weltordner mitkopiert?) - nach %s verschoben, dort wird nichts geloescht (P397)", link.c_str(), nach.c_str());
         }
         if (!CreateDirectoryA(link.c_str(), NULL)) {
             why = "Ordner " + link + " nicht angelegt (Fehler " + std::to_string(GetLastError()) + ")";
@@ -1207,9 +1267,33 @@ namespace GOTHIC_ENGINE {
             CoopConfig["coopWorldProcessVisible"].get<bool>();
     }
 
+    // u296 (P407, Host-Log Archolos-Test u295 20.11.): Hauptspiel ohne GD3D11 ("Vorschau: Renderer kein GD3D11") - der Weltprozess brach mit
+    // "XD3D_InitPerDX: Can't create D3DX context ! Error: DDERR_NOEXCLUSIVEMODE" ab (Gothics DirectX-7-Renderer zeichnet auf dem eigenen
+    // Desktop GothicCoopWelt nicht), ebenso bei jedem Vorstart. Ohne GD3D11 im Hauptspiel startet der Weltprozess daher gar nicht erst
+    static bool WpOhneRenderer = false;
+    static bool WpRendererGd3d11() {   // gleiche Liste wie CoopPreview.cpp
+#if ENGINE >= Engine_G2
+        static const char* mods[] = { "g2a_avx2.dll", "g2a_avx.dll", "g2a.dll" };
+#else
+        static const char* mods[] = { "g1_avx2.dll", "g1_avx.dll", "g1.dll", "g1a.dll" };
+#endif
+        for (const char* m : mods)
+            if (GetModuleHandleA(m))
+                return true;
+        return false;
+    }
+
     static void WpHostStart() {
         if (IsLoadingLevel)
             return;   // u39: auch im Hauptmenue (ab dem COOP-Menue)
+        if (!WpVisibleConfig() && !WpRendererGd3d11()) {
+            WpOhneRenderer = true;
+            WpFails = 3;   // kein weiterer Vorstart bis zum naechsten Spielstart
+            WpLog("nicht gestartet - das Hauptspiel laeuft ohne GD3D11; Gothics DirectX-7-Renderer zeichnet auf dem eigenen Desktop nicht (DDERR_NOEXCLUSIVEMODE) - GD3D11 installieren, der Coop-Installer bringt es mit (P407)");
+            ChatLog(CoopTr("Weltprozess aus: er braucht GD3D11 (bringt der Coop-Installer mit).",
+                "World process off: it needs GD3D11 (the coop installer brings it along)."), zCOLOR(255, 200, 80, 255));
+            return;
+        }
         std::string why;
         WpArchiveCopyLogs(WpCopyRoot(), "voriger Lauf");   // u36: GD3D11 leert sein Log beim Start - vorher archivieren
         if (!WpHostEnsureCopy(why)) {   // u34: eigener Spielordner (Union packt sonst in die Plugin-Dateien des Hauptspiels aus)
@@ -1589,6 +1673,7 @@ namespace GOTHIC_ENGINE {
         world = WpHost.world;
         if (!WpHost.on) {
             state = WpAutoOff ? std::string(CoopTr("aus (Fenster geschlossen - startet beim n\xE4" "chsten Spielstart)", "off (window closed - starts with the next game start)"))
+                : WpOhneRenderer ? std::string(CoopTr("aus - braucht GD3D11 (Coop-Installer)", "off - needs GD3D11 (coop installer)"))
                 : WpFails >= 3 ? std::string(CoopTr("aus - mehrmals abgebrochen (Log)", "off - failed several times (log)"))
                 : !WpAutoConfig() ? CoopTr("aus (coopWorldProcessAuto)", "off (coopWorldProcessAuto)")
                 : CoopTr("startet gleich", "starting soon");

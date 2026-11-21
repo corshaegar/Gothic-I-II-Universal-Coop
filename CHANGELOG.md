@@ -7,6 +7,45 @@ At the very bottom you will find the history before the first release: the Othel
 (github.com/corshaegar/Othello-Coop) and the unreleased versions u1–u61 that became 0.2.0. This way, every change since the very
 first version is recorded here.
 
+## 0.12.0 – Down instead of dead, emergency key, menus without pause, visible shots, NPCs react to the client (Gothic I u297, Gothic II u297, Othello u297, Legend of Ahssun u297, Archolos u297, Xeres' Rückkehr u297)
+
+Most of these changes come from joint play sessions in Othello (also over the internet) and Archolos and from the players' logs – thank you! The changes of u293 to u297 have not been checked in a play session yet.
+
+**New**
+
+- **Down instead of dead** (u282, u291, u292): If an enemy kills your hero in co-op, the hero falls unconscious instead and stays down – until nobody near a coop player is fighting any more, then the hero gets up again, or until the partner picks them up (walk over, Shift+F4, stand still for 4 seconds; afterwards the hero has at least 30 % of their health). If everyone is down, everyone really dies – with the death animation – and the host loads the last joint save after 5 seconds; press Esc before that to choose yourself. Drowning, falls and deaths from scripts stay a real death. Nobody can save while someone is down.
+- **Emergency key Shift+F8** (u283, u295): ends a stuck dialogue or frees your hero when they can no longer move (inventory closed, weapon away, moved up a little). Can be changed under *Settings › COOP › Coop keys*.
+- **Menus no longer pause the game** (u284–u287): In co-op the world keeps running while someone has the Esc menu, the diary, the character screen, load/save or a coop window open – before, all NPCs on the host stood still meanwhile, for the partner too. Your hero, the camera and the mouse rest during that time; afterwards the hero can be controlled again right away.
+- **The partner's shots are visible** (u279, u293, u294, u296): arrows and bolts now fly on the other PC as well – as a picture only; the hit is still reported by the shooter's PC.
+- **NPCs react to the client** (u293): Until now enemies only attacked the client when the host was nearby; nobody reacted when the client broke into houses or drew a weapon, and the client could not talk to sleeping NPCs. Now the client's PC takes the NPC over from the host in these cases, and the NPC reacts to the client as to its own hero.
+- **The partner's level-up** (u281): "<name> reached level N!" now appears for the other player too.
+- **Joint saves from the backup at the partner** (u280): If you are missing your own copy of a joint save (lost saves, another PC), the save still shows up in the list – with "(at partner)" – and comes back when you choose it. This works in both directions.
+- **Coop renderer coop10** (u295) for Gothic 1 and Gothic 2: the watch window shows HDR like the main picture.
+- **Diary with the mouse** (u288–u290): hovering marks a topic, a click shows it, the pointer on a tab switches the list. Under Othello the menus now also show the coop mouse pointer.
+
+**Fixes**
+
+- **No damage between players** (u296): spells of the partner such as the ice wave hit your own hero too – the hero froze and on the host even lost health. Spells and hits between coop players no longer have any effect.
+- **Enemy magic against the partner** (u296): when the client led a fight, hits of its enemies on the host's hero got lost – spells did no damage. Now the client reports them and the host computes them.
+- **Arrows of the client flew crooked on the host** (u296).
+- **The partner can no longer be targeted in combat** (u291, u297): with a drawn weapon, fists or magic the target never jumps to the partner, not even when switching targets. Outside combat it works as usual.
+- **The weapon stays equipped** (u291, u296): after being knocked out or killed, the weapon was no longer equipped. Afterwards the bow sometimes could not be drawn because an arrow was still in the hand (u278, u281).
+- **Finishing blow of the client** (u278, u291): when the client killed an unconscious NPC, it only died when it tried to get up. Now it dies right away – provided it has been unconscious for at least 3 seconds; a trailing blow right after the knockout no longer kills.
+- **Getting up in the middle of a fight** (u291, u292): a downed hero got up although fighting was still going on next to them – for example when the client led the fight, a monster was eating or an NPC without an enemy was still ready to attack. Then they were knocked down again right away.
+- **NPCs on benches** (u278, u281): when the partner talked to a seated NPC, it turned away on the other PC and spoke no lines. Walking NPCs turn to the speaker again.
+- **Dialogue stuck when the partner attacked the NPC** (u278): it now ends at the next safe point, as with "END".
+- **Attack after a dialogue** (u291): when an NPC wanted to attack the client after a dialogue, nothing happened. Now it attacks.
+- **Dialogue after a defeat** (u291): when the client defeated an NPC, the NPC's dialogue about the defeat was missing afterwards (in Othello for example with Lefty).
+- **Enemy weapons twice** (u291): when an enemy dropped its weapon, the client found a second one when looting.
+- **Doors** (u291, u296): the host now syncs doors that NPCs open and close – in Archolos many NPCs walk through house doors. In addition it sends the state of the doors near the players every 30 seconds.
+- **Partner's name** (u291): it sometimes disappeared even at a distance. In combat it is now only hidden closer than 25 m.
+- **Saving** (u281, u293): an open inventory of the partner no longer stops saving – it closes for it. If the partner cannot save right now, for example in the middle of a swing, saving waits up to 20 seconds for them instead of refusing right away.
+- **After loading** (u294): the hero sometimes could not move, and the figure of a partner who had died before loading stayed on the ground.
+- **Coop inventory** (u281, u293): arrows and bolts can be put in even with the bow equipped; with a drawn weapon the coop key now opens your own inventory too.
+- **Crashes** (u275, u279, u292): when an NPC's AI state still pointed to a removed figure or item, and when an already deleted rune (such as the teleport rune) was still in the spell book.
+- **Xeres' Rückkehr** (u276, u277): the COOP entry in the main menu and "Main menu"/"Choose save" in the Esc menu were missing (this affected every mod with Ninja's patch menu), and "Main menu" in the Esc menu crashed (every mod with Gothic Free Aim).
+- **World process** (u295, u296): if a game folder was passed on together with its world folder, the world process did not start; the copied files are now moved aside. Without GD3D11 the world process cannot draw – it now does not start at all and says so in the chat (the installer brings GD3D11). On a PC with an AMD card it crashed at start; the coop renderer therefore no longer loads vendor extensions in the world process – whether that was the cause is still open.
+
 ## 0.11.3 – DXVK for AMD graphics cards (Gothic I u273, Gothic II u273, Othello u273, Legend of Ahssun u273, Archolos u273, Xeres' Rückkehr u273)
 
 **New**

@@ -356,6 +356,8 @@ namespace GOTHIC_ENGINE {
         zCTexture* ptex = NULL;
         if (peerRole.empty())
             pline = coop ? CoopTr("Kein Mitspieler", "No partner") : CoopTr("Ohne Coop", "No coop");
+        else if (entry.partnerBk)   // u280 (P357): ihm fehlt seine Kopie - er bekommt sie beim Laden aus der Sicherung hier
+            pline = pname + CoopTr(": aus der Sicherung hier", ": from the backup here");
         else if (!peerHas)   // v93: lokaler Stand - der Partner uebernimmt beim Laden die Welt
             pline = pname + (sid.empty() ? CoopTr(": nur hier gespeichert", ": saved only here") : CoopTr(": hat ihn nicht", ": does not have it"));
         else if (pdata) {
@@ -382,7 +384,7 @@ namespace GOTHIC_ENGINE {
             PvRequest(sid, false);
             pline = pname + CoopTr(": wird geholt ...", ": fetching ...");
         }
-        PvSetPic(menu, "MENUITEM_COOPLOAD_PIC_PARTNER", ptex, peerHas && !pdata ? "..." : CoopTr("kein Bild", "no picture"));
+        PvSetPic(menu, "MENUITEM_COOPLOAD_PIC_PARTNER", ptex, peerHas && !pdata && !entry.partnerBk ? "..." : CoopTr("kein Bild", "no picture"));
         LobbySetItemText(LobbyFindItem(menu, "MENUITEM_COOPLOAD_NAME_PARTNER"), pname);
 
         // Zeilen: Welt-Angaben (Host), beide Helden, v93 Durchlauf, Aufgaben des Hosts

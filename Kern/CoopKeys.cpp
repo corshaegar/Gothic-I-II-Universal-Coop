@@ -158,6 +158,7 @@ namespace GOTHIC_ENGINE {
         { "REVIVE", "coopKeyRevive", "Mitspieler wiederbeleben", "Revive partner" },
         { "REINIT", "coopKeyReinit", "Mitspieler-Figuren neu", "Respawn partner figures" },
         { "SYNC", "coopKeySync", "Welt neu abgleichen", "Resync the world" },
+        { "NOTFALL", "coopKeyNotfall", "Notfall: Dialog/Feststecken l\xF6sen", "Emergency: end dialogue / unstick" },   // u283 (P366)
     };
 
     static CoopKeyBind CoopKeyBinds[CK_COUNT];
@@ -289,6 +290,7 @@ namespace GOTHIC_ENGINE {
         case CK_REVIVE: b.dik = ReadConfigKey("revivePlayerKey", "KEY_F4") & 0xFF; b.mods = CK_MOD_SHIFT; break;
         case CK_REINIT: b.dik = ReadConfigKey("reinitPlayersKey", "KEY_F3") & 0xFF; b.mods = CK_MOD_SHIFT; break;
         case CK_SYNC: b.dik = ReadConfigKey("coopSyncKey", "KEY_F6") & 0xFF; break;
+        case CK_NOTFALL: b.dik = 0x42; b.mods = CK_MOD_SHIFT; break;   // u283 (P366): Shift+F8 (Nutzer: nahe an der Debug-Kombination Strg+Alt+Shift+F8)
         default: break;
         }
         return b;
@@ -517,18 +519,18 @@ namespace GOTHIC_ENGINE {
     static std::string K(int a) { return CoopKeyShow(CoopKeyBinds[a]); }
 
     static void CoopHelpLines(std::vector<std::string>& l) {
-        static const int order[CK_COUNT] = { CK_HELP, CK_MENU, CK_INV, CK_RUNE, CK_CAM, CK_REVIVE, CK_JOIN, CK_HOST, CK_SYNC, CK_REINIT };
+        static const int order[CK_COUNT] = { CK_HELP, CK_MENU, CK_INV, CK_RUNE, CK_CAM, CK_REVIVE, CK_JOIN, CK_HOST, CK_SYNC, CK_REINIT, CK_NOTFALL };
         // je Zeile hoechstens ~50 Zeichen: GD3D11 zeichnet die Menueschrift groesser (Test 09.11., 1280x960: ~54 sichtbar)
         l.push_back(CoopTr("Coop-Tasten (\xE4ndern: Einstellungen > COOP):", "Coop keys (change: Settings > COOP):"));
         for (int i = 0; i < CK_COUNT; i++) {
             const int a = order[i];
             l.push_back("   " + K(a) + "   -   " + (CoopLangEn ? CoopKeyActions[a].en : CoopKeyActions[a].de));
         }
-        l.push_back(std::string());
+        // u283 (P366): ohne Leerzeile - die Hilfe hat 20 Zeilen (MENUITEM_COOPHELP_L00-L19), die Notfall-Taste braucht eine mehr
         l.push_back(CoopTr("Mitspieler-Anzeige: Einstellungen > COOP.", "Partner display: Settings > COOP."));
         l.push_back(CoopTr("Coop-Inventar: Rechtsklick legt ein St\xFC" "ck hin\xFC" "ber,", "Coop inventory: right-click moves one item,"));   // u272
         l.push_back(CoopTr("   gehalten mehr - Tab wechselt das Fenster.", "   hold for more - Tab switches the window."));
-        l.push_back(std::string(CoopTr("Bewusstlos? Hingehen, ", "Knocked out? Walk over, ")) + K(CK_REVIVE) + CoopTr(", 10 s stehen.", ", stand 10 s."));
+        l.push_back(std::string(CoopTr("Mitspieler am Boden? Hingehen, ", "Partner down? Walk over, ")) + K(CK_REVIVE) + CoopTr(", 4 s stehen.", ", stand 4 s."));
         l.push_back(CoopTr("Speichern und Laden: der Host f\xFC" "r beide.", "Saving and loading: the host for both."));
         l.push_back(std::string(CoopTr("Als Client h\xE4lt ", "As client, ")) + K(CK_JOIN) + CoopTr(" die Synchronisierung an.", " pauses the sync."));
         l.push_back(std::string(CoopTr("Probleme: ", "Problems: ")) + K(CK_SYNC) + CoopTr(" Welt abgleichen,", " resync world,"));
@@ -544,7 +546,7 @@ namespace GOTHIC_ENGINE {
         l.push_back(CoopTr("abgeglichen - der Host gibt vor.", "the host decides."));
         l.push_back(CoopTr("Die Teleport-Rune bringt dich zum Mitspieler,", "The teleport rune takes you to your partner,"));
         l.push_back(CoopTr("das Coop-Inventar teilt ihr euch.", "you share the coop inventory."));
-        l.push_back(std::string(CoopTr("Bewusstlos? Der Mitspieler belebt dich (", "Knocked out? Your partner revives you (")) + K(CK_REVIVE) + ").");
+        l.push_back(std::string(CoopTr("Am Boden? Der Mitspieler hebt dich auf (", "Down? Your partner picks you up (")) + K(CK_REVIVE) + ", 4 s).");
         l.push_back(std::string());
         l.push_back(std::string(CoopTr("Tasten: ", "Keys: ")) + K(CK_HELP) + CoopTr(" Hilfe, ", " help, ") + K(CK_MENU) + CoopTr(" Coop-Fenster,", " coop window,"));
         l.push_back(K(CK_INV) + CoopTr(" Coop-Inventar, ", " coop inventory, ") + K(CK_RUNE) + CoopTr(" Teleport-Rune.", " teleport rune."));
@@ -795,12 +797,104 @@ namespace GOTHIC_ENGINE {
     static std::set<oCNpc*> HintDownShown;
     static long long HintDownScanMs = 0;
 
+    // u286 (P370, Othello-Test u285 18.11.: "das Problem mit dem nicht bewegen koennen besteht immer noch"; Log: nach jedem Schliessen eines
+    // Menues brauchte der Held die Notfall-Taste - auch beim ersten Menue nach einem Notfall, das Sperr-Bit war vorher also frei): Gothic
+    // steuert den eigenen Helden nur ueber oCAIHuman::Moving (G1 0x006158F0). DoAI ruft es nur bei leerer Befehlsliste (GetEM()->IsEmpty,
+    // G1 0x00615E71); Moving bricht ab bei IsMovLock (unter Othello auch Othellos Fenster und die Konsole, OTHELLO_ABI+0x89140), bei einer
+    // globalen Zwischensequenz, im Spieler-KI-Zustand (CanPlayerUseAIState) und bei einer Kamera ohne playerIsMovable (nur zCCSCamera
+    // setzt das). Die Notfall-Taste leert die Befehlsliste (ClearEM) und ruft ResetPos - danach ging es. CoopSteuerungText beschreibt diese
+    // Bedingungen fuers Log (nach dem Menue und bei der Notfall-Taste)
+    static bool MenuEmInListe(zCEventManager* em) {
+        zCArray<zCEventManager*>& a = zCEventManager::activeEM;
+        for (int i = 0; i < a.GetNumInList(); i++)
+            if (a[i] == em)
+                return true;
+        return false;
+    }
+
+    static std::string CoopSteuerungText() {
+        if (!player)
+            return std::string("kein Held");
+        zCEventManager* em = player->GetEM(TRUE);
+        const int befehle = em ? em->messageList.GetNumInList() : 0;
+        zCAICamera* cam = zCAICamera::GetCurrent();
+        zCWorld* welt = player->GetHomeWorld();
+        const bool szene = welt && welt->csPlayer && welt->csPlayer->GetPlayingGlobalCutscene();
+        char b[420];
+        _snprintf(b, sizeof(b), "Sperr-Bit %d, Konsole %d, Zwischensequenz %d, KI-Zustand %d (%s), Kamera beweglich %d, Koerper %d, Waffe %d, "
+            "Inventar %d, Mob %d, Gegenstand %d, Befehle %d (aktiv %d, in activeEM %d, Szene %d)", player->movlock ? 1 : 0,
+            zCConsole::cur_console ? 1 : 0, szene ? 1 : 0, player->state.CanPlayerUseAIState() ? 1 : 0, player->state.curState.name.ToChar(),
+            cam ? cam->playerIsMovable : -1, player->GetBodyState(), player->GetWeaponMode(), player->inventory2.IsOpen() ? 1 : 0,
+            player->GetInteractMob() ? 1 : 0, player->interactItem ? 1 : 0, befehle, em && em->active ? 1 : 0, em && MenuEmInListe(em) ? 1 : 0,
+            em && em->cutscene ? 1 : 0);
+        b[sizeof(b) - 1] = 0;
+        std::string t = b;
+        for (int i = 0; em && i < befehle && i < 4; i++) {
+            zCEventMessage* m = em->messageList[i];
+            if (!m)
+                continue;
+            const char* art = zDYNAMIC_CAST<oCMsgConversation>(m) ? "Gespraech" : zDYNAMIC_CAST<oCMsgMovement>(m) ? "Bewegung" :
+                zDYNAMIC_CAST<oCMsgManipulate>(m) ? "Gegenstand" : zDYNAMIC_CAST<oCMsgWeapon>(m) ? "Waffe" :
+                zDYNAMIC_CAST<oCMsgState>(m) ? "Zustand" : zDYNAMIC_CAST<oCMsgAttack>(m) ? "Kampf" : "andere";
+            t += std::string(i ? ", " : ": ") + art + " " + m->MD_GetSubTypeString(m->GetSubType()).ToChar() + (m->IsDeleted() ? " (geloescht)" : "");
+        }
+        return t;
+    }
+
+    // u283 (P366, Nutzer 18.11.: "Es soll ein Debug Button eingefuehrt werden, bei dem man entweder einen Stuck Dialog beenden kann oder das
+    // Feststecken beenden kann, wenn man sich nicht bewegen kann"; zur Taste: "Shift+F8, weil Strg+Alt+Shift+F8 eine Debug-Kombination ist"):
+    // Notfall-Taste (CK_NOTFALL, Vorgabe Shift+F8, Gothic.ini coopKeyNotfall). Laeuft ein Dialog, endet er wie beim Dialog-Waechter (Exit,
+    // OnTermination; haengende Befehle von NPC und Held weg). Sonst wird der eigene Held geloest: Inventar zu, Mob bzw. Gegenstand los,
+    // Waffe weg, Befehle weg, Bewegungssperre aus, Bewegung zurueckgesetzt (ResetPos 40 cm hoeher an der eigenen Stelle - er faellt auf den
+    // Boden zurueck). Am Boden (P363) oder tot hilft sie nicht - dort hebt der Mitspieler auf
+    static void CoopNotfall() {
+        if (!player)
+            return;
+        oCInformationManager& im = oCInformationManager::GetInformationManager();
+        if (!im.IsDone || IsPlayerTalkingWithAnybody()) {
+            oCNpc* npc = im.Npc;
+            im.Exit();
+            im.OnTermination();
+            im.IsWaitingForScript = im.IsWaitingForOpen = im.IsWaitingForClose = im.IsWaitingForSelection = 0;
+            if (npc && npc != player)
+                npc->ClearEM();
+            player->ClearEM();
+            ChatLog(string(CoopTr("Notfall: Dialog beendet.", "Emergency: dialogue ended.")), zCOLOR(255, 220, 120, 255));
+            OthelloCompatLog("[%lld s, %s] Notfall-Taste: Dialog mit %s beendet (P366)", DiagSeconds(), DiagRole(),
+                npc && npc != player ? npc->GetObjectName().ToChar() : "-");
+            return;
+        }
+        if (player->IsDead() || player->IsUnconscious()) {
+            ChatLog(string(CoopTr("Notfall: du liegst am Boden - dein Mitspieler hebt dich auf.", "Emergency: you are down - your partner picks you up.")),
+                zCOLOR(255, 200, 80, 255));
+            return;
+        }
+        OthelloCompatLog("[%lld s, %s] Notfall-Taste: Steuerung vorher: %s (P370)", DiagSeconds(), DiagRole(), CoopSteuerungText().c_str());
+        const int bs = player->GetBodyState();
+        const std::string st = player->state.curState.name.ToChar();
+        if (player->inventory2.IsOpen())
+            player->CloseInventory();
+        CoopStopMobUse(player, "Notfall-Taste (P366)");
+        if (player->GetWeaponMode() != NPC_WEAPON_NONE)
+            player->SetWeaponMode2(NPC_WEAPON_NONE);
+        player->ClearEM();
+        player->SetMovLock(FALSE);
+        zVEC3 p = player->GetPositionWorld();
+        p[1] += 40.0f;
+        CoopResetPosSafe(player, p);
+        ChatLog(string(CoopTr("Notfall: Held zur\xFC" "ckgesetzt.", "Emergency: hero reset.")), zCOLOR(255, 220, 120, 255));
+        OthelloCompatLog("[%lld s, %s] Notfall-Taste: eigener Held geloest (Koerperzustand vorher %d, Zustand %s) (P366)", DiagSeconds(), DiagRole(),
+            bs, st.c_str());
+    }
+
     void CoopKeysGamePulse() {
         // u238 (Nutzer 09.11.: "sehe ich noch die Coop einstellungen und hotkeys"): in automatischen Laeufen keine Tasten-Hinweise
         if (!player || IsLoadingLevel || CoopWpIsWorld() || CoopAutoLauf())
             return;
         const long long now = GetCurrentMs();
         CoopKeysRead();
+        if (CoopKeyHit(CK_NOTFALL))   // u283 (P366): Notfall-Taste
+            CoopNotfall();
         if (!HintFirstShown) {   // einmal je Sitzung, kurz nach dem ersten Spielbild
             if (!HintFirstAtMs)
                 HintFirstAtMs = now + 8000;
@@ -828,7 +922,7 @@ namespace GOTHIC_ENGINE {
                 oCNpc* n = p.first;
                 if (!n || n == player)
                     continue;
-                const bool down = n->GetAttribute(NPC_ATR_HITPOINTS) == 0 && !n->IsDead();
+                const bool down = CoopLiegtFigur(n) || (n->GetAttribute(NPC_ATR_HITPOINTS) == 0 && !n->IsDead());   // u282 (P363): auch "liegt"
                 if (!down) {
                     HintDownShown.erase(n);
                     continue;
@@ -836,17 +930,209 @@ namespace GOTHIC_ENGINE {
                 if (HintDownShown.count(n))
                     continue;
                 HintDownShown.insert(n);
-                ChatLog(string((std::string(p.second.ToChar()) + CoopTr(" ist bewusstlos - hingehen, ", " is knocked out - walk over, press ") + K(CK_REVIVE) +
-                    CoopTr(" dr\xFC" "cken und 10 s stillstehen.", " and stand still for 10 s.")).c_str()), zCOLOR(255, 220, 140, 255));
+                ChatLog(string((std::string(p.second.ToChar()) + CoopTr(" liegt am Boden - hingehen, ", " is down - walk over, press ") + K(CK_REVIVE) +
+                    CoopTr(" dr\xFC" "cken und 4 s stillstehen.", " and stand still for 4 s.")).c_str()), zCOLOR(255, 220, 140, 255));
             }
             if (HintDownShown.size() > 16)
                 HintDownShown.clear();
         }
     }
 
+    // u284 (P367, Nutzer 18.11.: "ESC, N und andere Tasten stoppen das Spiel nicht, sondern das Spiel laeuft weiter. Bei Othello ist bei dem
+    // Menue der Taste B bereits so ein Verhalten"): Gothic haelt beim Oeffnen eines Menues (Esc-Menue, Tagebuch, Charakter, Laden/Speichern,
+    // Coop-Fenster ...) das Spiel an - oCGame::Pause setzt singleStep 1 und den Zeitschritt 0 (G2A 0x006C8AD0: +0x11C/+0x118); Union meldet
+    // es als Game_Pause, GTs Spieltakt laeuft weiter. Im Coop hebt GT die Pause sofort wieder auf (oCGame::Unpause), solange ein Menue offen
+    // ist: die Welt laeuft weiter (NPCs, Kampf, Zeit - beim Partner stehen die NPCs nicht mehr still). Damit Pfeil-, Aktions- und Maustasten
+    // im Menue den eigenen Helden nicht steuern, sperrt GT seine Bewegung (SetMovLock) und gibt sie nach dem Schliessen frei - eine Sperre
+    // von vorher (Dialog) bleibt. Ohne Verbindung, im Hauptmenue ohne Spiel und beim Laden/Speichern haelt Gothic wie bisher an.
+    static bool MenuLaufGesperrt = false;   // GT hat die Bewegung gesperrt
+    static bool MenuLaufVorher = false;     // Sperre davor
+    static oCNpc* MenuLaufHeld = NULL;      // Held, dessen Bewegung GT gesperrt hat (nach dem Laden ist es ein anderer)
+    static int MenuLaufAufgehoben = 0;      // Pausen aufgehoben (Log)
+    // u285 (P369, Othello-Test u284 18.11.: "beim B druecken in Othello bewegt sich das Bild nicht mehr, bei ESC und N etc. schon immer
+    // noch"): Othellos B-Fenster nullt Gothics Mausbewegung (OTHELLO_ABI+0x9DBB0) - Held und Kamera stehen still. Im Esc-Menue ohne Pause
+    // drehten Kamera und Held weiter mit der Maus. Jetzt setzt GT Gothics Mausempfindlichkeit fuer die Dauer des Menues auf 0 (die Engine
+    // nimmt hoechstens 0.0001): GetMousePos rechnet Bewegung x Empfindlichkeit (G1 0x004C8BD0, G2A 0x004D5730), das Rad (z) bleibt fuer die
+    // Menues, GTs Menue-Zeiger liest die rohe Bewegung und laeuft weiter
+    static bool MenuMausAus = false;
+    static float MenuMausX = 0.0f, MenuMausY = 0.0f;   // Empfindlichkeit vorher
+    static int MenuMausGemeldet = 0;
+
+    static void CoopMenuMausZurueck() {
+        if (!MenuMausAus)
+            return;
+        MenuMausAus = false;
+        if (!zinput)
+            return;
+        float x = 0.0f, y = 0.0f;
+        zinput->GetMouseSensitivity(x, y);
+        if (x < 0.001f && y < 0.001f)   // nur, wenn sie inzwischen keiner geaendert hat (Einstellungen > Steuerung)
+            zinput->SetMouseSensitivity(MenuMausX, MenuMausY);
+        if (MenuMausGemeldet++ < 20)
+            OthelloCompatLog("[%lld s, %s] Men\xFC ohne Pause: Maus wieder an (Empfindlichkeit %.2f/%.2f) (P369)", DiagSeconds(), DiagRole(),
+                MenuMausX, MenuMausY);
+    }
+
+    // u286 (P370): nach dem Schliessen eines Menues ohne Pause schreibt GT die Steuerungs-Bedingungen ins Log ("Steuerung nach dem Menue")
+    // und loest den Helden, wenn er frei ist (kein Dialog, nicht am Boden, kein Mob/Gegenstand, Inventar zu, kein KI-Zustand): Befehle,
+    // deren Manager nicht in activeEM steht (Gothic arbeitet sie nie ab, vgl. P291), stoesst GT sofort an; steht der Held 2 s nach dem
+    // Schliessen noch mit demselben ersten Befehl wie nach 0,5 s, leert GT die Befehlsliste wie die Notfall-Taste (ohne Versetzen)
+    static int MenuEmVorher = 0;                // Befehle des Helden beim Oeffnen (Log)
+    static zCEventMessage* MenuEmErste = NULL;  // erster Befehl 0,5 s nach dem Schliessen (nur Vergleich, nie dereferenziert)
+    static long long MenuNachPruefMs = 0;       // naechste Nachpruefung
+    static int MenuNachPruefStufe = 0;          // 1: ersten Befehl merken, 2: vergleichen
+    static int MenuSteuerGemeldet = 0;
+    static CoopDiagBudget MenuSteuerBudget = { 0, 0 };   // u294 (P394): je Minute statt 30 je Sitzung
+    static long long MenuLadePruefMs = 0;   // u294 (P394): Pruefzeit nach dem Laden
+    // u287 (P371, Othello-Test u286 18.11.: "Es besteht immer noch dasselbe Problem"; Log nach jedem Menue: "Steuerung nach dem Menue:
+    // Sperr-Bit 1 ... Befehle 0"): Gothic sperrt den Helden beim Betreten jedes Menues selbst - CGameManager::GameInit setzt
+    // zCMenu::EnterCallback (G1 0x00425BE0, G2A 0x00426A80: SetMovLock(1), Spiel-Eingabe aus) und zCMenu::LeaveCallback (G1 0x00425CC0,
+    // G2A 0x00426B80: SetMovLock(0), Eingabe an); zCMenu::Enter/Leave (G1 0x004CEB90/0x004CEBF0) rufen sie bei jedem Menue, auch bei
+    // Untermenues. GTs Spieltakt sah das Menue erst danach und merkte sich Gothics eigene Sperre als "Sperre von vorher" (P367/P368) -
+    // nach dem Schliessen setzte GT sie wieder, der Held blieb stehen. Jetzt merkt sich GT das Sperr-Bit in jedem Bild ohne Menue und nimmt
+    // beim Oeffnen diesen Stand. Solange das Menue offen ist, haelt GT die Sperre: verlaesst man ein Untermenue, gibt Gothics LeaveCallback
+    // den Helden frei, waehrend das Esc-Menue noch offen ist und die Welt weiterlaeuft
+    static bool MenuSperreOhneMenue = false;   // Sperr-Bit im letzten Bild ohne Menue
+    static int MenuSperreNachgesetzt = 0;      // Untermenue verlassen - Sperre wieder gesetzt (Log)
+
+    static bool MenuHeldFrei() {
+        oCInformationManager& im = oCInformationManager::GetInformationManager();
+        if (!im.IsDone || IsPlayerTalkingWithAnybody())
+            return false;
+        if (player->IsDead() || player->IsUnconscious() || CoopLiegtFigur(player))
+            return false;
+        if (player->GetInteractMob() || player->interactItem || player->inventory2.IsOpen())
+            return false;
+        const char* zs = player->state.curState.name.ToChar();
+        return !zs || !*zs;
+    }
+
+    static void CoopMenuSteuerungNachher() {
+        zCEventManager* em = player->GetEM(TRUE);
+        const int n = em ? em->messageList.GetNumInList() : 0;
+        MenuEmErste = NULL;
+        MenuNachPruefStufe = 1;
+        MenuNachPruefMs = GetCurrentMs() + 500;
+        if (CoopDiagAllow(MenuSteuerBudget, 10))
+            OthelloCompatLog("[%lld s, %s] Steuerung nach dem Men\xFC: %s; beim \xD6" "ffnen %d Befehle (P370)", DiagSeconds(), DiagRole(),
+                CoopSteuerungText().c_str(), MenuEmVorher);
+        if (n > 0 && !MenuEmInListe(em) && MenuHeldFrei()) {   // wie P291: Manager wieder in activeEM
+            if (em->active)
+                em->active = FALSE;
+            em->SetActive(TRUE);
+            OthelloCompatLog("[%lld s, %s] Steuerung nach dem Men\xFC: %d Befehl(e), Liste wurde nicht abgearbeitet (nicht in activeEM) - "
+                "angesto\xDF" "en (P370)", DiagSeconds(), DiagRole(), n);
+        }
+    }
+
+    static void CoopMenuSteuerungPruefen() {
+        const long long jetzt = GetCurrentMs();
+        if (jetzt < MenuNachPruefMs)
+            return;
+        zCEventManager* em = player->GetEM(TRUE);
+        const int n = em ? em->messageList.GetNumInList() : 0;
+        if (MenuNachPruefStufe == 1) {
+            MenuEmErste = n > 0 ? em->messageList[0] : NULL;
+            MenuNachPruefStufe = 2;
+            MenuNachPruefMs = jetzt + 1500;
+            return;
+        }
+        MenuNachPruefMs = 0;
+        MenuNachPruefStufe = 0;
+        const bool steht = n > 0 && MenuEmErste && em->messageList[0] == MenuEmErste;
+        if (!n && !player->movlock)
+            return;
+        if (CoopDiagAllow(MenuSteuerBudget, 10))
+            OthelloCompatLog("[%lld s, %s] Steuerung 2 s nach dem Men\xFC: %s (P370)", DiagSeconds(), DiagRole(), CoopSteuerungText().c_str());
+        if (steht && player->GetBodyState() == BS_STAND && MenuHeldFrei()) {
+            player->ClearEM();
+            OthelloCompatLog("[%lld s, %s] Steuerung nach dem Men\xFC: %d Befehl(e) standen seit dem Schlie\xDF" "en - Befehlsliste geleert wie bei "
+                "der Notfall-Taste (P370)", DiagSeconds(), DiagRole(), n);
+        }
+    }
+
+    void CoopMenuOhnePausePulse() {
+        if (!player || !ogame || CoopWpIsWorld()) {
+            MenuLaufGesperrt = false;
+            MenuNachPruefMs = 0;   // u286 (P370)
+            CoopMenuMausZurueck();
+            return;
+        }
+        zCMenu* menu = zCMenu::GetActive();
+        if (menu && (ServerThread || ClientThread) && !IsLoadingLevel && !IsSavingGame) {
+            if (ogame->IsOnPause()) {
+                ogame->Unpause();
+                if (MenuLaufAufgehoben++ < 20)
+                    OthelloCompatLog("[%lld s, %s] Men\xFC ohne Pause: %s offen - das Spiel l\xE4uft weiter, Held gesperrt (P367)", DiagSeconds(),
+                        DiagRole(), menu->name.ToChar());
+            }
+            if (!MenuLaufGesperrt) {
+                // u285 (P368, Othello-Test u284: "nachdem ich ESC gedrueckt habe und dann nochmal, kann ich mich nicht mehr bewegen ... nach
+                // Shift+F8 geht es wieder"): IsMovLock meldet unter Othello auch Othellos eigene Fenster und die Konsole (OTHELLO_ABI+0x89140).
+                // u284 merkte sich das als "Sperre vorher" und setzte nach dem Menue eine echte Sperre. Jetzt zaehlt nur das Sperr-Bit selbst
+                MenuLaufVorher = MenuSperreOhneMenue;   // u287 (P371): Stand vor Gothics EnterCallback (der sperrt schon selbst)
+                MenuLaufHeld = player;
+                zCEventManager* emVorher = player->GetEM(TRUE);   // u286 (P370): Befehle beim Oeffnen (Log)
+                MenuEmVorher = emVorher ? emVorher->messageList.GetNumInList() : 0;
+                player->SetMovLock(TRUE);
+                MenuLaufGesperrt = true;
+                if (zinput && !MenuMausAus) {   // u285 (P369): Kamera und Held drehen nicht mit der Maus
+                    zinput->GetMouseSensitivity(MenuMausX, MenuMausY);
+                    zinput->SetMouseSensitivity(0.0f, 0.0f);
+                    MenuMausAus = true;
+                }
+            }
+            else if (MenuLaufHeld == player && !player->movlock) {   // u287 (P371): Untermenue verlassen - Gothics LeaveCallback gab frei
+                player->SetMovLock(TRUE);
+                if (MenuSperreNachgesetzt++ < 10)
+                    OthelloCompatLog("[%lld s, %s] Men\xFC ohne Pause: %s - Gothic gab den Helden frei (Untermen\xFC verlassen), Sperre wieder gesetzt "
+                        "(P371)", DiagSeconds(), DiagRole(), menu->name.ToChar());
+            }
+        }
+        else if (MenuLaufGesperrt) {
+            MenuLaufGesperrt = false;
+            if (MenuLaufHeld == player)
+                player->SetMovLock(MenuLaufVorher ? TRUE : FALSE);
+            MenuLaufHeld = NULL;
+            CoopMenuMausZurueck();
+            CoopMenuSteuerungNachher();   // u286 (P370): Bedingungen ins Log, Befehlsliste ausserhalb von activeEM anstossen
+        }
+        else {
+            if (!menu)   // u287 (P371): Sperr-Bit ohne Menue merken - beim Oeffnen hat Gothics EnterCallback schon gesperrt
+                MenuSperreOhneMenue = player->movlock != 0;
+            // u294 (P394, Othello-Test u292: nach dem Laden war der neue Held gesperrt, Shift+F8 noetig): 1,5 s nach dem Laden Sperr-Bit loesen,
+            // wenn der Held frei ist (kein Menue, Dialog, Inventar, Mob, Gegenstand, nicht am Boden)
+            if (!menu && MenuLadePruefMs && GetCurrentMs() >= MenuLadePruefMs) {
+                MenuLadePruefMs = 0;
+                if (player->movlock && MenuHeldFrei()) {
+                    const std::string vorher = CoopSteuerungText();
+                    player->SetMovLock(FALSE);
+                    MenuSperreOhneMenue = false;
+                    OthelloCompatLog("[%lld s, %s] Steuerung nach dem Laden: Sperr-Bit war gesetzt - geloest (vorher: %s) (P394)", DiagSeconds(),
+                        DiagRole(), vorher.c_str());
+                }
+            }
+            if (MenuNachPruefMs)
+                CoopMenuSteuerungPruefen();   // u286 (P370): 0,5 s und 2 s nach dem Menue
+        }
+    }
+
     // Plugin.cpp, LoadBegin: Zeiger der alten Welt verwerfen
     void CoopKeysWorldGone() {
         HintDownShown.clear();
+        // u294 (P394, Othello-Test u292: nach dem Laden war der neue Held gesperrt): die Merker der Menue-Sperre (P367/P371) gehoeren zum
+        // alten Helden - beim Ladebeginn zuruecksetzen, Maus wieder an
+        CoopMenuMausZurueck();
+        MenuLaufGesperrt = false;
+        MenuLaufHeld = NULL;
+        MenuSperreOhneMenue = false;
+        MenuNachPruefMs = 0;
+        MenuNachPruefStufe = 0;
+    }
+
+    // u294 (P394): Plugin.cpp ruft es nach dem Laden eines Spielstands - 1,5 s spaeter prueft CoopMenuOhnePausePulse die Bewegungssperre
+    void CoopKeysAfterLoad() {
+        MenuLadePruefMs = GetCurrentMs() + 1500;
     }
 
 #else   // Modul in dieser Engine nicht freigegeben (CoopModulesReport)
@@ -862,5 +1148,7 @@ namespace GOTHIC_ENGINE {
     void CoopKeysGamePulse() {}
     void CoopKeysMenuKeyPulse() {}
     void CoopKeysWorldGone() {}
+    void CoopKeysAfterLoad() {}   // u294 (P394)
+    void CoopMenuOhnePausePulse() {}   // u284 (P367)
 #endif
 }

@@ -15,10 +15,10 @@ ist automatisch, also auch wenn dann die Gothic erweiterung gewechselt wird"):
   3 Othello-Skripte    nur scripts\\othello nach Autorun - kommt nach Teil 1, wenn der Ordner Othello ist
 Dazu die Ressource IDR_MODS (obj\\mods.txt): die Mods mit eigenem Profil aus GothicCoop\\Mods\\CoopModList.h - der Installer zeigt
 sie unter "Unterstuetzte Spiele und Mods" und im Status bei den Mods im Ordner.
-  4 Renderer G1        gd3d11\\g1_avx2-v17.9.7-coop8.dll -> system\\GD3D11\\Bin\\g1_avx2.dll
-  5 Renderer G2        gd3d11\\g2a_avx2-v17.9.7-coop9.dll -> system\\GD3D11\\Bin\\g2a_avx2.dll
+  4 Renderer G1        gd3d11\\g1_avx2-v17.9.7-coop10.dll -> system\\GD3D11\\Bin\\g1_avx2.dll (u295; Pfad aus pfade.RENDERER)
+  5 Renderer G2        gd3d11\\g2a_avx2-v17.9.7-coop10.dll -> system\\GD3D11\\Bin\\g2a_avx2.dll (u295)
   6 GD3D11 v17.9.7     das offizielle Release (ZIP, nur gelesen - nichts daraus wird ausgefuehrt), alles nach system\\
-  7 Lizenzen           GothicCoop-Lizenzen\\ (AGPL, GPL, ENet, json, Hinweise, GD3D11-Patches coop6-coop9)
+  7 Lizenzen           GothicCoop-Lizenzen\\ (AGPL, GPL, ENet, json, Hinweise, GD3D11-Patches coop6-coop10)
   8 Union 1.0m         u62: die sieben Dateien von Union (UNION_FILES, docs\\UNION-DATEIEN.md) aus einem Spielordner mit Union
                        (Vorgabe: Union Vorlage\\Gothic II, sonst Gothic II) - der Installer schreibt sie, wenn bei Gothic 1/2
                        Union fehlt (Othello bringt Union selbst mit). Bis u61: Union_1.0m_26.06.2022.exe, gestartet vom Installer
@@ -259,7 +259,7 @@ def main():
     os.makedirs(OBJ, exist_ok=True)
     payload = os.path.join(OBJ, 'payload.bin')
     open(payload, 'wb').write(head.getvalue() + blob.getvalue())
-    names = {1: 'Coop Gothic 1', 2: 'Coop Gothic 2', 3: 'Othello-Skripte', 4: 'Renderer G1 coop8', 5: 'Renderer G2 coop9',
+    names = {1: 'Coop Gothic 1', 2: 'Coop Gothic 2', 3: 'Othello-Skripte', 4: 'Renderer G1 coop10', 5: 'Renderer G2 coop10',
              6: 'GD3D11 ' + a.gd3d11_ver, 7: 'Lizenzen', 8: 'Union 1.0m', 9: 'DXVK 3.1.1 (u274)'}
     for comp in sorted(per):
         n, r, p = per[comp]

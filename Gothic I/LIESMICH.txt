@@ -1,7 +1,7 @@
-GothicCoop u273 - Gothic 1 ohne Mod (Union-Coop)
+GothicCoop u297 - Gothic 1 ohne Mod (Union-Coop)
 
 Voraussetzung: Gothic 1 (Steam/GOG, Fassung 1.08k). Union 1.0m (mit zParserExtender) liegt bei.
-Beide PCs brauchen dieselbe GothicCoop-Fassung (u273).
+Beide PCs brauchen dieselbe GothicCoop-Fassung (u297).
 
 Installation: den Inhalt dieser ZIP in den Gothic-Ordner entpacken (den Ordner, in dem "system" liegt) und
 vorhandene Dateien ersetzen. War Union noch nicht installiert: danach system\dinput.dll entfernen (der Lader von
@@ -21,7 +21,7 @@ Ab u42 (Versuch): Weltprozess auch in Gothic 1 - ist ein Mitspieler in einer and
 startet ein zweites, unsichtbares Gothic auf dem eigenen PC, laedt den neuesten Spielstand und jene Welt; das
 Zuschau-Fenster (Shift+F5, blauer Rahmen) zeigt den Mitspieler dort. Sein Ordner liegt im Gothic-Ordner
 ("Gothic\Gothic_CoopWelt", legt GT selbst an; braucht ein NTFS-Laufwerk). Shift+F12 beendet ihn bzw. startet ihn wieder.
-Beide PCs brauchen den Renderer coop8 aus dieser ZIP.
+Beide PCs brauchen den Renderer aus dieser ZIP (ab u295 coop10: ist in GD3D11 HDR an, hat auch das Zuschau-Fenster HDR).
 Ab u62 (Projekt Gothic-I-II-Universal-Coop 0.2.0, Quelltext: https://github.com/corshaegar/Gothic-I-II-Universal-Coop):
 Union 1.0m liegt als Dateien bei.
 Ab u85: Gilden gelten je Held - Gilden-Dialoge teilen nur Helden derselben Gilde. Ab u96: Missions-Gegenstaende sind gemeinsam:

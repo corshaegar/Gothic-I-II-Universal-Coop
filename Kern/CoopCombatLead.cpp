@@ -35,6 +35,27 @@ namespace GOTHIC_ENGINE {
     bool CoopLeadIsMine(oCNpc* npc);
     void CoopNoWhirl(oCNpc* npc);   // v100 (C21, Hooks.cpp): ZS_ATTACK-Neustart ohne Ueberraschungs-Sprung
 
+    // u293 (P390, Othello-Test u292 19.11.: "Die Gegner greifen den Client nicht an", "der Client kann in Haeuser eindringen und die
+    // NPCs reagieren nicht", "NPCs in Betten kann der Client nicht ansprechen"): Gothic fuehrt Reaktionen auf den Spieler nur fuer den
+    // eigenen Helden aus (Npc_IsPlayer, Haltung zum Spieler, Raum-Wahrnehmung); beim Host ist der Client nur eine neutrale Figur. Beim
+    // Client sperrt GT jede Reaktion, weil der Host den NPC fuehrt (C16, Hooks.cpp) - 430-mal "Kampf-KI hier aus" im Log. Jetzt fragt der
+    // Client den Host nach dem NPC ("want"); der Host gibt ihn ab (wie im Kampf), der Client startet genau den gewuenschten Zustand mit
+    // OTHER = eigener Held. Die Namensliste gilt in allen Bauten (nur Vergleich).
+    bool CoopWpMirroring();   // CoopWorldProcess.cpp
+    std::string CoopDialogLockOwner(oCNpc* npc);   // CoopDialogSync.cpp (u293)
+
+    bool CoopLeadWantStateName(const char* n) {
+        static const char* list[] = { "ZS_ATTACK", "ZS_MM_ATTACK", "ZS_MM_ATTACKMAGE", "ZS_ORC_ATTACK", "ZS_ASSESSENEMY", "ZS_MM_ASSESSENEMY",
+            "ZS_ASSESSFIGHTER", "ZS_PROCLAIMANDPUNISH", "ZS_CLEARROOM", "ZS_OBSERVEINTRUDER", "ZS_WAKEUP", "ZS_CATCHTHIEF",
+            "ZS_REACTTOWEAPON", "ZS_MM_THREATENENEMY", "ZS_MM_HUNT" };
+        if (!n)
+            return false;
+        for (const char* s : list)
+            if (_stricmp(n, s) == 0)
+                return true;
+        return false;
+    }
+
 #if COOP_BUILD(CombatLead)   // u3: bis u2 nur G1 - Freigabe je Engine in CoopCore.cpp
 
     struct CoopLeadHostEntry {
@@ -122,6 +143,19 @@ namespace GOTHIC_ENGINE {
                 return true;
         return false;
     }
+
+    // u293 (P390): Raum-, Weck-, Dieb- und Gespraechszustaende - so lange behaelt der Client einen uebernommenen NPC zusaetzlich
+    static bool LeadReactKeepState(const char* n) {
+        static const char* list[] = { "ZS_CLEARROOM", "ZS_OBSERVEINTRUDER", "ZS_WAKEUP", "ZS_CATCHTHIEF", "ZS_TALK" };
+        if (!n)
+            return false;
+        for (const char* s : list)
+            if (_stricmp(n, s) == 0)
+                return true;
+        return false;
+    }
+
+    static std::map<std::string, long long> CoopLeadWantMs;   // Client: NPC-Name -> zuletzt angefragt (P390)
 
     static int LeadAivIndex(const char* name, int fallback) {
         zCPar_Symbol* s = parser ? parser->GetSymbol(name) : NULL;
@@ -381,6 +415,22 @@ namespace GOTHIC_ENGINE {
                 npc->SetWeaponMode2(NPC_WEAPON_NONE);
                 CoopStopMobUse(npc, "vor dem K.o. (Rueckgabe)");   // v74 (RemoteNpc.cpp)
                 npc->DropUnconscious(1, npc);   // ohne Taeter - EP kamen mit dem nachgespielten Treffer
+                // u291 (P385, Nutzer 18.11.: "Lefty hat keinen Dialog, obwohl es normalerweise einen geben sollte"): Othellos ZS_UNCONSCIOUS
+                // setzt AIV_WASDEFEATEDBYSC nur, wenn OTHER der Spieler oder ein Partymitglied ist - hier ist der Taeter der NPC selbst, der
+                // Dialog (z. B. DIA_Lefty_PERM) verlangt den Wert aber. Besiegte ein Coop-Held den NPC (Ziel aus dem Paket, sonst der
+                // fuehrende Client), den Wert setzen; keine Erfahrungspunkte (die kamen mit dem nachgespielten Treffer)
+                static int aivBesiegt = -2;
+                if (aivBesiegt == -2)
+                    aivBesiegt = LeadAivIndex("AIV_WASDEFEATEDBYSC", 19);
+                oCNpc* besieger = LeadTargetByName(en);
+                if (!besieger && en.empty())
+                    besieger = LeadTargetByName(id);
+                if (aivBesiegt >= 0 && besieger && (besieger == player || PlayerNpcs.count(besieger))) {
+                    const int vorher = npc->aiscriptvars[aivBesiegt];
+                    npc->aiscriptvars[aivBesiegt] = 1;
+                    LeadLog("%s: AIV_WASDEFEATEDBYSC (%d) von %d auf %d gesetzt - besiegt von %s (P385)", n.c_str(), aivBesiegt, vorher,
+                        npc->aiscriptvars[aivBesiegt], en.empty() ? id.c_str() : en.c_str());
+                }
             }
             how = "bewusstlos";
         }
@@ -402,6 +452,68 @@ namespace GOTHIC_ENGINE {
         }
         LeadLog("%s von %s zurueck nach %.1f s (%s; Ziel %s, %s) - %s", n.c_str(), id.c_str(), held / 1000.f, why.c_str(),
             en.empty() ? "-" : en.c_str(), st.empty() ? "-" : st.c_str(), how);
+    }
+
+    // u293 (P390), Host: ein Client bittet um einen NPC, der auf seinen Helden reagieren will - abgeben, wenn er frei ist
+    static void LeadHostWant(json& e, const std::string& id, const std::string& n) {
+        const std::string st = e.contains("st") && e["st"].is_string() ? e["st"].get<std::string>() : std::string();
+        oCNpc* npc = LeadNpcByName(n);
+        oCNpc* fig = NULL;
+        {
+            auto f = PlayerNameToNpc.find(string(id.c_str()));
+            if (f != PlayerNameToNpc.end())
+                fig = f->second;
+        }
+        const char* nein = NULL;
+        float dist = 0.f;
+        if (!CoopLeadOn)
+            nein = "Kampf-Uebergabe aus";
+        else if (!CoopLeadWantStateName(st.c_str()))
+            nein = "kein Reaktionszustand";
+        else if (!npc || !LeadInWorld(npc) || npc == player || PlayerNpcs.count(npc))
+            nein = "NPC nicht hier";
+        else if (!fig || fig->IsDead() || fig->IsUnconscious())
+            nein = "Figur nicht da oder am Boden";
+        else if (npc->IsDead() || npc->IsUnconscious())
+            nein = "NPC liegt";
+        else if (CoopLeadsHost.count(n))
+            nein = "schon bei einem Client";
+        else {
+            auto cd = CoopLeadCooldown.find(n);
+            if (cd != CoopLeadCooldown.end() && cd->second > CurrentMs)
+                nein = "gerade zurueckgegeben";
+        }
+        if (!nein && LeadIsParty(npc))
+            nein = "Begleiter";
+        if (!nein && (IsPlayerTalkingWithNpc(npc) || CoopNpcInDialogWithPlayer(npc)))
+            nein = "Host spricht mit ihm";
+        if (!nein) {
+            const std::string owner = CoopDialogLockOwner(npc);
+            if (!owner.empty() && owner != id)
+                nein = "spricht mit einem anderen";
+        }
+        if (!nein && LeadAttackState(npc->state.curState.name.ToChar()) && npc->enemy && npc->enemy != fig && !npc->enemy->IsDead() &&
+            !npc->enemy->IsUnconscious())
+            nein = "kaempft gegen einen anderen";
+        if (!nein) {
+            dist = (npc->GetPositionWorld() - fig->GetPositionWorld()).LengthApprox();
+            if (dist > CoopLeadKeepRange)
+                nein = "zu weit von der Figur";
+        }
+        if (nein) {
+            static CoopDiagBudget budgetNein = { 0, 0 };
+            if (CoopDiagAllow(budgetNein, 20))
+                OthelloCompatLog("[%lld s, %s] Reaktion: %s auf %s (%s) abgelehnt - %s (P390)", DiagSeconds(), DiagRole(), n.c_str(), id.c_str(),
+                    st.c_str(), nein);
+            return;
+        }
+        if (npc->GetInteractMob() || npc->interactItem)
+            CoopStopMobUse(npc, "Reaktion eines Clients (P390)");
+        LeadGive(npc, n, id, st, dist);
+        static CoopDiagBudget budgetJa = { 0, 0 };
+        if (CoopDiagAllow(budgetJa, 30))
+            OthelloCompatLog("[%lld s, %s] Reaktion: %s reagiert auf %s (%s) - an %s uebergeben (P390)", DiagSeconds(), DiagRole(), n.c_str(),
+                id.c_str(), st.c_str(), id.c_str());
     }
 
     // Host, aus ProcessServerPacket: Paket eines Clients mit "lead" - nur vom Besitzer, dann mit id = NPC weiterverteilen.
@@ -483,6 +595,37 @@ namespace GOTHIC_ENGINE {
         LeadLog("%s an den Host zurueck nach %.1f s (%s)", n.c_str(), (CurrentMs - m.since) / 1000.f, why);
     }
 
+    // u293 (P390): ein geweckter/angesprochener Schlaefer liegt beim Client nur als Animation vom Host im Bett - das Abbild benutzt das
+    // Bett nicht selbst (kein interactMob), AI_UseMob(-1) in ZS_WakeUp taete dort nichts. Also Liege-/Sitzanimation beenden, Stehen.
+    static void LeadStandFromMobPose(oCNpc* npc) {
+        if (!npc || npc->GetInteractMob() || !npc->GetModel() || !npc->GetAnictrl())
+            return;
+        static const char* teile[] = { "BED", "BENCH", "CHAIR", "THRONE", "SIT", "SLEEP" };
+        std::vector<zCModelAni*> anis = GetCurrentAni(npc);
+        std::string gefunden;
+        std::vector<zCModelAni*> stop;
+        for (zCModelAni* ani : anis) {
+            if (!ani)
+                continue;
+            std::string an = ani->aniName.ToChar();
+            for (auto& c : an)
+                c = (char)toupper((unsigned char)c);
+            for (const char* t : teile)
+                if (an.find(t) != std::string::npos) {
+                    stop.push_back(ani);
+                    if (gefunden.empty())
+                        gefunden = ani->aniName.ToChar();
+                    break;
+                }
+        }
+        if (stop.empty())
+            return;
+        for (zCModelAni* ani : stop)
+            npc->GetModel()->StopAnimation(ani->aniName);
+        npc->GetAnictrl()->SearchStandAni(TRUE);
+        LeadLog("%s: aus Liege-/Sitzhaltung (%s) auf Stehen gestellt (P390)", LeadNameOf(npc).c_str(), gefunden.c_str());
+    }
+
     static void LeadMineGive(json& e, const std::string& n) {
         oCNpc* npc = LeadNpcByName(n);
         if (CoopLeadsMine.count(n))
@@ -523,16 +666,37 @@ namespace GOTHIC_ENGINE {
         // eigene KI: Ziel = eigener Held, Angriffszustand wie beim Host
         npc->GetEM()->KillMessages();
         npc->ClearEM();
-        if (npc->IsHuman())
-            npc->SetTmpAttitude(NPC_ATT_HOSTILE);
-        npc->SetEnemy(player);
         std::string st = e.contains("st") && e["st"].is_string() ? e["st"].get<std::string>() : std::string();
-        if (!LeadAttackState(st.c_str()))
-            st = npc->IsHuman() ? "ZS_ATTACK" : "ZS_MM_ATTACK";
-        CoopNoWhirl(npc);   // v100 (C21)
-        npc->state.StartAIState(zSTRING(st.c_str()), FALSE, 0, 0.f, FALSE);
-        LeadLog("fuehre %s jetzt selbst (%s, %.1f m, HP %d) - KI, Schlaege und Treffer rechnet dieser PC", n.c_str(), st.c_str(),
-            (npc->GetPositionWorld() - player->GetPositionWorld()).LengthApprox() / 100.f, npc->GetAttribute(NPC_ATR_HITPOINTS));
+        // u293 (P390): Reaktionszustand (Raum, Wecken, Dieb, Beobachten ...) - genau diesen Zustand starten, OTHER = eigener Held
+        const bool reakt = !LeadAttackState(st.c_str()) && CoopLeadWantStateName(st.c_str()) && parser && parser->GetIndex(zSTRING(st.c_str())) > 0;
+        if (!reakt) {
+            if (npc->IsHuman())
+                npc->SetTmpAttitude(NPC_ATT_HOSTILE);
+            npc->SetEnemy(player);
+            if (!LeadAttackState(st.c_str()))
+                st = npc->IsHuman() ? "ZS_ATTACK" : "ZS_MM_ATTACK";
+            CoopNoWhirl(npc);   // v100 (C21)
+            npc->state.StartAIState(zSTRING(st.c_str()), FALSE, 0, 0.f, FALSE);
+        }
+        else {
+            // keine Haltungsaenderung: die Skripte entscheiden selbst (wie im Einzelspiel)
+            npc->SetEnemy(player);
+            LeadStandFromMobPose(npc);
+            zCPar_Symbol* so = parser->GetSymbol(zSTRING("OTHER"));
+            zCPar_Symbol* sv = parser->GetSymbol(zSTRING("VICTIM"));
+            void* altOther = so ? (void*)so->offset : NULL;
+            void* altVictim = sv ? (void*)sv->offset : NULL;
+            parser->SetInstance(zSTRING("OTHER"), player);
+            parser->SetInstance(zSTRING("VICTIM"), NULL);
+            npc->state.StartAIState(zSTRING(st.c_str()), FALSE, 0, 0.f, FALSE);
+            if (so)
+                parser->SetInstance(zSTRING("OTHER"), altOther);
+            if (sv)
+                parser->SetInstance(zSTRING("VICTIM"), altVictim);
+        }
+        LeadLog("fuehre %s jetzt selbst (%s, %.1f m, HP %d) - KI, Schlaege und Treffer rechnet dieser PC%s", n.c_str(), st.c_str(),
+            (npc->GetPositionWorld() - player->GetPositionWorld()).LengthApprox() / 100.f, npc->GetAttribute(NPC_ATR_HITPOINTS),
+            reakt ? " - Reaktion auf den eigenen Helden (P390)" : "");
     }
 
     static void LeadMinePulse() {
@@ -577,7 +741,8 @@ namespace GOTHIC_ENGINE {
                 back.push_back({ kv.first, "anderes Ziel" });
                 continue;
             }
-            if (!LeadCombatState(npc->state.curState.name.ToChar())) {
+            const char* curSt = npc->state.curState.name.ToChar();
+            if (!LeadCombatState(curSt) && !LeadReactKeepState(curSt) && !CoopNpcInDialogWithPlayer(npc) && !IsPlayerTalkingWithNpc(npc)) {   // u293 (P390)
                 if (!m.idleSince)
                     m.idleSince = CurrentMs;
                 if (CurrentMs - m.idleSince >= 2000) {
@@ -592,6 +757,36 @@ namespace GOTHIC_ENGINE {
         }
         for (auto& b : back)
             LeadMineRelease(b.first, b.second, true);
+    }
+
+    // u293 (P390), Client: ein vom Host gefuehrter NPC will auf den eigenen Helden reagieren (Hooks.cpp sperrt den Zustand) - den Host
+    // um den NPC bitten. Je NPC hoechstens alle 2 s.
+    void CoopLeadWant(oCNpc* npc, const char* st) {
+        CoopLeadReadConfig();
+        if (!CoopLeadOn || !ClientThread || ServerThread || !npc || !st || !player || IsCoopPaused || IsLoadingLevel || CoopWpMirroring() ||
+            npc == player || PlayerNpcs.count(npc))
+            return;
+        const std::string n = LeadNameOf(npc);
+        if (n.empty() || CoopLeadsMine.count(n))
+            return;
+        long long& last = CoopLeadWantMs[n];
+        if (last && CurrentMs - last < 2000)
+            return;
+        last = CurrentMs;
+        if (CoopLeadWantMs.size() > 256) {
+            for (auto it = CoopLeadWantMs.begin(); it != CoopLeadWantMs.end();) {
+                if (it->first != n && CurrentMs - it->second > 10000)
+                    it = CoopLeadWantMs.erase(it);
+                else
+                    ++it;
+            }
+        }
+        json j;
+        j["op"] = "want";
+        j["n"] = n;
+        j["st"] = st;
+        LeadSend(j);
+        LeadLog("%s will auf den eigenen Helden reagieren (%s) - Uebernahme beim Host angefragt (P390)", n.c_str(), st);
     }
 
     // Client: ein Paket des Hosts fuer einen NPC, den ich fuehre - verwerfen (z. B. letzte Pakete vor der Uebergabe)
@@ -626,6 +821,11 @@ namespace GOTHIC_ENGINE {
                 auto it = CoopLeadsHost.find(n);
                 if (it != CoopLeadsHost.end() && it->second.owner == id)
                     it->second.lastMs = CurrentMs;
+                return;
+            }
+            if (op == "want") {   // u293 (P390)
+                if (player && !IsLoadingLevel && !IsCoopPaused)
+                    LeadHostWant(e, id, n);
                 return;
             }
             if (op == "back" && !e.contains("by") && player && !IsLoadingLevel)
@@ -787,6 +987,7 @@ namespace GOTHIC_ENGINE {
     void CoopLeadHitBy(oCNpc*, oCNpc*) {}
     void CoopLeadReceive(json&, const std::string&) {}
     void CoopLeadPulse() {}
+    void CoopLeadWant(oCNpc*, const char*) {}   // u293 (P390)
     void CoopLeadClear(const char*) {}
     void CoopKoWatchPulse() {}
     void CoopLeadDiag(std::string& out) { out.clear(); }

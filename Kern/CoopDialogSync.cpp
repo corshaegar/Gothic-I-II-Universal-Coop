@@ -116,6 +116,16 @@ namespace GOTHIC_ENGINE {
     static std::map<std::string, long long> DialogLastInjectMs;
     static oCNpc* MyDialogNpcPtr = NULL;
     static std::string MyDialogNpc;
+    // u291 (P382, Nutzer 18.11.: "Wenn jemand den Client nach einem Dialog angreifen will, macht er stattdessen nicht"): Client - wann der
+    // eigene Dialog mit einem NPC zuletzt endete und bei welchem NPC der Angriff schon gemeldet ist; Host - gemeldete Angriffe, die
+    // nach der Freigabe des NPCs ausgefuehrt werden
+    struct CoopDialogAttackWait {
+        std::string by, state;
+        long long since = 0, readyMs = 0;
+    };
+    static std::map<std::string, long long> DialogEigenEnde;
+    static std::set<std::string> DialogAngriffGemeldet;
+    static std::map<std::string, CoopDialogAttackWait> DialogAttackWait;
     static std::map<oCNpc*, std::pair<void*, std::string>> LastLineMsg;
     static CoopDialogLineTrack TrackHero, TrackNpc;
     static long long DialogBusyMsgMs = 0;
@@ -202,6 +212,14 @@ namespace GOTHIC_ENGINE {
             return false;
         auto f = DialogLocks.find(DialogNpcName(npc));
         return f != DialogLocks.end() && f->second.owner != DialogMe();
+    }
+
+    // u293 (P390): wer den NPC fuer einen Dialog gesperrt hat (Host: Reaktions-Uebergabe)
+    std::string CoopDialogLockOwner(oCNpc* npc) {
+        if (!npc || DialogLocks.empty())
+            return std::string();
+        auto f = DialogLocks.find(DialogNpcName(npc));
+        return f != DialogLocks.end() ? f->second.owner : std::string();
     }
 
     // --- Nachrichten in Warteschlangen --------------------------------------------------------------
@@ -395,11 +413,14 @@ namespace GOTHIC_ENGINE {
             j["n"] = MyDialogNpc;
             DialogSend(j, SYNC_DIALOG_END);
             DialogLog("eigener Dialog mit %s beendet", MyDialogNpc.c_str());
+            DialogEigenEnde[MyDialogNpc] = CurrentMs;   // u291 (P382)
         }
         else
             DlgTradeEnd(std::string());   // u201 (P225): nur aufraeumen
         MyDialogNpcPtr = now;
         MyDialogNpc = now ? DialogNpcName(now) : std::string();
+        if (!MyDialogNpc.empty())
+            DialogAngriffGemeldet.erase(MyDialogNpc);   // u291 (P382): neuer Dialog - ein Angriff danach wird wieder gemeldet
         LastLineMsg.clear();
         TrackHero = CoopDialogLineTrack();
         TrackNpc = CoopDialogLineTrack();
@@ -1686,25 +1707,38 @@ namespace GOTHIC_ENGINE {
         // u218 (P255): in einer Szene bleiben ihre Befehle stehen - angehalten wird nur der Tagesablauf (DoAIState), die Befehlsliste
         // arbeitet die Engine je Bild unabhaengig davon ab; der NPC dreht sich dann auch nicht zum Partner
         const char* szene = DialogSkriptSzene(npc);
-        if (!szene) {   // u219: was geleert wird
+        // u278 (P352, Test Othello u273 16.11., auch Archolos: "Wenn der NPC auf einer Bank sitzt, dann dreht sich dieser beim Client und
+        // gibt keine Dialogzeilen ab, man kann diesen auch nicht ansprechen"): Leeren und Drehen trafen auch einen NPC, der sitzt (Mob, Bank)
+        // oder nicht steht. Er drehte sich im Sitzen, EV_TURNTOVOB endete nie, und die Zeilen des Partners (P340: vorn) wie das eigene
+        // Ansprechen (EV_PROCESSINFOS) warteten dahinter (Log Client: "Sprecher PC_THIEF-1 sitzt bzw. steht nicht - Zeile vorn (P340; 2:
+        // Bewegung EV_TURNTOVOB ..." ). Jetzt wie in einer Szene: seine Befehle bleiben, keine Drehung, nur der Tagesablauf ruht
+        // u281 (P358, Test Othello u278 17.11.: "NPC dreht sich manchmal nicht zum Mitspieler, obwohl dieser einen NPC anspricht" - Log Client:
+        // 15 Bauern "sitzt bzw. steht nicht" mit EV_GOROUTE/EV_GOTOFP, also unterwegs): "steht nicht" traf jeden NPC, der gerade geht. Jetzt
+        // nur, wer wirklich sitzt oder liegt (Mob wie Bank und Bett, Koerperzustand Sitzen/Liegen) - wer geht, dreht sich wieder zum Partner
+        const int koerper = npc->GetBodyState();
+        const bool sitzt = npc->GetInteractMob() || koerper == BS_SIT || koerper == BS_LIE;
+        if (!szene && !sitzt) {   // u219: was geleert wird
             zCEventManager* em = npc->GetEM(TRUE);
             if (em && em->GetNumMessages() > 0)
                 DialogLog("NPC %s angehalten - Befehlsliste geleert (%s)", n.c_str(), DialogEmKurz(npc).c_str());
         }
         DialogInjecting++;
-        if (!szene)
+        if (!szene && !sitzt)
             npc->ClearEM();
         // kein Gespraechspartner: EV_PlaySound waehlt sonst den NPC-NPC-Untertitel (Art 2) statt Umgebung (Art 5)
         npc->StopTalkingWith();
         if (fig && fig->GetTalkingWith() != player)
             fig->StopTalkingWith();
-        if (fig && !szene)
+        if (fig && !szene && !sitzt)
             npc->GetEM()->OnMessage(new oCMsgMovement(oCMsgMovement::EV_TURNTOVOB, (zCVob*)fig), npc);
         DialogInjecting--;
         DialogFrozen.insert(npc);
         if (szene)
             DialogLog("NPC %s: Skriptbefehle einer Szene in seiner Befehlsliste (%s) - bleiben stehen, nur der Tagesablauf ruht (P255; %s)",
                 n.c_str(), szene, DialogEmKurz(npc).c_str());
+        else if (sitzt)
+            DialogLog("NPC %s sitzt bzw. liegt - Befehle bleiben, keine Drehung, nur der Tagesablauf ruht (P352, P358; %s)",
+                n.c_str(), DialogEmKurz(npc).c_str());
     }
 
     // Zeile abspielen. Ziel bewusst NULL: EV_Output nimmt dann den Monolog-Weg (kein StartTalkingWith - der eigene
@@ -1890,6 +1924,101 @@ namespace GOTHIC_ENGINE {
                 it = DialogEnds.erase(it);
             else
                 ++it;
+        }
+    }
+
+    // u291 (P382): Client (aus oCNpc_States_StartAIState_Coop, Hooks.cpp) - ein vom Host gefuehrter NPC wollte den eigenen Helden angreifen,
+    // waehrend der Dialog mit ihm lief oder vor Kurzem endete. Hier startet der Zustand nicht (der Host fuehrt den NPC), der Host
+    // wusste von nichts - die NPC-Figur blieb nach dem Dialog stehen. Einmal je NPC und Dialog an den Host melden; er fuehrt den Angriff
+    // nach der Freigabe des NPCs aus (DialogAttackPulse)
+    void CoopDialogAttackReport(oCNpc* npc, const char* state) {
+        if (!ClientThread || ServerThread || !npc || !state || !DialogSyncAktiv())
+            return;
+        const std::string n = DialogNpcName(npc);
+        if (n.empty() || IsCoopPlayer(n))
+            return;
+        auto ende = DialogEigenEnde.find(n);
+        const bool gerade = ende != DialogEigenEnde.end() && CurrentMs - ende->second <= 20000;
+        if (MyDialogNpcPtr != npc && !gerade)
+            return;
+        if (!DialogAngriffGemeldet.insert(n).second)
+            return;
+        json j;
+        j["n"] = n;
+        j["atk"] = state;
+        DialogSend(j, SYNC_DIALOG_STATE);
+        DialogLog("%s will den eigenen Helden nach dem Dialog angreifen (%s) - an den Host gemeldet (P382)", n.c_str(), state);
+    }
+
+    // Host: Meldung eines Clients merken - ausgefuehrt wird sie im Takt, sobald der NPC freigegeben ist
+    static void DialogAttackReceive(const json& e, const std::string& by) {
+        if (!ServerThread || !e.contains("n") || !e["n"].is_string() || !e["atk"].is_string())
+            return;
+        CoopDialogAttackWait w;
+        w.by = by;
+        w.state = e["atk"].get<std::string>();
+        w.since = CurrentMs;
+        w.readyMs = 0;
+        DialogAttackWait[e["n"].get<std::string>()] = w;
+        DialogLog("%s meldet: %s greift nach dem Dialog an (%s) - wird nach der Freigabe ausgefuehrt (P382)", by.c_str(),
+            e["n"].get<std::string>().c_str(), w.state.c_str());
+    }
+
+    bool CoopLeadIsRemote(oCNpc* npc);   // CoopCombatLead.cpp (u293)
+
+    static void DialogAttackPulse() {
+        if (DialogAttackWait.empty() || !ServerThread || !parser)
+            return;
+        for (auto it = DialogAttackWait.begin(); it != DialogAttackWait.end();) {
+            const std::string n = it->first;
+            CoopDialogAttackWait& w = it->second;
+            if (CurrentMs > w.since + 15000) {
+                DialogLog("%s: gemeldeter Angriff von %s nach 15 s verworfen (P382)", n.c_str(), w.by.c_str());
+                it = DialogAttackWait.erase(it);
+                continue;
+            }
+            bool frei = DialogLocks.find(n) == DialogLocks.end();
+            for (auto& d : DialogEnds)
+                if (d.n == n)
+                    frei = false;
+            if (!frei) {
+                w.readyMs = 0;   // Dialog laeuft noch bzw. der NPC wird erst freigegeben
+                ++it;
+                continue;
+            }
+            if (!w.readyMs) {
+                w.readyMs = CurrentMs + 500;   // kurz warten, bis StopTalkingWith durch ist
+                ++it;
+                continue;
+            }
+            if (CurrentMs < w.readyMs) {
+                ++it;
+                continue;
+            }
+            oCNpc* npc = DialogNpcByName(n);
+            oCNpc* fig = DialogFigureOf(w.by);
+            const std::string by = w.by;
+            it = DialogAttackWait.erase(it);
+            if (!npc || !fig || npc->IsDead() || npc->IsUnconscious() || fig->IsDead() || fig->IsUnconscious() || !npc->GetHomeWorld() ||
+                npc == player || PlayerNpcs.count(npc)) {
+                DialogLog("%s: Angriff auf %s nicht ausgefuehrt (NPC oder Figur nicht da, tot oder bewusstlos, P382)", n.c_str(), by.c_str());
+                continue;
+            }
+            if (CoopLeadIsRemote(npc)) {   // u293 (P390): der Client fuehrt den NPC schon (Reaktions-Uebergabe)
+                DialogLog("%s: Angriff auf %s nicht noetig - ein Client fuehrt den NPC schon (P390)", n.c_str(), by.c_str());
+                continue;
+            }
+            if (npc->enemy == fig && strstr(npc->state.curState.name.ToChar(), "ATTACK")) {
+                DialogLog("%s greift %s schon an (P382)", n.c_str(), by.c_str());
+                continue;
+            }
+            npc->GetEM()->KillMessages();
+            npc->ClearEM();
+            if (npc->IsHuman())
+                npc->SetTmpAttitude(NPC_ATT_HOSTILE);
+            npc->SetEnemy(fig);
+            npc->state.StartAIState(zSTRING(npc->IsHuman() ? "ZS_ATTACK" : "ZS_MM_ATTACK"), FALSE, 0, 0.f, FALSE);
+            DialogLog("%s greift nach dem Dialog %s an (P382)", n.c_str(), by.c_str());
         }
     }
 
@@ -3435,6 +3564,11 @@ namespace GOTHIC_ENGINE {
             return;
         if (ein.contains("truhe") && ein["truhe"].is_object()) {   // u97: gemeinsame Coop-Truhe - eigenes Paket, sonst nichts darin
             CoopTruheReceive(ein["truhe"], by);
+            return;
+        }
+        if (ein.contains("atk")) {   // u291 (P382): Client meldet - NPC greift nach dem Dialog an; eigenes Paket, nur in derselben Welt
+            if (sameWorld)
+                DialogAttackReceive(ein, by);
             return;
         }
         if (ein.contains("vsonly")) {   // u201 (P226): Objekt-Zustand - eigenes Paket, nur in derselben Welt
@@ -6255,6 +6389,9 @@ namespace GOTHIC_ENGINE {
         }
         DialogLocks.clear();
         DialogEnds.clear();
+        DialogEigenEnde.clear();        // u291 (P382)
+        DialogAngriffGemeldet.clear();
+        DialogAttackWait.clear();
         DialogFrozen.clear();
         TriaTauschA = TriaTauschB = NULL;   // u220 (P257): die Namenslisten sind neu
         if (!DlgStartVarWarten.empty())   // u224 (P260): geladen - der wartende Start gehoerte zum alten Stand
@@ -6469,6 +6606,7 @@ namespace GOTHIC_ENGINE {
             else
                 ++it;
         }
+        DialogAttackPulse();   // u291 (P382)
         // veraltete Sperren (10 min ohne Ende) aufheben
         for (auto it = DialogLocks.begin(); it != DialogLocks.end();) {
             if (CurrentMs > it->second.since + 600000) {
@@ -6781,6 +6919,8 @@ namespace GOTHIC_ENGINE {
     // beim fuehrenden Client 38 Grad, ueber 8 s. Die Puppe bewegt allein der Client (Lage, Blickrichtung, Animationen).
     bool CoopLeadIsRemote(oCNpc* npc);   // CoopCombatLead.cpp
 
+    bool CoopStateParAlive(oCNpc* npc, const void* p, const char* par, const char* zs);   // u275 (P345): Helpers.cpp
+
     int __fastcall oCNpc_States_DoAIState_Coop(oCNpc_States* _this, void* vtable);
     CInvoke<int(__thiscall*)(oCNpc_States*)> Ivk_oCNpc_States_DoAIState_Coop(CoopAddr::oCNpc_States_DoAIState, &oCNpc_States_DoAIState_Coop,
         COOP_IVK(Dialog));
@@ -6792,6 +6932,24 @@ namespace GOTHIC_ENGINE {
 
     int __fastcall oCNpc_States_DoAIState_Coop(oCNpc_States* _this, void* vtable) {
         HostEvStateScope stateScope(_this ? _this->npc : NULL);   // u203
+        // u275 (P345): zeigt OTHER/VICTIM/ITEM des Zustands auf ein freigegebenes Objekt, den Zustand beenden statt sein Skript damit
+        // laufen zu lassen (Othello-Volltest 15.11., Client: B_SMARTTURNTONPC aus ZS_ASSESSMONSTER las freien Speicher)
+        if (_this && (_this->parOther || _this->parVictim || _this->parItem)) {
+            const char* zs = _this->curState.name.ToChar();
+            const bool o = CoopStateParAlive(_this->npc, _this->parOther, "OTHER", zs);
+            const bool v = CoopStateParAlive(_this->npc, _this->parVictim, "VICTIM", zs);
+            const bool i = CoopStateParAlive(_this->npc, _this->parItem, "ITEM", zs);
+            if (!o || !v || !i) {
+                if (!o)
+                    _this->parOther = NULL;
+                if (!v)
+                    _this->parVictim = NULL;
+                if (!i)
+                    _this->parItem = NULL;
+                _this->ClearAIState();
+                return 0;
+            }
+        }
         if (!DialogFrozen.empty() && _this) {
             oCNpc* npc = _this->npc;
             if (npc && DialogFrozen.count(npc) && !npc->IsDead() && npc->GetWeaponMode() == NPC_WEAPON_NONE)
@@ -6896,6 +7054,8 @@ namespace GOTHIC_ENGINE {
     void CoopHeroGuildBaseReset() {}   // u154
     int CoopHeroGuildMerge(std::vector<std::string>&, const std::vector<std::string>&, bool, std::string&) { return 0; }
     bool CoopDialogNpcBusy(oCNpc*) { return false; }
+    std::string CoopDialogLockOwner(oCNpc*) { return std::string(); }   // u293 (P390)
+    void CoopDialogAttackReport(oCNpc*, const char*) {}   // u291 (P382)
     bool CoopDialogSyncHandles(int) { return false; }
     void CoopDialogSyncReceive(json&, const std::string&) {}
     void CoopDialogSyncPeerGone(const std::string&) {}

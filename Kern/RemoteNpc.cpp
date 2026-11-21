@@ -11,6 +11,9 @@ namespace GOTHIC_ENGINE {
     oCNpc* CoopFigureHitAniNpc = NULL;
     bool CoopSpawnInsertAt(oCNpc* npc, const zVEC3& pos);
     void CoopKillNoXp(oCNpc* npc, oCNpc* killer, const char* why);
+    void CoopDialogAngriff(oCNpc* npc, const char* von);   // u278 (P354): CoopDialogWatch.cpp
+    bool CoopLiegtEigen();                                  // u282 (P363): ReviveFriendLoop.cpp
+    void CoopLiegenWiederbelebt(oCNpc* helfer);
     bool CoopFarKnownDead(const std::string& name);
     bool CoopSpawnListHas(oCNpc* npc);   // v43
     bool CoopSpawnListMove(oCNpc* npc, const zVEC3& pos, const char* why);   // v108: CoopFarSync.cpp
@@ -1018,6 +1021,8 @@ namespace GOTHIC_ENGINE {
                 if (targetNpc) {
                     int health = targetNpc->GetAttribute(NPC_ATR_HITPOINTS);
                     auto isTalkingWith = IsPlayerTalkingWithNpc(targetNpc);
+                    if (isTalkingWith && IsCoopPlayer(name))   // u278 (P354): der Partner greift den NPC an, mit dem ich spreche
+                        CoopDialogAngriff(targetNpc, zSTRING(name).ToChar());
                     static int AIV_PARTYMEMBER = GetPartyMemberID();
                     const bool partyAttacker = IsCoopPlayer(npc->GetObjectName()) || npc->aiscriptvars[AIV_PARTYMEMBER] == True;
                     // v41: Ziel gerade in der Welt? (ausserhalb aller Umkreise nimmt der Spawn-Manager NPCs heraus)
@@ -1146,6 +1151,10 @@ namespace GOTHIC_ENGINE {
         void UpdateRevived(json update) {
             auto name = update["name"].get<std::string>();
 
+            if (name.compare(MyselfId) == 0 && CoopLiegtEigen()) {   // u282 (P365): liegt statt tot - ganz normal aufstehen
+                CoopLiegenWiederbelebt(npc);
+                return;
+            }
             if (player->IsDead() && name.compare(MyselfId) == 0) {
                 player->StopFaceAni("T_HURT");
                 player->SetWeaponMode2(NPC_WEAPON_NONE);

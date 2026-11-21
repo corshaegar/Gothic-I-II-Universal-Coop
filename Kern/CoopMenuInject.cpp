@@ -183,7 +183,10 @@ namespace GOTHIC_ENGINE {
         // FEHLT). Die Zeile ist nur vorlaeufig: im Spiel legt MainShowForState alle sichtbaren Eintraege nach der Listenfolge neu
         if (title && exit2 >= 0) {
             title->m_parItemFlags = (title->m_parItemFlags & ~IT_ONLY_OUT_GAME) | IT_ONLY_IN_GAME;
-            title->m_parPosY = (std::min)(exitY + MainDY(), 8192 - 300);   // u204 (P233): Raster der Mod
+            // u204 (P233): Raster der Mod. u276 (P349): passt die Zeile unter "Beenden" nicht mehr auf den Bildschirm (Xeres mit Ninjas
+            // Patch-Menue, LoA), die Zeile von "Beenden" selbst - neben dem Raster (bisher 8192 - 300) legte MainShowForState "Hauptmenue"
+            // nie neu; auf dem Raster bekommt es im Spiel die Zeile vor "Beenden" (Listenfolge)
+            title->m_parPosY = exitY + MainDY() <= 8192 - 300 ? exitY + MainDY() : exitY;
             if (InjectInsert(menu, exit2, title)) {   // u25: vor "Beenden"
                 if (menu->defaultInGame >= exit2)
                     menu->defaultInGame++;
@@ -250,7 +253,28 @@ namespace GOTHIC_ENGINE {
             }
             gridMoved = y0 != my;
             const int ex = InjectFind(menu, "MENUITEM_MAIN_EXIT");
-            const int exitY = ex >= 0 ? a.items[ex]->m_parPosY : -1;
+            int exitY = ex >= 0 ? a.items[ex]->m_parPosY : -1;
+            // u276 (P349, Nutzer 16.11.: in Xeres kein COOP-Eintrag, im Esc-Menue fehlen "Hauptmenue" und "Spielstand waehlen"; jeder
+            // Xeres-Lauf seit u246 meldete "MENUITEM_MAIN_EXIT nicht auf dem Raster, 8 Zeilen ab MENUITEM_MAIN_NEWGAME"): Ninjas Patch-Menue
+            // (PatchMenu.vdf, Ninja_PatchMenu_Menu) setzt seinen Eintrag MENUITEM_NINJA_PATCHMENU_OPT auf die Zeile von "Beenden" und
+            // schiebt "Beenden" um seine Hoehe - 250 nach unten, neben das Raster. Steht "Beenden" so neben dem Raster, kommt es auf die
+            // naechste Rasterzeile unter den Eintraegen davor (hoechstens eine Zeile tiefer als bisher). Allgemein (jede Mod mit dem Patch-Menue)
+            if (ex >= 0 && exitY > y0 && exitY <= 8192 - 300 && (exitY - my) % mdy != 0) {
+                int last = y0;
+                for (int i = 0; i < a.num; i++) {
+                    zCMenuItem* it = a.items[i];
+                    const int y = it ? it->m_parPosY : -1;
+                    if (it && i != ex && y >= y0 && y < exitY + mdy && (y - my) % mdy == 0)
+                        last = (std::max)(last, y);
+                }
+                const int snapped = last + mdy;
+                if (snapped <= 8192 - 300) {
+                    InjectLog("Hauptmen\xFC: \"Beenden\" neben dem Raster (y %d, Raster %d + %d * n - ein Plugin hat davor eingef\xFCgt, z. B. "
+                        "Ninjas Patch-Men\xFC) - auf die Zeile %d gesetzt (P349)", exitY, my, mdy, snapped);
+                    a.items[ex]->m_parPosY = snapped;
+                    exitY = snapped;
+                }
+            }
             rows = 0;
             bool exitSeen = false;
             for (int i = 0; i < a.num && rows < 16; i++) {

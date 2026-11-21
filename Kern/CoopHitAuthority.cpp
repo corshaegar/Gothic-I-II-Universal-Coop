@@ -284,6 +284,46 @@ namespace GOTHIC_ENGINE {
             an->second.ToChar(), pn->second.ToChar(), ranged ? "Fernkampf/Magie" : "Nahkampf", d.fDamageTotal);
     }
 
+    // u296 (P403, Nutzer 21.11.: "Die Magie der Gegner macht keinen Schaden, wenn sie den anderen Spieler als Ziel hat"): fuehrt ein Client
+    // einen NPC (Kampf-/Reaktions-Uebergabe C18/P390), rechnet nur sein PC dessen Zauber, Pfeile und Schlaege. Trifft einer davon dort die
+    // Figur eines anderen Spielers (z. B. Ork-Schamane wechselt nach einem Treffer des Hosts auf ihn, ein Feuerball fliegt noch), ging der
+    // Treffer in oCNpc_OnDamage_Hit still verloren. Jetzt meldet der Client ihn wie der Host (CoopSwingReport) als Paket mit "lead" - der
+    // Host nimmt es nur vom Besitzer an und setzt id = NPC; dort entscheidet der Getroffene in CoopClientSwing (RemoteNpc::UpdateAttacks)
+    void CoopLeadSwingReport(oCNpc* attacker, oCNpc* figur, oCNpc::oSDamageDescriptor& d) {
+        auto an = NpcToUniqueNameList.find(attacker);
+        if (an == NpcToUniqueNameList.end() || !an->second.Length()) {
+            SwingLog("%s -> %s: selbst gefuehrt, ohne Namen, nicht gemeldet (P403)", attacker ? attacker->GetObjectName().ToChar() : "-",
+                figur ? figur->GetObjectName().ToChar() : "-");
+            return;
+        }
+        auto pn = PlayerNpcs.find(figur);
+        if (pn == PlayerNpcs.end())
+            return;
+        const bool ranged = (d.enuModeWeapon & 4) != 0 || (d.enuModeWeapon & 8) != 0 || d.pFXHit != NULL;
+        json att;
+        att["target"] = pn->second.ToChar();
+        att["damage"] = -1.0f;
+        att["isUnconscious"] = 0;
+        att["isDead"] = false;
+        att["damageMode"] = d.enuModeDamage;
+        att["swing"] = 1;
+        att["raw"] = d.fDamageTotal;
+        att["wm"] = d.enuModeWeapon;
+        att["rng"] = ranged ? 1 : 0;
+        json j;
+        j["type"] = SYNC_ATTACKS;
+        j["id"] = an->second.ToChar();
+        j["lead"] = an->second.ToChar();
+        if (const int wk = CoopWorldKey())
+            j["wk"] = wk;
+        j["att"] = json::array();
+        j["att"].push_back(att);
+        CoopTraceCount(TRACE_SENT, SYNC_ATTACKS);
+        ReadyToSendJsons.enqueue(j);
+        SwingLog("%s (selbst gefuehrt) -> %s gemeldet (%s, roh %.0f) - Figur nimmt hier keinen Schaden, %s entscheidet (P403)",
+            an->second.ToChar(), pn->second.ToChar(), ranged ? "Fernkampf/Magie" : "Nahkampf", d.fDamageTotal, pn->second.ToChar());
+    }
+
     // Aus RemoteNpc::UpdateAttacks (Host): Treffer des Clients auf einen NPC als Kampfgeraeusch an die Umgebung.
     void CoopFightSound(oCNpc* attacker, oCNpc* victim) {
         if (!ServerThread || !attacker || !victim)
@@ -506,7 +546,10 @@ namespace GOTHIC_ENGINE {
         p.name = an;
         p.until = CurrentMs + 1500;
         p.used = false;
-        CoopSwingPermits.push_back(p);
+        // u296 (P403): die Funktion laeuft jetzt auch beim Host (Treffer eines vom Client gefuehrten NPCs auf den Host-Helden, ueber
+        // RemoteNpc::UpdateAttacks). Dort raeumt CoopSwingPulse die Erlaubnisse nie auf; der Host rechnet den Treffer ohne Erlaubnis im normalen Weg
+        if (!ServerThread)
+            CoopSwingPermits.push_back(p);
         attacker->SetEnemy(player);
         CoopCreateHitFn createHit = ranged ? NULL : CoopResolveCreateHit();
         oCAniCtrl_Human* ctrl = attacker->GetAnictrl();
@@ -677,6 +720,7 @@ namespace GOTHIC_ENGINE {
     void CoopHitWorldGone() {}
     bool CoopClientHitAuthority() { return false; }
     void CoopSwingReport(oCNpc*, oCNpc*, oCNpc::oSDamageDescriptor&) {}
+    void CoopLeadSwingReport(oCNpc*, oCNpc*, oCNpc::oSDamageDescriptor&) {}   // u296 (P403)
     void CoopFightSound(oCNpc*, oCNpc*) {}
     void CoopApplyHitResult(oCNpc*, json&, const std::string&) {}
     void CoopClientSwing(oCNpc*, const char*, json&) {}

@@ -1,0 +1,97 @@
+From 7010bcc1a49cf3bbb4312b94316533d947794efd Mon Sep 17 00:00:00 2001
+From: GothicCoop <corshaegar@users.noreply.github.com>
+Date: Fri, 20 Nov 2026 16:39:20 +0100
+Subject: [PATCH] coop10: Zuschau-Fenster mit HDR, Coop-Weltprozess ohne
+ Hersteller-Erweiterungen
+
+HDR: RenderCoopSecondView zeichnete die Zweitkamera in HDRBackBuffer und kopierte das Bild ohne den HDR-Schritt des
+Hauptbilds ins Fenster. Bei EnableHDR jetzt ein eigener D3D11PFX_HDR fuers Fenster (eigene Luminanz-Puffer), damit die
+Helligkeitsanpassung des Hauptbilds nicht von der Zweitkamera verstellt wird.
+
+Weltprozess (-coopwelt:): auf einem PC mit AMD-Grafik stuerzte er bei jedem Start ab - eine Ausnahme vor dem Anlegen des
+Geraets wurde vom __except in HookedDirectDrawCreateEx abgefangen, das Geraet blieb leer und D3D11Texture::Init las ueber
+NULL. Im Weltprozess jetzt ohne AGS/NVAPI/IGDEXT (nur Leistungshilfen, GD3D11 nimmt dann die Stub-Wege).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ D3D11Engine/D3D11GraphicsEngine.cpp | 29 +++++++++++++++++++++++++++--
+ 1 file changed, 27 insertions(+), 2 deletions(-)
+
+diff --git a/D3D11Engine/D3D11GraphicsEngine.cpp b/D3D11Engine/D3D11GraphicsEngine.cpp
+index 4567ed2..4b8e8fa 100644
+--- a/D3D11Engine/D3D11GraphicsEngine.cpp
++++ b/D3D11Engine/D3D11GraphicsEngine.cpp
+@@ -10,6 +10,7 @@
+ #include "D3D11OcclusionQuerry.h"
+ #include "D3D11PShader.h"
+ #include "D3D11PfxRenderer.h"
++#include "D3D11PFX_HDR.h"   // GothicCoop coop10: eigener HDR-Effekt fuers Zuschau-Fenster
+ #include "D3D11PipelineStates.h"
+ #include "D3D11PointLight.h"
+ #include "D3D11ShaderManager.h"
+@@ -383,7 +384,19 @@ XRESULT D3D11GraphicsEngine::Init() {
+         dxgiVKInterop->Release();
+     }
+     
+-    if ( !dxvkAvailable ) {
++    // GothicCoop coop10: im Coop-Weltprozess (-coopwelt:, zweites Gothic auf eigenem Desktop) keine Hersteller-Erweiterungen
++    // (AGS/NVAPI/IGDEXT). Othello-Test u292, Host-PC mit AMD Radeon: der Weltprozess stuerzte bei jedem Start ab - eine Ausnahme vor
++    // dem Anlegen des Geraets fing das __except von HookedDirectDrawCreateEx ab, das Geraet blieb leer und D3D11Texture::Init (aus
++    // MyDirectDraw::CreateSurface) las ueber NULL. Mit NVIDIA und im Hauptspiel lief es; AGS ist der einzige AMD-eigene Schritt davor.
++    // Die Erweiterungen sind nur Leistungshilfen - ohne sie nimmt GD3D11 die Stub-Wege (siehe unten).
++    const bool coopWorldProcess = strstr( GetCommandLineA(), "-coopwelt:" ) != nullptr;
++    if ( coopWorldProcess ) {
++        LogInfo() << "GothicCoop coop10: Coop-Weltprozess - ohne Hersteller-Erweiterungen (AGS/NVAPI/IGDEXT)";
++        if ( adpDesc.VendorId == 0x1002 ) {
++            userHaveAMDGPU = true;   // wie im AGS-Zweig (nur fuer die Speicher-Meldung)
++        }
++    }
++    if ( !dxvkAvailable && !coopWorldProcess ) {
+         if ( adpDesc.VendorId == 0x10DE ) {
+             nvapiDevice.reset( new D3D11NVAPI );
+             if ( !nvapiDevice->InitNVAPI() ) {
+@@ -494,7 +507,7 @@ XRESULT D3D11GraphicsEngine::Init() {
+             BeginUAVOverlap = AGS_BeginUAVOverlap;
+             EndUAVOverlap = AGS_EndUAVOverlap;
+         }
+-    } else if ( adpDesc.VendorId == 0x8086 ) {
++    } else if ( adpDesc.VendorId == 0x8086 && !coopWorldProcess ) {   // coop10: nicht im Coop-Weltprozess
+         // Intel extension is initialized late
+         // because we need ID3D11Device object
+         igdextDevice.reset( new D3D11IGDEXT );
+@@ -2967,6 +2980,7 @@ XRESULT D3D11GraphicsEngine::OnStartWorldRendering() {
+ // Zweitkamera aus den Vobs des Zweitbilds; D3D11ShadowMap::DrawLighting fuehrt seinen bilduebergreifenden Zustand dafuer getrennt
+ // (g_CoopSecondViewPass). Test coop1: geteilter Zustand verstellte die Schatten des Hauptbilds; coop2/coop3 lasen die Kaskaden
+ // des Hauptbilds - die decken nur dessen Sicht.
++// HDR (coop10): bei EnableHDR eigener D3D11PFX_HDR fuers Fenster (eigene Luminanz-Puffer) - vorher kam das Fensterbild ohne HDR.
+ bool g_CoopSecondViewPass = false;
+ 
+ // coop4: Groesse der Schattenkarten des Zweitbilds (je Kaskade) - das Fenster ist klein, 1024 reicht und spart Fuellrate
+@@ -2985,6 +2999,7 @@ namespace {
+         std::unique_ptr<D3D11ShadowMap> shadow;              // coop4: Schattenkarten des Zweitbilds
+         std::unique_ptr<RenderToTextureBuffer> depthSave;    // coop4: Tiefen-Kopie des Hauptbilds waehrend des Durchgangs
+         INT2 depthSaveSize = INT2( 0, 0 );
++        std::unique_ptr<D3D11PFX_HDR> hdr;                   // coop10: eigener HDR-Effekt (eigene Luminanz-Puffer, Hauptbild unberuehrt)
+     };
+     CoopSecondViewState g_CoopSV;
+ 
+@@ -3209,6 +3224,16 @@ void D3D11GraphicsEngine::RenderCoopSecondView() {
+         s.DrawParticleEffects = savedParticles;
+         s.EnableOcclusionCulling = savedOcclusion;
+ 
++        // GothicCoop coop10 (Nutzer 19.11.: "HDR sollte auch im Zuschaufenster aktiv sein, wenn HDR aktiv ist"): wie im Hauptbild
++        // (PfxRenderer->RenderHDR, schreibt ins gebundene Ziel) - mit eigenem D3D11PFX_HDR, damit die Helligkeitsanpassung des
++        // Hauptbilds (Luminanz ueber mehrere Bilder) nicht von der Zweitkamera verstellt wird
++        if ( s.EnableHDR ) {
++            if ( !g_CoopSV.hdr )
++                g_CoopSV.hdr = std::make_unique<D3D11PFX_HDR>( PfxRenderer.get() );
++            GetContext()->OMSetRenderTargets( 1, HDRBackBuffer->GetRenderTargetView().GetAddressOf(), nullptr );
++            g_CoopSV.hdr->Render( nullptr );
++        }
++
+         SetDefaultStates();
+         PfxRenderer->CopyTextureToRTV( HDRBackBuffer->GetShaderResView(), g_CoopSV.tex->GetRenderTargetView(), size );
+         g_CoopSV.texValid = true;
+-- 
+2.55.0.windows.5
+

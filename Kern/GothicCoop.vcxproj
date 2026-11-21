@@ -882,6 +882,7 @@
       <AdditionalIncludeDirectories>.\Dependencies\enet-1.3.17\include;.\Dependencies\nlohmann-json\include\single_include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <WholeProgramOptimization>false</WholeProgramOptimization>
       <ExceptionHandling>Async</ExceptionHandling>
+      <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>

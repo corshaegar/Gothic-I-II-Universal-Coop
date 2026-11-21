@@ -85,7 +85,7 @@ namespace GOTHIC_ENGINE {
 
     static void PmLog(const char* fmt, ...) {
         static CoopDiagBudget budget = { 0, 0 };
-        if (!CoopDiagAllow(budget, 30))
+        if (!CoopDiagAllow(budget, 60))   // u291 (P387): 30 -> 60 (Wechsel sichtbar/aus)
             return;
         char buf[600];
         va_list ap;
@@ -699,19 +699,77 @@ namespace GOTHIC_ENGINE {
         screen->Print(x, y, s);
     }
 
+    // u291 (P387, Nutzer 18.11.: "Die Namensanzeige des Mitspielers auf Distanz ist einmal ploetzlich verschwunden"): je Figur einmal pro Wechsel loggen, wenn die Anzeige von
+    // sichtbar auf aus (oder zurueck) wechselt, mit Grund. Ein neuer Zustand zaehlt erst nach 1,5 s (sonst flackert das Log beim Drehen der Kamera).
+    // Codes: 0 Name, 1 Randpfeil (sichtbar); 2 ausserhalb des Bilds, 3 Kampf unter 25 m, 4 Name aus (Einstellung), 5 hinter Waenden, 6 Fokus (Gothic zeigt den Namen),
+    // 7 Dialog/Inventar/Karte offen, 8 nicht in der Welt
+    struct PmVis {
+        int cur;
+        int cand;
+        long long since;
+    };
+    static std::map<oCNpc*, PmVis> PmVisible;
+    static const char* PmHudWhy = "Dialog/Inventar/Karte offen";
+
+    static const char* PmReasonText(int code) {
+        switch (code) {
+        case 0: return "Name ueber dem Kopf";
+        case 1: return "Randpfeil";
+        case 2: return "ausserhalb des Bilds (Bildrand aus)";
+        case 3: return "Waffe gezogen, unter 25 m (Kampf)";
+        case 4: return "Name aus (Einstellung)";
+        case 5: return "verdeckt (hinter Waenden)";
+        case 6: return "im Fokus (Gothic zeigt den Namen)";
+        case 7: return PmHudWhy;
+        default: return "nicht in der Welt";
+        }
+    }
+
+    static void PmNote(oCNpc* n, int code, long long now) {
+        auto it = PmVisible.find(n);
+        if (it == PmVisible.end()) {
+            PmVis v = { code, code, now };
+            PmVisible[n] = v;
+            return;
+        }
+        PmVis& v = it->second;
+        if (code == v.cur) {
+            v.cand = code;
+            return;
+        }
+        if (code != v.cand || now < v.since) {
+            v.cand = code;
+            v.since = now;
+            return;
+        }
+        if (now - v.since < 1500)
+            return;
+        const bool wasShown = v.cur <= 1, isShown = code <= 1;
+        if (wasShown != isShown) {
+            if (isShown)
+                PmLog("%s: Anzeige wieder da (%s), vorher aus: %s", PmName(n).c_str(), PmReasonText(code), PmReasonText(v.cur));
+            else
+                PmLog("%s: Anzeige aus - %s", PmName(n).c_str(), PmReasonText(code));
+        }
+        v.cur = code;
+    }
+
     static void PmDrawPartner(zCCamera* cam, oCNpc* n, long long now) {
         // u263 (P317, Nutzer 14.11. zu Othello: "Im Kampf sollte der Name vom Mitspieler ausgeblendet werden um nicht zu verwirren"):
         // solange der eigene Held oder der Mitspieler eine Waffe gezogen hat (Waffenmodus nicht 0), weder Name ueber dem Kopf noch Pfeil
         // am Bildrand. Allgemein
-        if (player->GetWeaponMode() != 0 || n->GetWeaponMode() != 0) {
-            PmShownAt[n] = std::make_pair(now, 3);   // Coop-Testlauf: verarbeitet, im Kampf ausgeblendet
-            return;
-        }
+        // u291 (P387): nur noch unter 25 m - blieb der Waffenmodus einer Figur haengen (K.o., Tod, Laden), war der Name auf Distanz dauerhaft weg
         const zVEC3 head = PmHead(n);
         const zVEC3 at = n->GetPositionWorld();
         const zVEC3 me = player->GetPositionWorld();
         const float ddx = at.n[0] - me.n[0], ddy = at.n[1] - me.n[1], ddz = at.n[2] - me.n[2];
-        const int meters = (int)(sqrtf(ddx * ddx + ddy * ddy + ddz * ddz) / 100.f + 0.5f);
+        const float distCm = sqrtf(ddx * ddx + ddy * ddy + ddz * ddz);
+        const int meters = (int)(distCm / 100.f + 0.5f);
+        if (distCm < 2500.f && (player->GetWeaponMode() != 0 || n->GetWeaponMode() != 0)) {
+            PmShownAt[n] = std::make_pair(now, 3);   // Coop-Testlauf: verarbeitet, im Kampf ausgeblendet
+            PmNote(n, 3, now);
+            return;
+        }
         const std::string name = PmName(n);
         char dist[32];
         _snprintf(dist, sizeof(dist), " (%d m)", meters);
@@ -735,13 +793,16 @@ namespace GOTHIC_ENGINE {
         const int fy = screen->FontY();
 
         if (inView) {
-            if (!PmOpt.name)
+            if (!PmOpt.name) {
+                PmNote(n, 4, now);
                 return;   // u226 (P263): Name ueber dem Kopf aus
+            }
             if (player->GetFocusNpc() == n) {   // u226 (P263): Gothic schreibt den Fokusnamen selbst - sonst stand der Name doppelt da
                 static int focusLogged = 0;
                 if (focusLogged++ < 3)
                     PmLog("%s im Fokus - Gothic zeigt den Namen, GT laesst seinen weg (P263)", name.c_str());
                 PmShownAt[n] = std::make_pair(now, 0);
+                PmNote(n, 6, now);
                 return;
             }
             PmSight& s = PmSightCache[n];
@@ -752,18 +813,22 @@ namespace GOTHIC_ENGINE {
                 const zVEC3 chest(at.n[0], at.n[1] + 30.f, at.n[2]);
                 s.free = PmFreeSight(cp, eye) || PmFreeSight(cp, chest);
             }
-            if (!s.free && PmOpt.walls)
+            if (!s.free && PmOpt.walls) {
+                PmNote(n, 5, now);
                 return;   // u226 (P263): hinter Waenden nicht zeigen
+            }
             zSTRING t(name.c_str());
             if (PmOpt.dist == 2 || (PmOpt.dist == 1 && (!s.free || meters >= 25)))
                 t = t + zSTRING(dist);
             const int w = screen->FontSize(t);
             PmPrint((int)(nx * 8192.f) - w / 2, (int)(ny * 8192.f) - fy, t, PmOptColor(s.free, 255));
             PmShownAt[n] = std::make_pair(now, 0);
+            PmNote(n, 0, now);
             return;
         }
         if (!PmOpt.edge) {   // u226 (P263): Pfeil am Bildrand - Vorgabe aus (Nutzer)
             PmShownAt[n] = std::make_pair(now, 2);   // Coop-Testlauf: verarbeitet, ausserhalb des Bilds (Bildrand aus)
+            PmNote(n, 2, now);
             return;
         }
 
@@ -816,16 +881,22 @@ namespace GOTHIC_ENGINE {
         }
         PmPrint(x, y, label, PmOptColor(true, 230));
         PmShownAt[n] = std::make_pair(now, 1);
+        PmNote(n, 1, now);
     }
 
     static bool PmHudOff() {
         if (!ogame || !player || IsLoadingLevel || !ogame->GetGameWorld() || !screen)
             return true;
         oCInformationManager& im = oCInformationManager::GetInformationManager();
-        if (im.Npc && !im.IsDone)
+        if (im.Npc && !im.IsDone) {
+            PmHudWhy = "Dialog offen";
             return true;   // Dialog
-        if (player->inventory2.IsOpen())
+        }
+        if (player->inventory2.IsOpen()) {
+            PmHudWhy = "Inventar offen";
             return true;
+        }
+        PmHudWhy = "Karte offen";
         return PmMapOpen();   // auf der Karte zeigt die Marke den Mitspieler
     }
 
@@ -834,6 +905,7 @@ namespace GOTHIC_ENGINE {
         PmSightCache.clear();
         PmLogged.clear();
         PmShownAt.clear();
+        PmVisible.clear();   // u291 (P387)
     }
 
     // Plugin.cpp, Game_Loop
@@ -844,8 +916,15 @@ namespace GOTHIC_ENGINE {
             return;
         PmReadOptions();   // u226 (P263)
         PmMapPulse();
-        if (PmHudOff())
+        if (PmHudOff()) {
+            if (IsLoadingLevel || !ogame || !ogame->GetGameWorld())
+                return;
+            const long long t0 = GetCurrentMs();
+            for (auto& kv : PlayerNameToNpc)
+                if (kv.second && TpInWorld(kv.second))
+                    PmNote(kv.second, 7, t0);   // u291 (P387)
             return;
+        }
         zCCamera* cam = zCCamera::activeCam;
         if (!cam)
             return;
@@ -854,12 +933,16 @@ namespace GOTHIC_ENGINE {
             PmSightCache.clear();
         if (PmShownAt.size() > 64)
             PmShownAt.clear();
+        if (PmVisible.size() > 64)
+            PmVisible.clear();
         zSTRING font = screen->GetFontName();
         const zCOLOR color = screen->fontColor;
         screen->SetFont(zSTRING("Font_Old_10_White_Hi.TGA"));
         for (auto& kv : PlayerNameToNpc)
             if (TpInWorld(kv.second))
                 PmDrawPartner(cam, kv.second, now);
+            else if (kv.second)
+                PmNote(kv.second, 8, now);   // u291 (P387)
         // u29 (P65): Mitspieler in einer anderen Welt - oben in der Mitte "Name: Welt" statt keiner Markierung
         const std::vector<std::string> away = CoopWorldsElsewhere();
         for (size_t i = 0; i < away.size() && i < 4; i++) {

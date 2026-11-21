@@ -153,11 +153,29 @@ namespace GOTHIC_ENGINE {
         return n;
     }
 
+    // u277 (P350, Nutzer 16.11.: in Xeres stuerzte "Hauptmenue" im Esc-Menue ab; Log: Zugriffsfehler beim Lesen von 0x160, Skript
+    // GFA_ISACTIVE <- MEM_CALLBYID <- _HOOK, Zustand Title): Gothic Free Aim (Skriptpaket mit HookEngine, in Xeres und anderen Mods)
+    // prueft in seinen Haken den Spieler - im Startmenue ist oCNpc::player NULL, GFA_ISACTIVE las trotzdem dessen Kampfmodus.
+    // Solange das Startmenue laeuft, steht GFA_ACTIVE auf 0 (GFA ganz aus, jede GFA-Funktion fragt das zuerst ab). Ein geladenes
+    // Spiel stellt es selbst neu (GFA_INITALWAYS setzt 0, GFA_UPDATESETTINGS den Wert der Einstellungen); ohne Laden kommt der alte
+    // Wert zurueck. Allgemein (jede Mod mit GFA)
+    static zCPar_Symbol* TitleGfaActive() {
+        zCPar_Symbol* s = parser ? parser->GetSymbol(zSTRING("GFA_ACTIVE")) : NULL;
+        return s && s->type == zPAR_TYPE_INT ? s : NULL;
+    }
+
     static void TitleRun() {
         CGameManager* gm = gameMan;
         if (!gm || !ogame) {
             TitleLog("kein Spielmanager - abgebrochen");
             return;
+        }
+        zCPar_Symbol* const gfa = TitleGfaActive();   // u277 (P350)
+        int gfaOld = 0;
+        if (gfa) {
+            gfa->GetValue(gfaOld, 0);
+            gfa->SetValue(0, 0);
+            TitleLog("Gothic Free Aim w\xE4hrend des Startmen\xFCs aus (GFA_ACTIVE %d -> 0, P350)", gfaOld);
         }
         if (zsound)
             zsound->StopAllSounds();
@@ -206,6 +224,8 @@ namespace GOTHIC_ENGINE {
             ogame->camera = oldCam;
         oCNpc::player = oldPlayer;
         frameCallback = oldFrameCallback;
+        if (gfa)
+            gfa->SetValue(gfaOld, 0);   // u277 (P350)
         TitleLog("Startmen\xFC ohne Laden verlassen (%s) - Held und Kamera zur\xFC" "ck", gm->exitGame ? "Beenden" : "unbekannt");
     }
 

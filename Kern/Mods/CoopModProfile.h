@@ -28,6 +28,8 @@
 //   "vobSync"         u201 (P226): Namen von Welt-Objekten, deren Sichtbarkeit, Kollision, Durchsichtigkeit und Aussehen Skripte im eigenen
 //                     Prozess aendern (Ikarus: zCVob-Bits, SetVisual) - der Coop gleicht diese Felder zwischen PCs in derselben Welt ab.
 //                     Nur ganze Namen (kein *)
+//   "testWorld"       u275 (P347): zweite Welt fuer die Welten-Schritte des Coop-Tests ("ARCHOLOS_SEWERS.ZEN", "LOA\WUESTE.ZEN") -
+//                     sonst Khorinis bzw. Minental, sofern die Skripte deren Startfunktion haben. Nicht in der Pruefsumme
 //   "configDefaults"  Vorgaben fuer Schalter aus GothicCoopConfig.json ("coop..."), solange die Datei des Spielers sie nicht setzt
 //   "notes"           Hinweise, die beim Start ins Log gehen (bekannte Grenzen der Mod)
 // Kommentare (// und /* */) sind erlaubt, Eintraege mit "_" am Anfang werden uebergangen. Hier wird nur gelesen, kein Log
@@ -52,6 +54,7 @@ struct CoopModData {
     std::vector<std::string> zsPrefix;     // u199 (P221): "heroStates" mit * am Ende (nur die Vorsilbe)
     std::map<std::string, std::string> worldVars;   // u200 (P224): "worldVars" Name -> Welt (beides gross)
     std::vector<std::string> vobSync;               // u201 (P226): "vobSync" Objektnamen (gross, sortiert)
+    std::string testWorld;                          // u275 (P347): "testWorld" Welt fuer den Coop-Test (gross)
     json configDefaults = json::object();  // "configDefaults" (nur "coop..."-Schalter)
     std::vector<std::string> notes;        // "notes"
     std::vector<std::string> warnings;     // uebergangene Eintraege (Log)
@@ -159,6 +162,13 @@ static bool CoopModParse(const std::string& text, const std::string& what, CoopM
                 }
                 d.vobSync.push_back(s);
             }
+        }
+        else if (k == "testWorld") {   // u275 (P347)
+            const std::string s = v.is_string() ? CoopModUpperTrim(v.get<std::string>()) : std::string();
+            if (s.empty())
+                d.warnings.push_back(what + ": \"testWorld\" ist kein Weltname als Text - uebergangen");
+            else
+                d.testWorld = s;
         }
         else if (k == "worldVars") {   // u200 (P224)
             if (!v.is_object()) {

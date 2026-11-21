@@ -6,6 +6,45 @@ Jeder Abschnitt nennt die Projektversion und für jedes Spiel und jede Mod die C
 oben. Ganz unten folgt die Vorgeschichte: der Othello-Coop 0.1.0–0.1.2 (github.com/corshaegar/Othello-Coop) und die
 unveröffentlichten Fassungen u1–u61, aus denen 0.2.0 hervorging. So ist hier jede Änderung seit der allerersten Fassung festgehalten.
 
+## 0.12.0 – Liegen statt Sterben, Notfall-Taste, Menüs ohne Pause, sichtbare Schüsse, NPCs reagieren auf den Client (Gothic I u297, Gothic II u297, Othello u297, Legend of Ahssun u297, Archolos u297, Xeres' Rückkehr u297)
+
+Die meisten Änderungen stammen aus gemeinsamen Spielrunden in Othello (auch über das Internet) und Archolos und aus den Logs der Spieler – vielen Dank! Die Änderungen aus u293 bis u297 sind noch nicht in einer Spielrunde geprüft.
+
+**Neu**
+
+- **Liegen statt Sterben** (u282, u291, u292): Wird der eigene Held im Coop von einem Gegner getötet, fällt er stattdessen bewusstlos um und bleibt liegen – bis bei keinem Coop-Spieler in der Nähe mehr gekämpft wird, dann steht er wieder auf, oder bis der Mitspieler ihn aufhebt (hingehen, Shift+F4, 4 Sekunden stehen bleiben; danach hat er mindestens 30 % seines Lebens). Liegen alle, sterben alle wirklich – mit Todesanimation –, und der Host lädt nach 5 Sekunden den letzten gemeinsamen Spielstand; wer vorher Esc drückt, wählt selbst. Ertrinken, Stürze und Tode durch Skripte bleiben ein echter Tod. Solange jemand am Boden liegt, kann nicht gespeichert werden.
+- **Notfall-Taste Shift+F8** (u283, u295): beendet einen hängenden Dialog oder löst den eigenen Helden, wenn er sich nicht mehr bewegen kann (Inventar zu, Waffe weg, ein Stück nach oben versetzt). Einstellbar unter *Einstellungen › COOP › Coop-Tasten*.
+- **Menüs halten das Spiel nicht mehr an** (u284–u287): Im Coop läuft die Welt weiter, während jemand das Esc-Menü, das Tagebuch, die Charakteransicht, Laden/Speichern oder ein Coop-Fenster offen hat – vorher standen beim Host so lange alle NPCs still, auch für den Mitspieler. Der eigene Held, die Kamera und die Maus ruhen dabei; danach ist der Held sofort wieder steuerbar.
+- **Die Schüsse des Mitspielers sind zu sehen** (u279, u293, u294, u296): Pfeile und Bolzen fliegen jetzt auch auf dem anderen PC – nur als Bild; den Treffer meldet weiter der PC des Schützen.
+- **NPCs reagieren auf den Client** (u293): Bisher griffen Gegner den Client erst an, wenn der Host in der Nähe war; drang er in Häuser ein oder zog er die Waffe, reagierte niemand, und schlafende NPCs konnte er nicht ansprechen. Jetzt übernimmt der PC des Clients in solchen Fällen den NPC vom Host, und der NPC reagiert auf ihn wie auf den eigenen Helden.
+- **Stufenaufstieg des Mitspielers** (u281): „<Name> hat Stufe N erreicht!“ erscheint jetzt auch beim anderen.
+- **Gemeinsame Spielstände aus der Sicherung beim Partner** (u280): Fehlt einem die eigene Kopie eines gemeinsamen Stands (Saves verloren, anderer PC), steht der Stand trotzdem in der Liste – mit „(beim Partner)“ – und kommt beim Wählen zurück. Das gilt in beide Richtungen.
+- **Coop-Renderer coop10** (u295) für Gothic 1 und Gothic 2: Das Zuschau-Fenster zeigt HDR wie das Hauptbild.
+- **Tagebuch mit der Maus** (u288–u290): Überfahren markiert ein Thema, ein Klick zeigt es, der Zeiger auf einem Reiter wechselt die Liste. Unter Othello zeigen die Menüs jetzt ebenfalls den Coop-Mauszeiger.
+
+**Korrekturen**
+
+- **Kein Schaden zwischen den Spielern** (u296): Zauber des Mitspielers wie die Eiswelle trafen den eigenen Helden mit – er fror ein und verlor beim Host sogar Leben. Zauber und Treffer zwischen Coop-Spielern wirken jetzt nicht mehr.
+- **Gegner-Magie gegen den Mitspieler** (u296): Führte der Client einen Kampf, gingen Treffer seiner Gegner auf den Helden des Hosts verloren – Zauber machten keinen Schaden. Jetzt meldet der Client sie, und der Host rechnet sie.
+- **Pfeile des Clients flogen beim Host schief** (u296).
+- **Der Mitspieler lässt sich im Kampf nicht mehr anvisieren** (u291, u297): Mit gezogener Waffe, Fäusten oder Magie springt das Ziel nie auf den Mitspieler, auch nicht beim Wechseln des Ziels. Außerhalb des Kampfes geht es wie gewohnt.
+- **Die Waffe bleibt ausgerüstet** (u291, u296): Nach einem K.o. oder Tod war die Waffe nicht mehr ausgerüstet. Der Bogen ließ sich danach manchmal nicht ziehen, weil noch ein Pfeil in der Hand steckte (u278, u281).
+- **Todesstoß des Clients** (u278, u291): Tötete der Client einen bewusstlosen NPC, starb der erst, als er aufstehen wollte. Jetzt stirbt er sofort – sofern er mindestens 3 Sekunden bewusstlos war; ein nachlaufender Schlag gleich nach dem K.o. tötet nicht mehr.
+- **Aufstehen mitten im Kampf** (u291, u292): Ein Liegender stand auf, obwohl daneben noch gekämpft wurde – etwa wenn der Client den Kampf führte, ein Monster fraß oder ein NPC ohne Gegner weiter angriffsbereit war. Danach lag er sofort wieder.
+- **NPCs auf Bänken** (u278, u281): Sprach der Mitspieler mit einem sitzenden NPC, drehte der sich beim anderen weg und sprach keine Zeilen. Gehende NPCs drehen sich wieder zum Sprecher.
+- **Gespräch hing, wenn der Partner den NPC angriff** (u278): Es endet jetzt an der nächsten sicheren Stelle, wie mit „ENDE“.
+- **Angriff nach einem Gespräch** (u291): Wollte ein NPC den Client nach dem Gespräch angreifen, passierte nichts. Jetzt greift er an.
+- **Dialog nach einer Niederlage** (u291): Besiegte der Client einen NPC, fehlte danach dessen Dialog zur Niederlage (in Othello etwa bei Lefty).
+- **Waffen von Gegnern doppelt** (u291): Ließ ein Gegner seine Waffe fallen, fand der Client beim Plündern eine zweite.
+- **Türen** (u291, u296): Türen, die NPCs öffnen und schließen, gleicht der Host jetzt ab – in Archolos laufen viele NPCs durch Haustüren. Dazu schickt er alle 30 Sekunden den Zustand der Türen in der Nähe der Spieler.
+- **Name des Mitspielers** (u291): Er verschwand manchmal auch auf Entfernung. Im Kampf wird er jetzt nur unter 25 m ausgeblendet.
+- **Speichern** (u281, u293): Ein offenes Inventar des Mitspielers hält das Speichern nicht mehr auf – es schließt sich dafür. Kann der Mitspieler gerade nicht mitspeichern, etwa mitten in einem Schlag, wartet das Speichern bis zu 20 Sekunden auf ihn, statt sofort abzulehnen.
+- **Nach dem Laden** (u294): Der Held ließ sich manchmal nicht bewegen, und die Figur eines Mitspielers, der vor dem Laden gestorben war, blieb liegen.
+- **Coop-Inventar** (u281, u293): Pfeile und Bolzen lassen sich auch bei angelegtem Bogen hineinlegen; mit gezogener Waffe öffnet die Coop-Taste jetzt auch das eigene Inventar.
+- **Abstürze** (u275, u279, u292): wenn ein NPC in seinem KI-Zustand noch auf eine entfernte Figur oder einen entfernten Gegenstand zeigte, und wenn eine schon gelöschte Rune (etwa die Teleport-Rune) noch im Zauberbuch stand.
+- **Xeres' Rückkehr** (u276, u277): Der COOP-Eintrag im Hauptmenü und „Hauptmenü“/„Spielstand wählen“ im Esc-Menü fehlten (das betraf jede Mod mit Ninjas Patch-Menü), und „Hauptmenü“ im Esc-Menü stürzte ab (jede Mod mit Gothic Free Aim).
+- **Weltprozess** (u295, u296): Wurde ein Spielordner samt Weltordner weitergegeben, startete der Weltprozess nicht; die kopierten Dateien werden jetzt beiseitegelegt. Ohne GD3D11 kann der Weltprozess nicht zeichnen – er startet dann gar nicht erst und sagt das im Chat (der Installer bringt GD3D11 mit). Auf einem PC mit AMD-Karte stürzte er beim Start ab; der Coop-Renderer lädt im Weltprozess darum keine Hersteller-Erweiterungen mehr – ob das die Ursache war, ist noch offen.
+
 ## 0.11.3 – DXVK für AMD-Grafikkarten (Gothic I u273, Gothic II u273, Othello u273, Legend of Ahssun u273, Archolos u273, Xeres' Rückkehr u273)
 
 **Neu**

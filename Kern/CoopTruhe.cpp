@@ -53,6 +53,10 @@ namespace GOTHIC_ENGINE {
     // Coop-Inventar (gemeldet wie jede Aenderung hier, Meldung im Chat). Andere NPCs, andere Parser und das Laden gehen unveraendert
     // ans Original. Nicht betroffen: was die Engine selbst prueft (Schluessel an Tueren, Handel). Allgemein (G1/G2).
 
+    // u275 (P346): Coop-Test - bis zu dieser Zeit gilt "Coop-Inventar nimmt neue Missions-Gegenstaende" (P324) als aus, damit die
+    // Schritte "Missions-Gegenstand ..." die Spiegelung pruefen (CoopSelfTest.cpp, PMi setzt den Wert je Schritt neu)
+    long long CoopTestMiOhneTruheBis = 0;
+
 #if COOP_BUILD(Dialog) && COOP_BUILD(Save)
 
     typedef std::map<std::string, int> CoopTruheBestand;   // Instanz -> Menge (ohne die Coop-Truhe selbst)
@@ -601,6 +605,8 @@ namespace GOTHIC_ENGINE {
         TruheMitInvWill = false;
         if (TruheMitInv)
             TruheFokusInventar(c);
+        if (TruheMitInv && !player->inventory2.IsOpen())   // u293 (P392): nur Diagnose
+            TruheLog("eigenes Inventar ging nicht mit auf (Waffe %d, Koerperzustand %d) (P392)", (int)player->GetWeaponMode(), (int)player->GetBodyState());
 #if ENGINE >= Engine_G2
         // u102 (P124, Nutzer: "man kann noch einen Namen hinzufügen wie beim Handeln mit NPCs, zb "Brian""): Titel ueber dem Fenster.
         // G2A oCMobContainer::Open gibt dem Fenster oCMOB::GetName (Skript-Symbol, hier leer); oCItemContainer::SetName (0x00704F60)
@@ -729,6 +735,7 @@ namespace GOTHIC_ENGINE {
     void __fastcall oCItem_Dtor_Coop(oCItem* _this, void* vtable) {
         if (!CoopMsgItems.empty())
             CoopMsgItemFreeing(_this);
+        CoopZauberbuchItemFreeing(_this);   // u292 (P389): Diagnose - Gegenstand aus dem Zauberbuch des eigenen Helden wird zerstoert (Helpers.cpp)
         Ivk_oCItem_Dtor_Coop(_this);
     }
 
@@ -760,6 +767,21 @@ namespace GOTHIC_ENGINE {
                 TruheLog("Coop-Truhe sollte in ein anderes Fenster - nicht verschoben");
             }
             return FALSE;
+        }
+        // u281 (P359): angelegte Munition ins offene Coop-Inventar - die Engine verschiebt Angelegtes nicht. Merker kurz weg, verschieben, am
+        // Rest im eigenen Inventar wieder setzen (die Fernkampfwaffe bleibt angelegt)
+        oCItem* mun = _this && player && _this == &player->inventory2 && TruheOffenHier ? _this->GetSelectedItem() : NULL;
+        if (mun && (mun->flags & ITM_FLAG_ACTIVE) && (mun->mainflag & ITM_CAT_MUN)) {
+            const int inst = mun->GetInstance();
+            const std::string nm = mun->GetInstanceName().ToChar();
+            mun->flags &= ~ITM_FLAG_ACTIVE;
+            const int r = Ivk_oCItemContainer_TransferItem_Truhe(_this, a, b);
+            oCItem* rest = player->IsInInv(inst, 1);
+            if (rest)
+                rest->flags |= ITM_FLAG_ACTIVE;
+            TruheLog("angelegte Munition %s hinueber: %s, Rest im Inventar %s (P359)", nm.c_str(), r ? "verschoben" : "nicht verschoben",
+                rest ? "wieder angelegt" : "keiner");
+            return r;
         }
         return Ivk_oCItemContainer_TransferItem_Truhe(_this, a, b);
     }
@@ -848,7 +870,9 @@ namespace GOTHIC_ENGINE {
         oCItem* sel = player->inventory2.GetSelectedItem();   // eigenes Inventar hat den Fokus: ein Stueck hinein
         if (!sel)
             return false;
-        if (sel->HasFlag(ITM_FLAG_ACTIVE)) {
+        // u281 (P359, Test Othello u278 17.11.: "Pfeile sind immer ausgeruestet, man kann sie nicht ablegen, um sie z. B. ins Coop-Inventar zu
+        // legen"): Munition gilt bei angelegter Fernkampfwaffe als angelegt - sie darf trotzdem hinueber (die Waffe bleibt angelegt)
+        if (sel->HasFlag(ITM_FLAG_ACTIVE) && !(sel->mainflag & ITM_CAT_MUN)) {
             ChatLog(CoopTr("Angelegte Gegenst" "\xE4" "nde erst ablegen.", "Unequip items first."), zCOLOR(255, 200, 80, 255));
             return false;
         }
@@ -1380,6 +1404,14 @@ namespace GOTHIC_ENGINE {
             TruheLog("Taste %s - ein anderes Fenster ist offen (Truhe, Pluendern, Handel) - nicht geoeffnet", CoopKeyText(CK_INV).c_str());
             return;
         }
+        // u293 (P392, Nutzer 19.11.: "Wenn Waffe ausgeruestet und man I drueckt, dann oeffnet das Inventar nicht, nur das Coop-Inventar"):
+        // Gothic steckt beim Oeffnen des Inventars erst die Waffe weg (oCNpc::OpenInventory, EV_REMOVEWEAPON); oCMobContainer::Open tut
+        // das nicht, mit gezogener Waffe ging nur das Coop-Fenster auf. Also hier vorher wegstecken.
+        if (player->GetWeaponMode() != NPC_WEAPON_NONE) {
+            const int modus = (int)player->GetWeaponMode();
+            player->SetWeaponMode2(NPC_WEAPON_NONE);
+            TruheLog("Taste %s: Waffe weggesteckt (Modus %d), damit das eigene Inventar mit aufgeht (P392)", CoopKeyText(CK_INV).c_str(), modus);
+        }
         // u266 (P323, Nutzer 15.11.: "dass in dem Modus I genau die selbe Funktion hat"): mit der Einstellung oeffnet die Coop-Taste beides
         // wie Tab (eigenes Inventar vorn, Coop-Inventar daneben); im offenen Inventar wechselt sie wie Tab
         if (TruheCoop() && TruheMitInvAn())
@@ -1786,7 +1818,7 @@ namespace GOTHIC_ENGINE {
     // der eigene Held neu bekommt, ins Coop-Inventar (CoopDialogSync.cpp, CoopMissionPulse) statt ihn dem Partner zu spiegeln (u96). Was
     // man selbst herausnimmt (Lesen, Anlegen, Einloesen), bleibt im eigenen Inventar
     bool CoopTruheQuestModus() {
-        return TruheCoop() && TruheMitInvAn() && TruheObj() != NULL;
+        return TruheCoop() && TruheMitInvAn() && TruheObj() != NULL && GetCurrentMs() >= CoopTestMiOhneTruheBis;   // u275 (P346)
     }
 
     void CoopTruheJetztPruefen() {

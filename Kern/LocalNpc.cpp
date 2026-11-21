@@ -323,6 +323,12 @@ namespace GOTHIC_ENGINE {
             zSTRING rightHandInstanceName = rightItem && rightItem->HasFlag(ITM_FLAG_TORCH) ? rightItem->GetInstanceName() : zSTRING("NULL");
 
             if (!leftHandInstanceName.Compare(lastLeftHandInstanceName) || !lastRightHandInstanceName.Compare(rightHandInstanceName)) {
+                // u279 (Diagnose zu "Fackel des Mitspielers nicht am korrekten Ort"): in keinem Othello-Log mit u273 lief der Fackel-Abgleich
+                static CoopDiagBudget fackelLog = { 0, 0 };
+                if (npc == player && CoopDiagAllow(fackelLog, 10))
+                    OthelloCompatLog("[%lld s, %s] Fackel: eigener Held - links %s, rechts %s an den Partner (Hand: links %s, rechts %s; P343)",
+                        DiagSeconds(), DiagRole(), leftHandInstanceName.ToChar(), rightHandInstanceName.ToChar(),
+                        leftItem ? leftItem->GetInstanceName().ToChar() : "-", rightItem ? rightItem->GetInstanceName().ToChar() : "-");
                 addUpdate(SYNC_HAND);
                 lastLeftHandInstanceName = leftHandInstanceName;
                 lastRightHandInstanceName = rightHandInstanceName;

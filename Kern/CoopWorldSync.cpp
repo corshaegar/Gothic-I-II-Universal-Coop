@@ -134,6 +134,7 @@ namespace GOTHIC_ENGINE {
     // CoopModuleOf: u8 nach CoopCore.cpp (auch CoopMenuInject.cpp braucht es, wenn das Welt-Modul in einer Engine aus ist)
 
     bool CoopRuleWorld();   // v75: CoopDifficulty.cpp - Abgleich "Gegenstaende/Truhen" (Regel des Hosts)
+    bool CoopLeadIsMine(oCNpc* npc);   // u296 (P406): CoopCombatLead.cpp - NPC, den dieser Client fuehrt
 
     static bool WorldSyncBase() {
         return (ServerThread || ClientThread) && !IsCoopPaused && !IsLoadingLevel && !WorldEditMode
@@ -616,6 +617,52 @@ namespace GOTHIC_ENGINE {
         WorldSyncLog("Mechanismen gesendet (%s): %d", CoopWorldName().c_str(), n);
     }
 
+    // u291 (P386, Nutzer 18.11.: "Tueren sind nicht synchronisiert immer noch scheinbar, in Archolos vor allem"): laufender Tuer-Abgleich. Der Host schickt alle 30 s Zustand und Schloss
+    // der Tueren im Umkreis von 30 m um jeden Coop-Spieler in dieser Welt (Format wie der Bestand, Marke "d"); der Client wendet sie wie den Bestand an (MobReceive). Das deckt auch
+    // Schlossaenderungen ohne Oeffnen und Tuer-Benutzungen ab, die verloren gingen.
+    static void SendDoorBulk() {
+        oCWorld* world = ogame->GetGameWorld();
+        std::vector<zVEC3> centers;
+        centers.push_back(player->GetPositionWorld());
+        for (auto const& pn : PlayerNpcs) {
+            if (pn.first && pn.first != player && pn.first->GetHomeWorld() == world)
+                centers.push_back(pn.first->GetPositionWorld());
+        }
+        std::set<oCMobDoor*> seen;
+        json batch = json::array();
+        int n = 0;
+        for (size_t c = 0; c < centers.size(); c++) {
+            zCArray<zCVob*> vobs = CollectVobsInRadius(centers[c], 3000);
+            for (int i = 0; i < vobs.GetNumInList(); i++) {
+                oCMobDoor* m = zDYNAMIC_CAST<oCMobDoor>(vobs.GetSafe(i));
+                if (!MobSyncRelevant(m) || !seen.insert(m).second)
+                    continue;
+                json s;
+                s["k"] = CoopPosJson(m->GetPositionWorld());
+                s["s"] = (int)m->state;
+                s["lk"] = m->locked ? 1 : 0;
+                batch.push_back(s);
+                n++;
+                if (batch.size() >= 40) {
+                    json j;
+                    j["s"] = batch;
+                    j["d"] = 1;
+                    WorldSyncSend(j, SYNC_MOB_BULK);
+                    batch = json::array();
+                }
+            }
+        }
+        if (!batch.empty()) {
+            json j;
+            j["s"] = batch;
+            j["d"] = 1;
+            WorldSyncSend(j, SYNC_MOB_BULK);
+        }
+        static int doorLogs = 0;
+        if (n && doorLogs++ < 12)
+            WorldSyncLog("Tueren-Abgleich gesendet (%s): %d Tueren im Umkreis von 30 m um %d Spieler", CoopWorldName().c_str(), n, (int)centers.size());
+    }
+
     static void SendWorldBulk() {
         oCWorld* world = ogame->GetGameWorld();
 
@@ -680,7 +727,7 @@ namespace GOTHIC_ENGINE {
     }
 
     // u137 (P134): eigener Held hat einen Mechanismus benutzt (Haken unten)
-    static void MobSendUse(oCMobInter* m, int from, int to) {
+    static void MobSendUse(oCMobInter* m, int from, int to, bool log = true) {
         json j;
         j["k"] = CoopPosJson(m->GetPositionWorld());
         j["f"] = from;
@@ -692,7 +739,8 @@ namespace GOTHIC_ENGINE {
         if (ServerThread)
             j["by"] = MyselfId.ToChar();
         WorldSyncSend(j, SYNC_MOB_STATE);
-        WorldSyncLog("Mechanismus %s bei %s: Zustand %d -> %d, Ziel \"%s\" - an den Partner", m->GetObjectName().ToChar(),
+        if (log)
+            WorldSyncLog("Mechanismus %s bei %s: Zustand %d -> %d, Ziel \"%s\" - an den Partner", m->GetObjectName().ToChar(),
             CoopPosKey(m->GetPositionWorld()).c_str(), from, to, m->triggerTarget.ToChar());
     }
 
@@ -1414,7 +1462,12 @@ namespace GOTHIC_ENGINE {
                     changed++;
                 }
             }
-            if (changed || missing)
+            static int doorLogs = 0;   // u291 (P386): laufender Tuer-Abgleich (Marke "d"), Log nur bei Aenderungen
+            if (e.contains("d")) {
+                if (changed && doorLogs++ < 40)
+                    WorldSyncLog("Tueren-Abgleich: %d geaendert (%d zugeordnet, %d hier nicht gefunden)", changed, found, missing);
+            }
+            else if (changed || missing)
                 WorldSyncLog("Mechanismen-Abgleich: %d zugeordnet, %d geaendert, %d hier nicht gefunden", found, changed, missing);
             return;
         }
@@ -1611,6 +1664,7 @@ namespace GOTHIC_ENGINE {
     // galten als "Aufheben": "HOST_NPC nahm ITAMBOLT ... hier nicht gefunden" - siehe CoopItemIsProjectile.
     struct CoopNpcDrop {
         std::string by, how;
+        std::string uname;   // u291 (P383): eindeutiger Name des NPCs (z. B. ORG_842_SHRIKE-1) - der Client sucht damit seine Kopie
         long long sinceMs = 0;
         zVEC3 last;
         int still = 0;
@@ -1631,6 +1685,18 @@ namespace GOTHIC_ENGINE {
             return false;
         f->second.taken = true;
         CoopNpcDropTakenEarly++;
+        // u291 (P383, Nutzer 18.11.: "Axt bei Gegner ist zweimal gedroppt"): der Partner hat die Waffe im Inventar der NPC-Kopie behalten
+        // (das Abbild laesst sie nur per Animation fallen) - die Kopie dort um ein Stueck verringern, nichts anlegen ("k" = nur Kopie)
+        if (!f->second.uname.empty()) {
+            json j;
+            j["i"] = CoopItemInst(it);
+            j["n"] = 1;
+            j["p"] = CoopPosJson(it->GetPositionWorld());
+            j["by"] = f->second.by;
+            j["u"] = f->second.uname;
+            j["k"] = 1;
+            WorldSyncSend(j, SYNC_ITEM_SPAWN);
+        }
         WorldSyncLog("%s: %s (%s) aufgehoben, bevor es lag - nicht an den Partner (er hatte es nie)", f->second.by.c_str(), CoopItemInst(it).c_str(), f->second.how.c_str());
         return true;
     }
@@ -1656,6 +1722,11 @@ namespace GOTHIC_ENGINE {
         CoopNpcDrop d;
         d.by = name;
         d.how = how;
+        {
+            auto un = NpcToUniqueNameList.find(npc);
+            if (un != NpcToUniqueNameList.end())
+                d.uname = un->second.ToChar();
+        }
         d.sinceMs = CurrentMs;
         d.last = it->GetPositionWorld();
         d.puppet = puppet;
@@ -1703,6 +1774,8 @@ namespace GOTHIC_ENGINE {
                     j["n"] = CoopItemAmount(it);
                     j["p"] = CoopPosJson(p);
                     j["by"] = d.by;
+                    if (!d.uname.empty())
+                        j["u"] = d.uname;   // u291 (P383)
                     WorldSyncSend(j, SYNC_ITEM_SPAWN);
                     CoopNpcDropsSent++;
                     WorldSyncLog("%s: %s (%s) liegt bei %s - an den Partner", d.by.c_str(), CoopItemInst(it).c_str(), d.how.c_str(), CoopPosKey(p).c_str());
@@ -1727,9 +1800,29 @@ namespace GOTHIC_ENGINE {
         const std::string inst = e["i"].get<std::string>();
         const std::string by = e.contains("by") && e["by"].is_string() ? e["by"].get<std::string>() : std::string();
         const int amount = e.contains("n") && e["n"].is_number() ? e["n"].get<int>() : 1;
+        const std::string uname = e.contains("u") && e["u"].is_string() ? e["u"].get<std::string>() : std::string();
+        const bool nurKopie = e.contains("k") && e["k"].is_number() && e["k"].get<int>() != 0;
+        // u291 (P383): die Kopie des NPCs hier hat die Waffe noch im Inventar - ein Stueck weg (nichts tun, wenn sie sie nicht hat)
+        auto kopieVerringern = [&](const char* wie) {
+            if (uname.empty())
+                return;
+            auto un = UniqueNameToNpcList.find(string(uname.c_str()));
+            oCNpc* kopie = un != UniqueNameToNpcList.end() ? un->second : NULL;
+            if (!kopie || kopie == player || PlayerNpcs.count(kopie) || !kopie->GetHomeWorld())
+                return;
+            const int vorher = NpcRemoveItems(kopie, inst, 1);
+            static CoopDiagBudget kopieBudget = { 0, 0 };
+            if (vorher && CoopDiagAllow(kopieBudget, 30))
+                WorldSyncLog("%s: %s - Kopie hier um ein Stueck verringert (%s, P383)", uname.c_str(), inst.c_str(), wie);
+        };
+        if (nurKopie) {
+            kopieVerringern("Host hob es auf, bevor es lag");
+            return;
+        }
         oCItem* da = FindLooseItem(inst, p, 50.f);
         if (da && !NpcDrops.count(da)) {
             WorldSyncLog("%s: %s bei %s vom Host - liegt hier schon", by.c_str(), inst.c_str(), CoopPosKey(p).c_str());
+            kopieVerringern("lag hier schon");   // u291 (P383): auch dann hat die Kopie die Waffe noch im Inventar
             return;
         }
         const int idx = parser->GetIndex(zSTRING(inst.c_str()));
@@ -1746,6 +1839,7 @@ namespace GOTHIC_ENGINE {
         it->Release();
         CoopNpcDropsSpawned++;
         WorldSyncLog("%s: %s bei %s vom Host - hier angelegt", by.c_str(), inst.c_str(), CoopPosKey(p).c_str());
+        kopieVerringern("Host liess es fallen");
     }
 
     void CoopWorldSyncReceive(json& e, const std::string& id) {
@@ -2010,13 +2104,31 @@ namespace GOTHIC_ENGINE {
         WorldLoadedMs = CurrentMs - 3000;
     }
 
+    // u291 (P386): alle 30 s Tueren im Umkreis der Coop-Spieler abgleichen (nur Host, nur mit Mitspieler in dieser Welt)
+    static void MobDoorSyncPulse() {
+        static long long nextMs = 0;
+        if (!ServerThread || PlayerNpcs.empty())
+            return;
+        if (!nextMs || CurrentMs > nextMs + 60000) {
+            nextMs = CurrentMs + 30000;
+            return;
+        }
+        if (CurrentMs < nextMs)
+            return;
+        nextMs = CurrentMs + 30000;
+        SendDoorBulk();
+    }
+
+    void CoopFokusSperrePuls();   // u291 (P381), u297 (P408): Hooks.cpp
     void CoopWorldSyncPulse() {
+        CoopFokusSperrePuls();   // u291 (P381), u297 (P408): Mitspieler mit gezogener Waffe nicht im Fokus
         CoopInstallDisableVobHook();   // einmal, im Hauptfaden, nach dem Laden aller Plugins
         ExpireWorldRemovals();
         if (MobSyncBase()) {
             MobPendingFlush();   // u137: in dieser Welt Benutztes, waehrend ich anderswo war
             MobBusyFlush();      // u145 (P146)
             HitTriggerList();    // u146 (P147)
+            MobDoorSyncPulse();  // u291 (P386)
         }
         // v75: Regel "Gegenstaende/Truhen" - wieder an: Bestand neu anfragen; aus: den vollen Stand (Lage, HP, Ausruestung) nach dem
         // Laden/Verbinden trotzdem anfordern (hing bisher an der Weltbestand-Anfrage)
@@ -2284,6 +2396,34 @@ namespace GOTHIC_ENGINE {
     static void MobEndStateChange(oCMobInter* m, oCNpc* npc, int from, int to) {
         if (!m || !npc || from == to || !MobSyncBase() || !MobSyncRelevant(m))
             return;
+        // u291 (P386, Nutzer 18.11.: "Tueren sind nicht synchronisiert immer noch scheinbar, in Archolos vor allem"): Tueren, die NPCs des Hosts benutzen, gehen auch an die Clients
+        // (dort sind NPCs Abbilder und oeffnen nie eine Tuer). Hoechstens 10 je Sekunde, nur mit Mitspieler in dieser Welt; den Rest gleicht MobDoorSyncPulse alle 30 s ab.
+        if (npc != player && ServerThread && !PlayerNpcs.empty() && !PlayerNpcs.count(npc) && zDYNAMIC_CAST<oCMobDoor>(m) && m->triggerTarget.IsEmpty()) {
+            static long long windowMs = 0;
+            static int inWindow = 0, doorSent = 0, doorDropped = 0;
+            if (CurrentMs - windowMs >= 1000) {
+                windowMs = CurrentMs;
+                inWindow = 0;
+            }
+            if (inWindow < 10) {
+                inWindow++;
+                MobSendUse(m, from, to, doorSent < 15);
+                doorSent++;
+                MobNoteChanged(m, to);
+            }
+            else if (doorDropped++ < 5)
+                WorldSyncLog("NPC-Tuer %s bei %s: zu viele je Sekunde, gleicht der Tueren-Abgleich aus", m->GetObjectName().ToChar(), CoopPosKey(m->GetPositionWorld()).c_str());
+            return;
+        }
+        // u296 (P406, Nutzer 21.11.: "Tueren sind vielleicht auch nicht synchronisiert"): Tuer-Benutzungen von Held und Host-NPCs (P386) kommen an;
+        // offen war nur, was ein vom Client gefuehrter NPC tut (seit P390 auch ausserhalb des Kampfs: Raum raeumen, Wecken, Dieb) - das gab es nur
+        // auf seinem PC. Der Client meldet solche Tueren jetzt wie den eigenen Helden
+        if (npc != player && ClientThread && !ServerThread && !PlayerNpcs.count(npc) && CoopLeadIsMine(npc) && zDYNAMIC_CAST<oCMobDoor>(m) &&
+            m->triggerTarget.IsEmpty()) {
+            MobSendUse(m, from, to);
+            MobNoteChanged(m, to);
+            return;
+        }
         if (npc == player || (ServerThread && !PlayerNpcs.count(npc) && !m->triggerTarget.IsEmpty())) {
             if (npc != player || !MobBusyTake(m, to))   // u145 (P146)
                 MobSendUse(m, from, to);
@@ -2502,6 +2642,228 @@ namespace GOTHIC_ENGINE {
         return v;
     }
 
+    // u279 (P355, Test Othello u273 16.11.: "Die Schuesse des Mitspielers sind nicht sichtbar, z. B. Bogen"): Geschosse gibt es nur auf dem
+    // PC des Schuetzen (P162) - die Figur beim anderen spielte nur die Bogen-Animation, ein Pfeil flog nie. Jetzt meldet der Schuetze jeden
+    // Schuss (eigener Held; beim Host auch seine NPCs - bei Clients schiessen deren Abbilder nicht) mit Geschoss, Start und Ziel, und der
+    // andere PC laesst ein reines Bild-Objekt (zCVob mit dem Aussehen des Geschosses, ohne Kollision, Physik und Strahltest) diese Strecke
+    // fliegen. Kein Gegenstand, kein Schaden - den Treffer meldet der Schuetze wie bisher
+    static const float SCHUSS_TEMPO = 4000.0f;   // cm/s
+    static const float SCHUSS_WEITE = 4000.0f;   // ohne Ziel: 40 m in Flugrichtung
+    struct CoopSchaupfeil {
+        zCVob* vob;
+        zVEC3 von, nach;
+        long long start;
+        float dauer;   // ms
+    };
+    static std::vector<CoopSchaupfeil> CoopSchaupfeile;
+    static int CoopSchuesseGesendet = 0, CoopSchuesseGezeigt = 0;
+
+    static void CoopSchussSenden(oCItem* geschoss, zCVob* schuetze, zCVob* ziel) {
+        if (!geschoss || !schuetze || !player || !(ServerThread || ClientThread) || IsCoopPaused || IsLoadingLevel)
+            return;
+        oCNpc* s = zDYNAMIC_CAST<oCNpc>(schuetze);
+        if (!s || (s != player && !(ServerThread && !PlayerNpcs.count(s))))
+            return;
+        const zVEC3 start = geschoss->GetPositionWorld();
+        // u293 (P393, Nutzer 19.11.: "Man sieht nicht die Pfeile vom Client"; Client-Log 1025 s und 1032 s: "Schuss von eigenem Helden
+        // (ITAMARROW, 1 m)"): das Ziel, das die Engine dem Pfeil gab, lag 1 m vom Start (der Schuetze selbst bzw. zu nah) - beim Partner
+        // flog der Schaupfeil 1 m in 25 ms. Ziel nur, wenn es weit genug weg und nicht der Schuetze ist, sonst Blickrichtung des Schuetzen.
+        // u296 (P401, Nutzer 21.11.: "Pfeile vom Client fliegen schief beim Host"): Gothic legt den Pfeil quer in die Hand. oCAIArrow::SetupAIVob
+        // (G2A 0x006A10E0) setzt die Lage der rechten Hand (GetTrafoModelNodeToWorld, PostRotateY(-90)); geflogen wird in Richtung dieser Lage.
+        // Ohne gueltiges Ziel nahm GT geschoss->GetAtVectorWorld() - 90 Grad daneben. Jetzt die Richtung wie die Engine.
+        zVEC3 ende;
+        const bool zielOk = ziel && ziel != schuetze && (ziel->GetPositionWorld() - start).Length() >= 300.0f;
+        if (zielOk)
+            ende = ziel->GetPositionWorld();
+        else {
+            if (ziel) {
+                static CoopDiagBudget zielLog = { 0, 0 };
+                if (CoopDiagAllow(zielLog, 10))
+                    OthelloCompatLog("[%lld s, %s] Schaupfeil: Ziel %s %.0f cm vom Start - Richtung der Hand genommen (P393, P401)", DiagSeconds(), DiagRole(),
+                        ziel == schuetze ? "Schuetze selbst" : ziel->GetObjectName().ToChar(), (ziel->GetPositionWorld() - start).Length());
+            }
+            zMAT4 hand = s->GetTrafoModelNodeToWorld(zSTRING("ZS_RIGHTHAND"));
+            hand.PostRotateY(-90.0f);
+            zVEC3 flug = hand.GetAtVector();
+            if (flug.Length() < 0.5f)
+                flug = s->GetAtVectorWorld();
+            flug.Normalize();
+            ende = start + flug * SCHUSS_WEITE;
+        }
+        json j;
+        j["type"] = SYNC_SCHUSS;
+        j["id"] = MyselfId.ToChar();
+        j["w"] = CoopWorldName();
+        j["i"] = geschoss->GetInstanceName().ToChar();
+        j["p"] = { start[0], start[1], start[2] };
+        j["e"] = { ende[0], ende[1], ende[2] };
+        ReadyToSendJsons.enqueue(j);
+        CoopSchuesseGesendet++;
+        static CoopDiagBudget sendLog = { 0, 0 };
+        if (CoopDiagAllow(sendLog, 10))
+            OthelloCompatLog("[%lld s, %s] Schaupfeil: Schuss von %s (%s, %.0f m) an den Partner (P355)", DiagSeconds(), DiagRole(),
+                s == player ? "eigenem Helden" : s->GetObjectName().ToChar(), geschoss->GetInstanceName().ToChar(), (ende - start).Length() / 100.0f);
+    }
+
+    void CoopSchussEmpfangen(json& e, const std::string& id) {
+        if (!ogame || !ogame->GetGameWorld() || !player || !parser || IsLoadingLevel)
+            return;
+        const std::string w = e.contains("w") && e["w"].is_string() ? e["w"].get<std::string>() : std::string();
+        if (w != CoopWorldName() || !e.contains("i") || !e["i"].is_string() || !e.contains("p") || !e.contains("e") ||
+            !e["p"].is_array() || !e["e"].is_array() || e["p"].size() != 3 || e["e"].size() != 3)
+            return;
+        const zVEC3 von(e["p"][0].get<float>(), e["p"][1].get<float>(), e["p"][2].get<float>());
+        const zVEC3 nach(e["e"][0].get<float>(), e["e"][1].get<float>(), e["e"][2].get<float>());
+        zVEC3 richtung = nach - von;
+        const float weg = richtung.Length();
+        if (weg < 50.0f || (von - player->GetPositionWorld()).Length() > 6000.0f || CoopSchaupfeile.size() >= 20)
+            return;   // zu kurz, weiter als 60 m weg oder schon 20 in der Luft
+        const int idx = parser->GetIndex(zSTRING(e["i"].get<std::string>().c_str()));
+        if (idx < 0)
+            return;
+        oCItem* it = CreateCoopItem(idx);
+        if (!it)
+            return;
+        // u294 (P396, Othello-Test u292: "Man sieht nicht die Pfeile vom Client"): oCItem::InitByScript setzt das Aussehen erst beim Einfuegen
+        // in die Welt (spart Speicher im Inventar), GetVisual() war hier immer NULL - oCItem::CreateVisual (G1 0x006713F0, G2A 0x00711930)
+        // setzt es aus dem Dateinamen
+        it->CreateVisual();   // u294 (P396): ohne das blieb bild NULL
+        zCVisual* bild = it->GetVisual();
+        if (bild) {
+            zCVob* v = new zCVob();
+            v->SetVisual(bild);
+            v->SetPhysicsEnabled(FALSE);
+            v->collDetectionStatic = FALSE;
+            v->collDetectionDynamic = FALSE;
+            v->ignoredByTraceRay = TRUE;
+            ogame->GetGameWorld()->AddVob(v);
+            v->SetPositionWorld(von);
+            richtung.Normalize();
+            v->SetHeadingAtWorld(richtung);
+            // u296 (P401): Netz liegt laengs der lokalen X-Achse, die Engine dreht nach dem Ausrichten um +90 (oCAIArrow::SetupAIVob mit Ziel)
+            zMAT4 lage = v->trafoObjToWorld;
+            lage.PostRotateY(90.0f);
+            v->SetTrafoObjToWorld(lage);
+            CoopSchaupfeil s;
+            s.vob = v;
+            s.von = von;
+            s.nach = nach;
+            s.start = CurrentMs;
+            s.dauer = weg / SCHUSS_TEMPO * 1000.0f;
+            CoopSchaupfeile.push_back(s);
+            CoopSchuesseGezeigt++;
+            static CoopDiagBudget zeigLog = { 0, 0 };
+            if (CoopDiagAllow(zeigLog, 10))
+                OthelloCompatLog("[%lld s, %s] Schaupfeil: Schuss von %s (%s, %.0f m) - fliegt %.0f ms (P355)", DiagSeconds(), DiagRole(),
+                    id.c_str(), e["i"].get<std::string>().c_str(), weg / 100.0f, s.dauer);
+        }
+        else {
+            static CoopDiagBudget ohneLog = { 0, 0 };   // u294 (P396)
+            if (CoopDiagAllow(ohneLog, 5))
+                OthelloCompatLog("[%lld s, %s] Schaupfeil: %s ohne Aussehen - nicht gezeigt (P396)", DiagSeconds(), DiagRole(),
+                    e["i"].get<std::string>().c_str());
+        }
+        it->Release();
+    }
+
+    // je Bild: Schaupfeile weiter, am Ziel (oder ohne Welt, z. B. nach Laden/Weltwechsel) weg
+    void CoopSchussPulse() {
+        for (size_t i = 0; i < CoopSchaupfeile.size();) {
+            CoopSchaupfeil& s = CoopSchaupfeile[i];
+            const float t = s.dauer > 1.0f ? (float)(CurrentMs - s.start) / s.dauer : 1.0f;
+            if (t >= 1.0f || !s.vob->GetHomeWorld()) {
+                if (s.vob->GetHomeWorld())
+                    s.vob->RemoveVobFromWorld();
+                s.vob->Release();
+                CoopSchaupfeile.erase(CoopSchaupfeile.begin() + i);
+                continue;
+            }
+            s.vob->SetPositionWorld(s.von + (s.nach - s.von) * t);
+            i++;
+        }
+    }
+
+    // u281 (P361, Test Othello u278 17.11.: "Level-Up wird beim Mitspieler nicht angezeigt"): Othellos B_GiveXP zeigt "N STUFE ERREICHT!"
+    // nur auf dem eigenen Bildschirm - vom Aufstieg des Partners sah man nichts. Jetzt meldet jeder den Aufstieg seines Helden, der Partner
+    // zeigt "<Name> hat Stufe N erreicht!" oben in der Mitte und im Chat. Nach dem Laden (der eigene Held wird wiederhergestellt) 20 s keine
+    // Meldung
+    static int CoopStufeZuletzt = -1;
+    static long long CoopStufeRuhigBis = 0;
+
+    void CoopStufeNachLaden() {
+        CoopStufeZuletzt = -1;
+        CoopStufeRuhigBis = GetCurrentMs() + 20000;
+    }
+
+    void CoopStufePulse() {
+        if (!player || IsLoadingLevel || CoopHeroSwapped() || !(ServerThread || ClientThread)) {
+            CoopStufeZuletzt = -1;
+            return;
+        }
+        const int lvl = player->level;
+        if (CoopStufeZuletzt < 0 || lvl <= CoopStufeZuletzt || CurrentMs < CoopStufeRuhigBis) {
+            CoopStufeZuletzt = lvl;
+            return;
+        }
+        CoopStufeZuletzt = lvl;
+        json j;
+        j["type"] = SYNC_STUFE;
+        j["id"] = MyselfId.ToChar();
+        j["l"] = lvl;
+        j["n"] = MyNickname.ToChar();
+        ReadyToSendJsons.enqueue(j);
+        OthelloCompatLog("[%lld s, %s] Stufe: eigener Held erreicht Stufe %d - an den Partner (P361)", DiagSeconds(), DiagRole(), lvl);
+    }
+
+    void CoopStufeEmpfangen(json& e, const std::string& id) {
+        if (!player || !e.contains("l") || !e["l"].is_number_integer())
+            return;
+        const int lvl = e["l"].get<int>();
+        const std::string wer = e.contains("n") && e["n"].is_string() && !e["n"].get<std::string>().empty() ? e["n"].get<std::string>() : id;
+        char b[200];
+        _snprintf(b, sizeof(b), CoopTr("%s hat Stufe %d erreicht!", "%s reached level %d!"), wer.c_str(), lvl);
+        b[sizeof(b) - 1] = 0;
+        zCOLOR farbe(197, 164, 71, 255);
+        if (screen)
+            screen->PrintTimedCX(1640, zSTRING(b), 5000.0f, &farbe);
+        ChatLog(string(b), farbe);
+        OthelloCompatLog("[%lld s, %s] Stufe: %s erreicht Stufe %d - angezeigt (P361)", DiagSeconds(), DiagRole(), wer.c_str(), lvl);
+    }
+
+    // u281 (P362, Test Othello u278 17.11.: "Bogen kann man immer noch manchmal nicht rausziehen, obwohl ausgeruestet"; u273 Log Client 428 s:
+    // "ZS_RIGHTHAND=ITAMARROW (nicht im Inventar)" bei weggestecktem Bogen): P353 raeumt nur beim K.o. auf. Liegt Munition in einer Hand des
+    // eigenen Helden, obwohl keine Waffe gezogen ist, kommt sie jetzt (je Sekunde geprueft) zurueck ins Inventar - sonst laesst sich die
+    // Fernkampfwaffe nicht mehr ziehen
+    void CoopHandRestePulse() {
+        static long long naechste = 0;
+        if (!player || CurrentMs < naechste)
+            return;
+        naechste = CurrentMs + 1000;
+        if (IsLoadingLevel || player->GetWeaponMode() != NPC_WEAPON_NONE || player->interactItem || player->GetBodyState() > BS_SPRINT ||
+            CoopHeroSwapped())
+            return;
+        static const char* const haende[] = { "ZS_RIGHTHAND", "ZS_LEFTHAND" };
+        for (const char* hand : haende) {
+            TNpcSlot* s = player->GetInvSlot(zSTRING(hand));
+            oCItem* g = s && s->vob ? zDYNAMIC_CAST<oCItem>(s->vob) : NULL;
+            if (!g || !(g->mainflag & ITM_CAT_MUN))
+                continue;
+            const std::string nm = g->GetInstanceName().ToChar();
+            const bool imInventar = CoopInInventory(player, g);
+            g->AddRef();
+#if ENGINE >= Engine_G2
+            player->RemoveFromSlot(s, FALSE, TRUE);
+#else
+            player->RemoveFromSlot(s, FALSE);
+#endif
+            if (!imInventar)
+                player->PutInInv(g);
+            g->Release();
+            OthelloCompatLog("[%lld s, %s] Hand: Geschoss %s lag ohne gezogene Waffe in %s - %s (P362)", DiagSeconds(), DiagRole(), nm.c_str(),
+                hand, imInventar ? "aus der Hand genommen" : "zurueck ins Inventar");
+        }
+    }
+
     // u157 (P162): Geschoss merken, bis es die Welt verlaesst (CoopItemIsProjectile). Einziger Aufrufer ist oCNpc::DoShootArrow
     // (G1 0x006A0CC8, G2A 0x00744971) - NPCs und Spieler; der Schuetze ist das zweite Argument.
     void __fastcall oCAIArrow_SetupAIVob_Coop(oCAIArrow* _this, void* vtable, zCVob* arrow, zCVob* shooter, zCVob* target);
@@ -2514,6 +2876,7 @@ namespace GOTHIC_ENGINE {
             it->AddRef();
             Projectiles[it] = CurrentMs;
         }
+        CoopSchussSenden(it, shooter, target);   // u279 (P355): Schaupfeil beim Partner
     }
 
     // u173 (P180): LoA-Lauf u170 (Client, 04.11. 17:16, nach 43 min): Zugriffsfehler in oCNpc::DoShootArrow +0x10B (G2A 0x007447BB,
@@ -2577,6 +2940,12 @@ namespace GOTHIC_ENGINE {
     void CoopWorldSyncPeerGone(const std::string&) {}
     void CoopWorldSyncWorldLoaded() {}
     void CoopWorldSyncPulse() {}
+    void CoopSchussEmpfangen(json&, const std::string&) {}   // u279 (P355)
+    void CoopSchussPulse() {}
+    void CoopStufeNachLaden() {}   // u281 (P361)
+    void CoopStufePulse() {}
+    void CoopStufeEmpfangen(json&, const std::string&) {}
+    void CoopHandRestePulse() {}   // u281 (P362)
     void CoopWorldSyncRequestAgain() {}   // u12: Testlauf (G2A)
     void CoopWorldSyncSaveLoaded() {}     // u137
 #endif

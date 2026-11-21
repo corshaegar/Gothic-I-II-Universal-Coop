@@ -197,13 +197,43 @@ namespace GOTHIC_ENGINE {
     void __fastcall oCNpc_OnDamage_Coop(oCNpc* _this, void* vtable, oCNpc::oSDamageDescriptor& d);
     CInvoke<void(__thiscall*)(oCNpc*, oCNpc::oSDamageDescriptor&)> Ivk_oCNpc_OnDamage_Coop(CoopAddr::oCNpc_OnDamage, &oCNpc_OnDamage_Coop,
         COOP_IVK(HooksExt));
+    void CoopLeadSwingReport(oCNpc* attacker, oCNpc* figur, oCNpc::oSDamageDescriptor& d);   // u296 (P403): CoopHitAuthority.cpp
     void __fastcall oCNpc_OnDamage_Coop(oCNpc* _this, void* vtable, oCNpc::oSDamageDescriptor& d) {
+        if (_this && _this == player && CoopLiegtEigen())
+            return;   // u282 (P363): liegt am Boden statt tot (ReviveFriendLoop.cpp) - kein Schaden, kein zweiter Tod
+        // u296 (P402, Nutzer 21.11.: "wenn der Client/Host eine Eiswelle macht, wird man auch selbst als Mitspieler mit eingefroren"): jeder
+        // Zauber des Partners wird beim anderen PC mit seiner Figur als Wirker nachgespielt (RemoteNpc::UpdateSpellCasts: Spell_Setup/Invest/
+        // Cast). Die Eiswelle trifft dabei den eigenen Helden: oCVisualFX -> EV_DAMAGE_ONCE -> oCNpc::OnDamage -> Effekt -> B_AssessMagic
+        // (laut G2-Skript auch fuer den Spieler) -> ZS_MagicFreeze; beim Host zog oCNpc_OnDamage_Hit sogar HP ab. Umgekehrt fror der eigene
+        // Zauber die Figur des Partners beim Client ein. Treffer zwischen Coop-Spielern sind jetzt ohne Wirkung (Treffer auf NPCs bleiben)
+        if ((ServerThread || ClientThread) && _this && d.pNpcAttacker && d.pNpcAttacker != _this &&
+            ((_this == player && PlayerNpcs.count(d.pNpcAttacker)) || (d.pNpcAttacker == player && PlayerNpcs.count(_this)))) {
+            static CoopDiagBudget ffBudget = { 0, 0 };
+            if (CoopDiagAllow(ffBudget, 10))
+                OthelloCompatLog("[%lld s, %s] Freundfeuer: %s trifft %s (Zauber %d, Schadensart %lu) - zwischen Coop-Spielern ohne Wirkung (P402)",
+                    DiagSeconds(), DiagRole(), d.pNpcAttacker == player ? "eigener Held" : d.pNpcAttacker->GetObjectName().ToChar(),
+                    _this == player ? "eigenen Helden" : _this->GetObjectName().ToChar(), (int)d.nSpellID, (unsigned long)d.enuModeDamage);
+            return;
+        }
         if (ServerThread && !IsCoopPaused && _this && _this != player && PlayerNpcs.count(_this) && CoopClientHitAuthority()) {
             oCNpc* a = d.pNpcAttacker;
             // v72: ein NPC, den ein Client im Kampf fuehrt, ist hier Puppe - seine Treffer rechnet der Client selbst
-            if (a && a != player && !PlayerNpcs.count(a) && !CoopLeadIsRemote(a))
+            // u296 (P403): Geschosse und Zauber eines solchen NPCs schossen noch vom Host ab, bevor er ihn abgab - die Puppe selbst wirkt
+            // beim Host nie, also meldet der Host sie dem Besitzer ebenfalls (der Besitzer rechnet nur, wenn der NPC dort wirklich trifft)
+            const bool fern = (d.enuModeWeapon & 4) != 0 || (d.enuModeWeapon & 8) != 0 || d.pFXHit != NULL;
+            if (a && a != player && !PlayerNpcs.count(a) && (!CoopLeadIsRemote(a) || fern))
                 CoopSwingReport(a, _this, d);
             return;
+        }
+        // u296 (P403, Nutzer 21.11.: "Die Magie der Gegner macht keinen Schaden, wenn sie den anderen Spieler als Ziel hat"): ein NPC, den
+        // dieser Client fuehrt, trifft hier die Figur eines anderen Spielers - die Figur nimmt keinen Schaden, der Getroffene entscheidet
+        // (CoopHitAuthority.cpp, CoopLeadSwingReport) und rechnet ueber CoopClientSwing
+        if (ClientThread && !ServerThread && !IsCoopPaused && _this && _this != player && PlayerNpcs.count(_this)) {
+            oCNpc* a = d.pNpcAttacker;
+            if (a && a != player && !PlayerNpcs.count(a) && CoopLeadIsMine(a)) {
+                CoopLeadSwingReport(a, _this, d);
+                return;
+            }
         }
         Ivk_oCNpc_OnDamage_Coop(_this, d);
     }
@@ -228,6 +258,162 @@ namespace GOTHIC_ENGINE {
                 npc->attribute[NPC_ATR_HITPOINTS], npc->GetHomeWorld() ? "ja" : "nein");
     }
 
+    // u282 (P363): stirbt der eigene Held im Coop durch einen Gegner, legt ReviveFriendLoop.cpp (CoopLiegenStattTod) ihn stattdessen hin
+    void __fastcall oCNpc_DoDie_Coop(oCNpc* _this, void* vtable, oCNpc* killer);
+    CInvoke<void(__thiscall*)(oCNpc*, oCNpc*)> Ivk_oCNpc_DoDie_Coop(CoopAddr::oCNpc_DoDie, &oCNpc_DoDie_Coop, COOP_IVK(HooksExt));
+    void __fastcall oCNpc_DoDie_Coop(oCNpc* _this, void* vtable, oCNpc* killer) {
+        if (_this && _this == player && CoopLiegenStattTod(killer))
+            return;
+        Ivk_oCNpc_DoDie_Coop(_this, killer);
+    }
+
+    // u297 (P408, Nutzer 21.11.: "ich moechte ja, dass der Partner komplett nicht anvisierbar ist, aber es ist ja moeglich"; gemeint: im
+    // Kampf gar nicht anvisierbar, nicht nur ohne Name/Balken): P381 (u291) griff nie - Gothic setzt den Fokus in oCNpc::CollectFocusVob,
+    // ToggleFocusVob und dem darin gerufenen GetNearestValidVob OHNE SetFocusVob (eingebettet, Binaercode: G2A 0x00733A10 schreibt
+    // [esi+9ACh] = focus_vob direkt; G1 0x00690D70 [edi+9E4h]). Alle drei Schleifen filtern ueber den Vob-Typ (zCVob::type; Fokus nur
+    // fuer NSC/ITEM/MOB, sonst "default: continue"). Darum zeigt die Fokussuche die Mitspieler-Figuren im Kampf (Modus 1-7, jetzt auch
+    // Magie - "komplett") fuer die Dauer des Aufrufs als gewoehnliche Vobs (zVOB_TYPE_NORMAL) und stellt den Typ danach genau zurueck.
+    // Wiederbeleben (Shift+F4) und Teleport finden den Partner auch ohne Fokus (naechste Figur). Dazu P381 wieder: SetFocusVob-Haken
+    // (Othellos eigene Fokussuche, Kampf-Befehle) und Puls (Fokus, der schon vor dem Ziehen der Waffe auf dem Partner lag - Gothic sucht
+    // dann nicht neu: oCAIHuman "NO NEED TO RECOLLECT THE FOCUS")
+    static bool CoopFokusSperreKampf() {   // gezogene Waffe, Faeuste oder Magie (Modus 1-7)
+        if (!player || !(ServerThread || ClientThread))
+            return false;
+        const int wm = player->GetWeaponMode();
+        return wm >= 1 && wm <= 7;
+    }
+    static bool CoopFokusIstMitspieler(zCVob* v) {
+        oCNpc* n = v ? zDYNAMIC_CAST<oCNpc>(v) : NULL;
+        return n && n != player && (PlayerNpcs.count(n) || IsCoopPlayer(n->GetObjectName()));
+    }
+    // Figuren der Mitspieler fuer die Dauer der Fokussuche ohne NPC-Typ (zVOB_TYPE_NORMAL) - danach genau zurueck
+    struct CoopFokusTypTausch {
+        std::vector<std::pair<oCNpc*, zTVobType>> alt;
+        CoopFokusTypTausch() {
+            for (auto& p : PlayerNpcs) {
+                oCNpc* n = p.first;
+                if (!n || n == player || n->type != zVOB_TYPE_NSC)
+                    continue;
+                alt.push_back(std::make_pair(n, n->type));
+                n->type = zVOB_TYPE_NORMAL;
+            }
+        }
+        ~CoopFokusTypTausch() {
+            for (auto& a : alt)
+                a.first->type = a.second;
+        }
+    };
+    static void CoopFokusSucheLog(size_t n) {
+        static CoopDiagBudget budget = { 0, 0 };
+        if (n > 0 && CoopDiagAllow(budget, 3))
+            OthelloCompatLog("[%lld s, %s] Fokus: %d Mitspieler-Figur(en) bei der Fokussuche im Kampf ausgeblendet - nicht anvisierbar (P408)",
+                DiagSeconds(), DiagRole(), (int)n);
+    }
+#if ENGINE >= Engine_G2
+    void __fastcall oCNpc_CollectFocusVob_Coop(oCNpc* _this, void* vtable, int force);
+    CInvoke<void(__thiscall*)(oCNpc*, int)> Ivk_oCNpc_CollectFocusVob_Coop(CoopAddr::oCNpc_CollectFocusVob, &oCNpc_CollectFocusVob_Coop,
+        COOP_IVK(HooksExt));
+    void __fastcall oCNpc_CollectFocusVob_Coop(oCNpc* _this, void* vtable, int force) {
+        if (_this && _this == player && CoopFokusSperreKampf() && !PlayerNpcs.empty()) {
+            CoopFokusTypTausch tausch;
+            Ivk_oCNpc_CollectFocusVob_Coop(_this, force);
+            CoopFokusSucheLog(tausch.alt.size());
+            return;
+        }
+        Ivk_oCNpc_CollectFocusVob_Coop(_this, force);
+    }
+#else
+    void __fastcall oCNpc_CollectFocusVob_Coop(oCNpc* _this, void* vtable);
+    CInvoke<void(__thiscall*)(oCNpc*)> Ivk_oCNpc_CollectFocusVob_Coop(CoopAddr::oCNpc_CollectFocusVob, &oCNpc_CollectFocusVob_Coop,
+        COOP_IVK(HooksExt));
+    void __fastcall oCNpc_CollectFocusVob_Coop(oCNpc* _this, void* vtable) {
+        if (_this && _this == player && CoopFokusSperreKampf() && !PlayerNpcs.empty()) {
+            CoopFokusTypTausch tausch;
+            Ivk_oCNpc_CollectFocusVob_Coop(_this);
+            CoopFokusSucheLog(tausch.alt.size());
+            return;
+        }
+        Ivk_oCNpc_CollectFocusVob_Coop(_this);
+    }
+#endif
+    void __fastcall oCNpc_ToggleFocusVob_Coop(oCNpc* _this, void* vtable, int dir);
+    CInvoke<void(__thiscall*)(oCNpc*, int)> Ivk_oCNpc_ToggleFocusVob_Coop(CoopAddr::oCNpc_ToggleFocusVob, &oCNpc_ToggleFocusVob_Coop,
+        COOP_IVK(HooksExt));
+    void __fastcall oCNpc_ToggleFocusVob_Coop(oCNpc* _this, void* vtable, int dir) {
+        if (_this && _this == player && CoopFokusSperreKampf() && !PlayerNpcs.empty()) {
+            CoopFokusTypTausch tausch;
+            Ivk_oCNpc_ToggleFocusVob_Coop(_this, dir);
+            CoopFokusSucheLog(tausch.alt.size());
+            return;
+        }
+        Ivk_oCNpc_ToggleFocusVob_Coop(_this, dir);
+    }
+    void __fastcall oCNpc_SetFocusVob_Coop(oCNpc* _this, void* vtable, zCVob* vob);
+    CInvoke<void(__thiscall*)(oCNpc*, zCVob*)> Ivk_oCNpc_SetFocusVob_Coop(CoopAddr::oCNpc_SetFocusVob, &oCNpc_SetFocusVob_Coop,
+        COOP_IVK(HooksExt));
+    void __fastcall oCNpc_SetFocusVob_Coop(oCNpc* _this, void* vtable, zCVob* vob) {
+        if (_this && _this == player && vob && CoopFokusSperreKampf() && CoopFokusIstMitspieler(vob)) {
+            static CoopDiagBudget budget = { 0, 0 };
+            if (CoopDiagAllow(budget, 5))
+                OthelloCompatLog("[%lld s, %s] Fokus: Mitspieler %s mit gezogener Waffe nicht fokussierbar (P381, P408)", DiagSeconds(), DiagRole(),
+                    vob->GetObjectName().ToChar());
+            Ivk_oCNpc_SetFocusVob_Coop(_this, NULL);
+            return;
+        }
+        Ivk_oCNpc_SetFocusVob_Coop(_this, vob);
+    }
+    // u291 (P381), u297 (P408): Absicherung je Bild (CoopWorldSyncPulse) - liegt der Fokus oder der Gegner im Kampf doch auf einem Mitspieler
+    // (z. B. gesetzt, bevor die Waffe gezogen war), wird er geloescht
+    void CoopFokusSperrePuls() {
+        if (!player || IsLoadingLevel || !CoopFokusSperreKampf())
+            return;
+        static CoopDiagBudget budget = { 0, 0 };
+        oCNpc* f = player->GetFocusNpc();
+        if (CoopFokusIstMitspieler(f)) {
+            player->ClearFocusVob();
+            if (CoopDiagAllow(budget, 5))
+                OthelloCompatLog("[%lld s, %s] Fokus: Mitspieler %s mit gezogener Waffe aus dem Fokus genommen (P381, P408)", DiagSeconds(),
+                    DiagRole(), f->GetObjectName().ToChar());
+        }
+        oCNpc* e = player->enemy;
+        if (CoopFokusIstMitspieler(e)) {
+            player->SetEnemy(NULL);
+            if (CoopDiagAllow(budget, 5))
+                OthelloCompatLog("[%lld s, %s] Fokus: Mitspieler %s mit gezogener Waffe aus dem Fokus genommen (P381, P408)", DiagSeconds(),
+                    DiagRole(), e->GetObjectName().ToChar());
+        }
+    }
+
+    // u296 (P404, Nutzer 21.11.: "Ausserdem soll es immer noch moeglich sein, den Mitspieler im Kampf anzuvisieren, es soll einfach nur
+    // kein Name etc. erscheinen."): Gothic zeichnet Fokusname und Lebensbalken in oCGame::UpdatePlayerStatus (G1 0x00638F90, G1A
+    // 0x0065F4E0, G2 0x00666640, G2A 0x006C3140; G1 und G2A holen den Fokus dort ueber oCNpc::GetFocusVob, Einstiege unveraendert
+    // mov eax, fs:[0]). Ist ein Mitspieler im Fokus und der eigene Held hat eine Waffe gezogen (Modus 1-7), loescht der Haken den Fokus
+    // nur fuer diesen Aufruf (ohne SetFocusVob, die Referenz bleibt beim Helden). GTs eigene Markierung laesst ihren Namen im Fokus
+    // ohnehin weg (P263). u297 (P408): nur noch Absicherung - im Kampf ist der Partner gar nicht mehr Fokus
+    static bool CoopFokusOhneAnzeige(zCVob* f) {
+        return f && CoopFokusSperreKampf() && CoopFokusIstMitspieler(f);
+    }
+    void __fastcall oCGame_UpdatePlayerStatus_Coop(oCGame* _this, void* vtable);
+    CInvoke<void(__thiscall*)(oCGame*)> Ivk_oCGame_UpdatePlayerStatus_Coop(CoopAddr::oCGame_UpdatePlayerStatus, &oCGame_UpdatePlayerStatus_Coop,
+        COOP_IVK(HooksExt));
+    void __fastcall oCGame_UpdatePlayerStatus_Coop(oCGame* _this, void* vtable) {
+        oCNpc* held = player;
+        zCVob* f = held ? held->focus_vob : NULL;
+        if (!CoopFokusOhneAnzeige(f)) {
+            Ivk_oCGame_UpdatePlayerStatus_Coop(_this);
+            return;
+        }
+        held->focus_vob = NULL;   // nur fuer diesen Aufruf, ohne SetFocusVob (Referenz bleibt beim Helden)
+        Ivk_oCGame_UpdatePlayerStatus_Coop(_this);
+        if (!held->focus_vob)
+            held->focus_vob = f;
+        static CoopDiagBudget budget = { 0, 0 };
+        if (CoopDiagAllow(budget, 5))
+            OthelloCompatLog("[%lld s, %s] Fokus: Mitspieler %s im Kampf doch im Fokus - Name und Lebensbalken ausgeblendet (P404, Absicherung zu P408)", DiagSeconds(),
+                DiagRole(), f->GetObjectName().ToChar());
+    }
+
+    void CoopKoWaffenMerken();   // u291 (P380): ReviveFriendLoop.cpp
     void __fastcall oCNpc_DropAllInHand_Coop(oCNpc* _this, void* vtable);
     CInvoke<void(__thiscall*)(oCNpc*)> Ivk_oCNpc_DropAllInHand_Coop(CoopAddr::oCNpc_DropAllInHand, &oCNpc_DropAllInHand_Coop,
         COOP_IVK(HooksExt));
@@ -241,6 +427,44 @@ namespace GOTHIC_ENGINE {
         // Coop steht ein toter Spieler wieder auf (Wiederbeleben), die Waffe lag dann in der Welt bzw. fehlte der Figur. Coop-Spieler
         // (eigener Held und Figuren) behalten jetzt, was sie in den Haenden halten. Allgemein
         if (_this && (ServerThread || ClientThread) && (_this == player || IsCoopPlayer(_this->GetObjectName()))) {
+            // u278 (P353, Test Othello u273 16.11.: "Man kann den Bogen manchmal nicht rausholen, obwohl ausgeruestet"): blieb der eigene
+            // Held mit gezogenem Bogen liegen (K.o., Tod), hielt er danach Bogen und eingelegten Pfeil weiter in den Haenden - das Ziehen
+            // ging nicht mehr (Log Client 420 s: "eigener Held behaelt, was in den Haenden ist (P319)", 428 s: "ZS_RIGHTHAND=ITAMARROW
+            // (nicht im Inventar)"). Jetzt steckt der eigene Held die Waffe sofort weg (SetWeaponMode2 wie vor jeder Uebernahme in
+            // CoopSaveSync.cpp), ein Geschoss in der anderen Hand geht zurueck ins Inventar. Die Waffe bleibt beim Helden, wie P319 es
+            // wollte. Figuren bleiben wie bisher
+            if (_this == player) {
+                const int wm = _this->GetWeaponMode();
+                oCItem* fern = _this->GetEquippedRangedWeapon();
+                int geschoss = 0;
+                if (fern && (wm == 5 || wm == 6)) {   // Bogen links, Armbrust rechts - das Geschoss liegt in der anderen Hand
+                    TNpcSlot* s = _this->GetInvSlot(zSTRING(wm == 5 ? "ZS_RIGHTHAND" : "ZS_LEFTHAND"));
+                    oCItem* g = s && s->vob ? zDYNAMIC_CAST<oCItem>(s->vob) : NULL;
+                    if (g && g != fern && g->GetInstance() == fern->munition && !CoopInInventory(_this, g)) {
+                        g->AddRef();
+#if ENGINE >= Engine_G2
+                        _this->RemoveFromSlot(s, FALSE, TRUE);
+#else
+                        _this->RemoveFromSlot(s, FALSE);
+#endif
+                        _this->PutInInv(g);
+                        g->Release();
+                        geschoss = 1;
+                    }
+                }
+                if (wm != NPC_WEAPON_NONE)
+                    _this->SetWeaponMode2(NPC_WEAPON_NONE);
+                // u291 (P380, Nutzer 18.11.: "Waffe sollte ausgeruestet bleiben, auch wenn man KO geht"): ausgeruestete Waffen merken,
+                // ReviveFriendLoop.cpp ruestet sie nach dem Aufstehen bei Bedarf wieder aus
+                // u296 (P405): erst nach dem Wegstecken - weggesteckt liegt die Waffe wieder in ZS_SWORD/ZS_LONGSWORD bzw. ZS_BOW/ZS_CROSSBOW,
+                // nur dort sehen GetEquippedMeleeWeapon/-RangedWeapon sie (in der Hand merkte P380 "Nahkampf nein, Fernkampf nein")
+                CoopKoWaffenMerken();
+                static CoopDiagBudget wegBudget = { 0, 0 };
+                if (CoopDiagAllow(wegBudget, 10))
+                    OthelloCompatLog("[%lld s, %s] Tod/K.o.: eigener Held steckt die Waffe weg (Modus %d)%s - nichts faellt (P319, P353)",
+                        DiagSeconds(), DiagRole(), wm, geschoss ? ", Geschoss aus der Hand zurueck ins Inventar" : "");
+                return;
+            }
             static CoopDiagBudget dropBudget = { 0, 0 };
             if (CoopDiagAllow(dropBudget, 10))
                 OthelloCompatLog("[%lld s, %s] Tod/K.o.: %s behaelt, was in den Haenden ist (Coop-Spieler, P319)", DiagSeconds(), DiagRole(),
@@ -248,6 +472,54 @@ namespace GOTHIC_ENGINE {
             return;
         }
         Ivk_oCNpc_DropAllInHand_Coop(_this);
+    }
+
+    // u296 (P405, Nutzer 21.11.: "Die Waffe wird fallen gelassen, sobald man stirbt, sodass man sie nicht ausgeruestet hat - die Waffe soll
+    // aber immer ausgeruestet sein."): Gothics ZS_Unconscious (wird auch vom Spieler ausgefuehrt) und ZS_Dead rufen AI_UnequipWeapons(self)
+    // (G2-Skripte, mdk\g2); ZS_Unconscious_End ruestet nur NPCs wieder aus. Die Waffen gingen aus den Guertel-/Ruecken-Slots zurueck ins
+    // Inventar. Coop-Spieler behalten sie jetzt bei K.o. und Tod: der Haken auf oCNpc::EV_UnequipWeapons erledigt den Auftrag ohne Wirkung.
+    // Einstiege G1 (Othello GothicMod.exe) und G2A geprueft (push esi; mov esi, ecx). Skript-Aufrufe im Dialog (G2: Saturas, Rod) laufen
+    // weiter, dort steht der Held
+    int __fastcall oCNpc_EV_UnequipWeapons_Coop(oCNpc* _this, void* vtable, oCMsgWeapon* msg);
+    CInvoke<int(__thiscall*)(oCNpc*, oCMsgWeapon*)> Ivk_oCNpc_EV_UnequipWeapons_Coop(CoopAddr::oCNpc_EV_UnequipWeapons,
+        &oCNpc_EV_UnequipWeapons_Coop, COOP_IVK(HooksExt));
+    int __fastcall oCNpc_EV_UnequipWeapons_Coop(oCNpc* _this, void* vtable, oCMsgWeapon* msg) {
+        if (_this && (ServerThread || ClientThread) && (_this == player || PlayerNpcs.count(_this) || IsCoopPlayer(_this->GetObjectName())) &&
+            (_this->IsUnconscious() || _this->IsDead() || (_this == player && CoopLiegtEigen()))) {
+            static CoopDiagBudget budget = { 0, 0 };
+            if (CoopDiagAllow(budget, 10))
+                OthelloCompatLog("[%lld s, %s] Waffen: %s bleibt ausgeruestet (K.o./Tod - AI_UnequipWeapons des Skripts uebersprungen, P405)",
+                    DiagSeconds(), DiagRole(), _this == player ? "eigener Held" : _this->GetObjectName().ToChar());
+            return TRUE;   // Auftrag erledigt
+        }
+        return Ivk_oCNpc_EV_UnequipWeapons_Coop(_this, msg);
+    }
+
+    // u279 (P356, Test Othello u273 16.11.: beim Client 20-mal "Zauberbuch an eigenem Helden mit ungueltigem Vob ... Referenzzaehler <= 0"
+    // - das Zauberbuch hielt eine schon geloeschte Rune. P341 ueberspringt sie nur; jeder andere Zugriff der Engine (Zauber waehlen, wirken)
+    // liest freigegebenen Speicher - "Teleport-Rune Freund ... nach einer Zeit Access Violation"). Geht eine Rune (Gegenstand ohne Stapel;
+    // Spruchrollen stapeln und bleiben aussen vor) des eigenen Helden aus dem Inventar und steht sie noch im Zauberbuch, traegt GT sie
+    // vorher dort aus (oCMag_Book::DeRegister) - egal, welcher Weg sie herausnimmt (Uebernahme, Coop-Truhe, Abgleich, Skript)
+    oCItem* __fastcall oCNpc_RemoveFromInv_Coop(oCNpc* _this, void* vtable, oCItem* item, int amount);
+    CInvoke<oCItem*(__thiscall*)(oCNpc*, oCItem*, int)> Ivk_oCNpc_RemoveFromInv_Coop(CoopAddr::oCNpc_RemoveFromInv, &oCNpc_RemoveFromInv_Coop,
+        COOP_IVK(HooksExt));
+    oCItem* __fastcall oCNpc_RemoveFromInv_Coop(oCNpc* _this, void* vtable, oCItem* item, int amount) {
+        if (_this && _this == player && item && !(item->flags & ITM_FLAG_MULTI)) {
+            oCMag_Book* book = _this->GetSpellBook();
+            if (book) {
+                for (int i = 0; i < book->spellitems.GetNumInList(); i++) {
+                    if (book->spellitems[i] != item)
+                        continue;
+                    book->DeRegister(item);
+                    static CoopDiagBudget magBudget = { 0, 0 };
+                    if (CoopDiagAllow(magBudget, 10))
+                        OthelloCompatLog("[%lld s, %s] Zauberbuch: %s verlaesst das Inventar - vorher aus dem Zauberbuch ausgetragen (P356)",
+                            DiagSeconds(), DiagRole(), item->GetInstanceName().ToChar());
+                    break;
+                }
+            }
+        }
+        return Ivk_oCNpc_RemoveFromInv_Coop(_this, item, amount);
     }
 
     void __fastcall oCNpc_CheckModelOverlays_Coop(oCNpc* _this, void* vtable);
@@ -577,6 +849,7 @@ namespace GOTHIC_ENGINE {
                 DiagSeconds(), DiagRole(), npc->GetObjectName().ToChar(), n, state);
     }
 
+    void CoopDialogAttackReport(oCNpc* npc, const char* state);   // u291 (P382): CoopDialogSync.cpp
     int __fastcall oCNpc_States_StartAIState_Coop(oCNpc_States* _this, void* vtable, int index, int endOld, int timeBehaviour, float timed, int isRtnState);
     CInvoke<int(__thiscall*)(oCNpc_States*, int, int, int, float, int)> Ivk_oCNpc_States_StartAIState_Coop(CoopAddr::oCNpc_States_StartAIState, &oCNpc_States_StartAIState_Coop,
         COOP_IVK(HooksExt));
@@ -655,34 +928,47 @@ namespace GOTHIC_ENGINE {
                 aivMmParty = CoopAivIndex("AIV_MM_PARTYMEMBER", COOP_AIV_MMPARTY_FALLBACK);
             }
             const bool party = (aivParty >= 0 && npc->aiscriptvars[aivParty]) || (aivMmParty >= 0 && npc->aiscriptvars[aivMmParty]);
-            if (name && !party && CoopClientCombatStateName(name)) {
+            // u293 (P390, Othello-Test u292): Raum-, Weck- und Dieb-Reaktionen auf den eigenen Helden (ZS_ClearRoom, ZS_WakeUp ...) waren
+            // hier nicht gesperrt und liefen gegen die Daten des Hosts ins Leere. Jetzt wie die Kampfzustaende gesperrt, und der Host wird
+            // um den NPC gebeten (CoopLeadWant, CoopCombatLead.cpp) - der Client fuehrt ihn dann selbst und startet den Zustand.
+            // OTHER/VICTIM setzt die Engine vor StartAIState (EV_DoState, Wahrnehmungen) - nur Zeiger vergleichen.
+            oCNpc* other = CoopParserNpcSymbol(0);
+            oCNpc* victim = CoopParserNpcSymbol(1);
+            const bool byHero = player && (other == player || npc->enemy == player);
+            const bool kampf = name && CoopClientCombatStateName(name);
+            const bool reaktion = name && !kampf && byHero && !CoopWpMirroring() && CoopLeadWantStateName(name);   // u293 (P390): Raum, Wecken, Dieb - bisher hier nicht gesperrt
+            if (name && !party && (kampf || reaktion)) {
                 // u179 (P182): feindlich zum eigenen Helden nur, wenn er der Ausloeser ist. Bis u178 jede gesperrte Reaktion - auch
                 // ZS_ASSESSMURDER/ZS_WATCHFIGHT, die ein anderer ausloeste (Mord der Figur des Hosts, fremder Kampf); die Wache war
                 // dann nur hier feindlich, beim Host ruhig (Liste 6w, G1-Aufnahme b264: GRD_275_BRUECKENWACHE). OTHER/VICTIM setzt
                 // die Engine vor StartAIState (EV_DoState, Wahrnehmungen) - nur Zeiger vergleichen, Namen nur bekannter Figuren.
-                oCNpc* other = CoopParserNpcSymbol(0);
-                oCNpc* victim = CoopParserNpcSymbol(1);
-                const bool byHero = player && (other == player || npc->enemy == player);
                 // u193 (P195): feindlich nur bei einem echten Angriff auf den eigenen Helden (CoopClientAttackStateName). Bis u192
                 // auch bei beobachtenden Reaktionen. G1-Gegentest b291 beim Client: STT_336_CAVALORN sah den Helden einen Scavenger
                 // toeten, ZS_ASSESSMURDER gesperrt, "feindlich zum Helden". Beim Host blieb er ruhig, beim Client galt er als Feind.
                 // Ebenso ORG_859_AIDAN nach zwei Woelfen. Beide standen an den einzigen Wegen zum Alten und Neuen Lager.
                 const bool hostile = npc->IsHuman() && byHero && CoopClientAttackStateName(name);
-                if (hostile)
+                if (hostile) {
                     npc->SetTmpAttitude(NPC_ATT_HOSTILE);
+                    CoopDialogAttackReport(npc, name);   // u291 (P382): nach einem Dialog dem Host melden, damit er den NPC angreifen laesst
+                }
+                const bool will = byHero && !CoopWpMirroring() && CoopLeadWantStateName(name);
+                if (will)
+                    CoopLeadWant(npc, name);   // u293 (P390): Host um den NPC bitten - der Client fuehrt ihn dann selbst
                 static CoopDiagBudget budget = { 0, 0 };
                 if (CoopDiagAllow(budget, 30))
-                    OthelloCompatLog("[%lld s, %s] Kampf-KI hier aus: %s startet %s nicht (der Host fuehrt den NPC; bleibt in %s; Ausloeser %s, Opfer %s%s)",
+                    OthelloCompatLog("[%lld s, %s] Kampf-KI hier aus: %s startet %s nicht (der Host fuehrt den NPC; bleibt in %s; Ausloeser %s, Opfer %s%s)%s",
                         DiagSeconds(), DiagRole(), npc->GetObjectName().ToChar(), name, _this->curState.name.ToChar(),
                         CoopKnownNpcName(other).c_str(), CoopKnownNpcName(victim).c_str(),
                         !npc->IsHuman() ? "" : hostile ? " - feindlich zum Helden" : byHero ? " - Haltung bleibt (beobachtet nur, P195)" :
-                        " - Haltung bleibt");
+                        " - Haltung bleibt", will ? " - Uebernahme angefragt (P390)" : "");
                 CoopPercRestore(npc, name);   // u188 (P189)
                 return 1;
             }
         }
         return Ivk_oCNpc_States_StartAIState_Coop(_this, index, endOld, timeBehaviour, timed, isRtnState);
     }
+#else
+    void CoopFokusSperrePuls() {}   // u291 (P381), u297 (P408)
 #endif
 
     void __fastcall oCNpc_OnDamage_Hit(oCNpc*, void*, oCNpc::oSDamageDescriptor&);
@@ -817,6 +1103,13 @@ namespace GOTHIC_ENGINE {
         _this->SetAttribute(NPC_ATR_HITPOINTSMAX, MaxHpBeforeOnDamage);
     }
 
+    // u291 (P384, Nutzer 18.11.: "Lefty ist gestorben, obwohl er nur KO gehen sollte"): K.o.-Zeitpunkt je NPC (Client, fuer P351). Ein
+    // nachlaufender Schlag 1-2 s nach dem K.o. galt sonst als Todesstoss. Leer bei Weltwechsel (Welt-Zeiger wechselt) und wenn der NPC
+    // wieder wach ist
+    static std::map<oCNpc*, long long> CoopKoSeit;
+    static zCWorld* CoopKoSeitWelt = NULL;
+    static const long long CoopTodesstossAbMs = 3000;
+
     void __fastcall oCNpc_OnDamage_Sound(oCNpc*, void*, oCNpc::oSDamageDescriptor&);
 #if ENGINE >= Engine_G2
     CInvoke<void(__thiscall*)(oCNpc*, oCNpc::oSDamageDescriptor&)> Ivk_oCNpc_OnDamage_Sound(0x0067A8A0, &oCNpc_OnDamage_Sound);
@@ -880,6 +1173,49 @@ namespace GOTHIC_ENGINE {
         hit.dmgTotal = damdesc.fDamageTotal;
         hit.dmgEffective = damdesc.fDamageEffective;
         hit.dmgReal = damdesc.fDamageReal;
+        // u278 (P351, Test Othello u273 16.11.: "wenn der Mitspieler einen NPC toetet, ist dieser nicht sofort tot, sondern die
+        // Todesanimation kommt, wenn der NPC aufstehen will"): Beim Client stirbt die Kopie eines vom Host gefuehrten NPCs am Todesstoss
+        // nicht (seine KI-Zustaende laufen hier nicht). Der Schlag ging als "Schaden 0, bewusstlos" an den Host (Log Client: "HP vorher 1,
+        // beim Sound 1, danach 1 -> uebertragen 0 | ... tot 0 bewusstlos 1"), dort schlug RemoteNpc::UpdateAttacks ihn nur erneut k.o.,
+        // und er lag, bis er aufstehen wollte. oCNpc_EV_AttackFinish (unten) greift in Othello nicht - der Held schlaegt normal zu. Jetzt:
+        // ein Schlag des eigenen Helden mit einer Nahkampfwaffe auf einen NPC, der schon vor dem Schlag bewusstlos war (HP vorher hoechstens
+        // 1), ist der Todesstoss - das Paket sagt "tot" wie bei EV_AttackFinish, der Host toetet ihn im Zweig "toedlicher Treffer"
+        if (ClientThread && !ServerThread) {   // u291 (P384): K.o.-Zeitpunkt merken
+            zCWorld* welt = ogame ? ogame->GetGameWorld() : NULL;
+            if (welt != CoopKoSeitWelt) {
+                CoopKoSeit.clear();
+                CoopKoSeitWelt = welt;
+            }
+            if (!_this->IsUnconscious() || _this->IsDead())
+                CoopKoSeit.erase(_this);
+            else if (!CoopKoSeit.count(_this)) {
+                if (CoopKoSeit.size() > 200)
+                    CoopKoSeit.clear();
+                CoopKoSeit[_this] = CurrentMs;
+            }
+        }
+        if (ClientThread && !ServerThread && hit.attacker == player && hit.isUnconscious && !hit.isDead &&
+            hit.hpBefore >= 0 && hit.hpBefore <= 1) {
+            const int wm = player->GetWeaponMode();
+            auto koSeit = CoopKoSeit.find(_this);
+            const long long koMs = koSeit != CoopKoSeit.end() ? CurrentMs - koSeit->second : CoopTodesstossAbMs;
+            if (wm >= 2 && wm <= 4 && koMs < CoopTodesstossAbMs) {   // u291 (P384): K.o. weniger als 3 s her - normaler K.o.-Treffer, kein Tod
+                static CoopDiagBudget verworfenLog = { 0, 0 };
+                if (CoopDiagAllow(verworfenLog, 20))
+                    OthelloCompatLog("[%lld s, %s] Todesstoss verworfen: %s erst %lld ms bewusstlos (P384)", DiagSeconds(), DiagRole(),
+                        _this->GetObjectName().ToChar(), koMs);
+            }
+            else if (wm >= 2 && wm <= 4) {   // Dolch, Einhand, Zweihand (NPC_WEAPON_DAG/1HS/2HS) - mit Faeusten (1) gibt es keinen Todesstoss
+                hit.isDead = true;
+                hit.isUnconscious = 0;
+                if (hit.damage < 1)
+                    hit.damage = 1;
+                static CoopDiagBudget todesstossLog = { 0, 0 };
+                if (CoopDiagAllow(todesstossLog, 20))
+                    OthelloCompatLog("[%lld s, %s] Todesstoss: eigener Held trifft den bewusstlosen %s (Waffenmodus %d) - als Tod an den Host (P351)",
+                        DiagSeconds(), DiagRole(), _this->GetObjectName().ToChar(), wm);
+            }
+        }
         CoopDamageDefer(hit);   // endgueltig gemessen im naechsten Durchlauf (CoopDamage.cpp)
 
         Ivk_oCNpc_OnDamage_Sound(_this, damdesc);

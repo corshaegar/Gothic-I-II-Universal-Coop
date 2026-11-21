@@ -94,6 +94,11 @@ namespace GOTHIC_ENGINE {
         return CoopModDataGet().vobSync;
     }
 
+    // u275 (P347): "testWorld" des Profils - zweite Welt fuer die Welten-Schritte des Coop-Tests (CoopSelfTest.cpp, CTSecondWorld)
+    const std::string& CoopModTestWorld() {
+        return CoopModDataGet().testWorld;
+    }
+
     // u199 (P221): "heroStates" des Profils - KI-Zustaende, in denen HERO den Spieler dort meint (CoopDialogSync.cpp, DoAIState).
     // CoopModHeroStatesAny ist der schnelle Vorab-Test (je Bild fuer jeden NPC gefragt).
     bool CoopModHeroStatesAny() {

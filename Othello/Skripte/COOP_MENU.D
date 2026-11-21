@@ -2396,11 +2396,13 @@ instance MENU_OPT_COOP_KEYS(C_MENU_DEF)
 	items[18] = "MENUITEM_COOPKEYS_VAL_REINIT";
 	items[19] = "MENUITEM_COOPKEYS_LBL_SYNC";
 	items[20] = "MENUITEM_COOPKEYS_VAL_SYNC";
-	items[21] = "MENUITEM_COOPKEYS_NOTE";
-	items[22] = "MENUITEM_COOPKEYS_NOTE2";
-	items[23] = "MENUITEM_COOPKEYS_RESET";
-	items[24] = "MENUITEM_COOPKEYS_BACK";
-	items[25] = "MENUITEM_OPTCOOPKEYS_VERSION";
+	items[21] = "MENUITEM_COOPKEYS_LBL_NOTFALL";
+	items[22] = "MENUITEM_COOPKEYS_VAL_NOTFALL";
+	items[23] = "MENUITEM_COOPKEYS_NOTE";
+	items[24] = "MENUITEM_COOPKEYS_NOTE2";
+	items[25] = "MENUITEM_COOPKEYS_RESET";
+	items[26] = "MENUITEM_COOPKEYS_BACK";
+	items[27] = "MENUITEM_OPTCOOPKEYS_VERSION";
 	defaultoutgame = 1;
 	defaultingame = 1;
 	flags = flags | MENU_SHOW_INFO;
@@ -2688,13 +2690,41 @@ instance MENUITEM_COOPKEYS_VAL_SYNC(C_MENU_ITEM_DEF)
 	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
 };
 
+// u295 (P398): Notfall-Taste (CoopKeys.cpp CK_NOTFALL, Vorgabe Shift+F8) - fehlte im Menue
+instance MENUITEM_COOPKEYS_LBL_NOTFALL(C_MENU_ITEM_DEF)
+{
+	backpic = MENU_ITEM_BACK_PIC;
+	text[0] = "Notfall: Dialog/Feststecken lösen";
+	text[1] = "Beendet einen hängenden Dialog und löst den eigenen Helden (feststecken, keine Steuerung).";
+	fontname = MENU_FONT_SMALL;
+	posx = 1000;
+	posy = 4550;
+	dimx = 3500;
+	dimy = 300;
+	onselaction[0] = SEL_ACTION_EXECCOMMANDS;
+	onselaction_s[0] = "COOP_KEY_NOTFALL";
+	userString[3] = "Ends a stuck dialogue and frees your own hero (stuck, no control).";
+};
+
+instance MENUITEM_COOPKEYS_VAL_NOTFALL(C_MENU_ITEM_DEF)
+{
+	fontname = MENU_FONT_SMALL;
+	text[0] = " ";
+	type = MENU_ITEM_TEXT;
+	posx = 4600;
+	posy = 4550;
+	dimx = 3300;
+	dimy = 300;
+	flags = IT_CHROMAKEYED | IT_TRANSPARENT;
+};
+
 instance MENUITEM_COOPKEYS_NOTE(C_MENU_ITEM_DEF)
 {
 	fontname = MENU_FONT_SMALL;
 	text[0] = " ";
 	type = MENU_ITEM_TEXT;
 	posx = 300;
-	posy = 4580;
+	posy = 4910;
 	dimx = 7592;
 	dimy = 280;
 	flags = IT_CHROMAKEYED | IT_TRANSPARENT | IT_TXT_CENTER;
@@ -2706,7 +2736,7 @@ instance MENUITEM_COOPKEYS_NOTE2(C_MENU_ITEM_DEF)
 	text[0] = " ";
 	type = MENU_ITEM_TEXT;
 	posx = 300;
-	posy = 4860;
+	posy = 5190;
 	dimx = 7592;
 	dimy = 280;
 	flags = IT_CHROMAKEYED | IT_TRANSPARENT | IT_TXT_CENTER;

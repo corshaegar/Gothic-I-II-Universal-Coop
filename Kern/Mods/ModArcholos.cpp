@@ -176,6 +176,8 @@ namespace GOTHIC_ENGINE {
                 "ZS_GUIDE_PLAYER_NOSOUND", "ZS_GUIDE_PLAYER_NOTALK", "ZS_RUNTOMARVIN", "ZS_RUNTOMARVIN_VOLKER"
             ],
 )json" R"json(
+            // u275 (P347): zweite Welt fuer den Coop-Test - Archolos hat kein NEWWORLD (Worlds.vdf leer)
+            "testWorld": "ARCHOLOS_SEWERS.ZEN",
             "vobSync": [
                 // per Ikarus geaenderte Objekte (Sichtbarkeit/Kollision/Aussehen): Hausdeko des Spielerhauses (Selbstgespraech
                 // PC_HOUSE_CRAFT_*), Graeber, Tueren, Leichen, Kisten, Marktstaende, Effekte der Angelstellen u. a. - nur Namen, die als

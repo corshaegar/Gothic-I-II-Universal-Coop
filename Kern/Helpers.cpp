@@ -288,6 +288,24 @@ namespace GOTHIC_ENGINE {
         return false;
     }
 
+    // u275 (P345): oCNpc_States::parOther/parVictim/parItem (OTHER/VICTIM/ITEM des laufenden KI-Zustands) halten keinen Verweis.
+    // Othello-Volltest u273 15.11. (Client): ZS_ASSESSMONSTER -> B_SAYOVERLAY -> B_SMARTTURNTONPC las ein freigegebenes OTHER (erstes
+    // Wort 0xC2C60000) - Zugriffsfehler bei GothicMod.exe+0x37720D. true = Zeiger lebt (oder NULL); false = freigegeben (gemeldet)
+    bool CoopStateParAlive(oCNpc* npc, const void* p, const char* par, const char* zs) {
+        if (!p)
+            return true;
+        void* vt = NULL;
+        int ref = 0;
+        const char* why = CoopVobDeadWhy(p, &vt, &ref, false);
+        if (!why)
+            return true;
+        static CoopDiagBudget budget = { 0, 0 };
+        if (CoopDiagAllow(budget, 20))
+            OthelloCompatLog("[%lld s, %s] Absturzschutz (P345): %s im Zustand %s - %s zeigte auf ein freigegebenes Objekt %p (%s; vtable %p, Zaehler %d) - Zustand beendet",
+                DiagSeconds(), DiagRole(), npc ? CoopSlotOwnerName(npc).c_str() : "-", zs && *zs ? zs : "-", par, p, why, vt, ref);
+        return false;
+    }
+
     // u142 (P142): oCMsgManipulate::targetVob haelt keinen Verweis. Testlaeufe G1 und Othello, immer beim Client (u134, u136; sechs
     // Abstuerze bei GothicMod.exe+0x2AFF9E, z. B. Lesen von 0x7962227B = "{\"by" - dort lag schon ein Netz-Paket): Der Gegenstand eines
     // laufenden EV_USEITEMTOSTATE war frei und oCNpc::interactItem leer. Die Engine holt ihn dann neu aus der Nachricht und ruft seine
@@ -397,7 +415,74 @@ namespace GOTHIC_ENGINE {
             _snprintf(out, size - 1, "keine gefunden");
     }
 
+    // u292 (P389, Othello-Test u291 19.11., Client 723 s, 11 s nach dem gemeinsamen Speichern; ebenso Test u273): 20-mal "Zauberbuch
+    // an eigenem Helden mit ungueltigem Vob (Referenzzaehler <= 0; vtable 007D0894 = zCObject::vftable)" - im Zauberbuch stand ein
+    // schon zerstoerter Gegenstand (Destruktor durchgelaufen). P356 (oCNpc::RemoveFromInv) griff nicht, der Weg war ein anderer.
+    // Jetzt traegt GT jedes Bild zerstoerte Eintraege mit oCMag_Book::DeRegister(int) aus (G1 0x0046F1C0, G2A 0x00475DA0; vergleicht
+    // nur den Zeigerwert, fasst den Gegenstand nicht an), sobald kein Zauber bereit und der Zauberkreis zu ist. Diagnose: wird ein
+    // Gegenstand zerstoert, der im letzten Bild im Zauberbuch stand (Haken oCItem::~oCItem), kommen er und seine Aufrufer ins Log.
+    // Allgemein (G1/G2).
+    static const int CoopZbMax = 32;
+    static const void* CoopZbItems[CoopZbMax];   // Zeiger der Zauberbuch-Eintraege des eigenen Helden aus dem letzten Bild - nur zum Vergleichen
+    static int CoopZbCount = 0;
+
+    void CoopZauberbuchItemFreeing(const void* item) {
+        if (!item || IsLoadingLevel)
+            return;
+        int platz = -1;
+        for (int i = 0; i < CoopZbCount; i++)
+            if (CoopZbItems[i] == item) {
+                platz = i;
+                break;
+            }
+        if (platz < 0)
+            return;
+        CoopZbItems[platz] = NULL;   // je Zeiger nur einmal melden
+        static char trail[1800];   // nicht auf dem Stapel - sonst liest CoopStackTrail alte Werte darin mit
+        CoopStackTrail(trail, sizeof(trail), 32);
+        static CoopDiagBudget budget = { 0, 0 };
+        if (CoopDiagAllow(budget, 20))
+            OthelloCompatLog("[%lld s, %s] Zauberbuch: %s (%p) wird zerstoert, stand im letzten Bild im Zauberbuch des eigenen Helden (Platz %d) - Aufrufer: %s (P389)",
+                DiagSeconds(), DiagRole(), ((oCItem*)item)->GetInstanceName().ToChar(), item, platz, trail);
+    }
+
+    static void CoopZauberbuchPruefen() {
+        CoopZbCount = 0;
+        oCMag_Book* book = player->GetSpellBook();
+        if (!book)
+            return;
+        const int n = book->spellitems.GetNumInList();
+        if (n < 0 || n > 64 || n != book->spells.GetNumInList())
+            return;
+        const bool ruhig = player->GetWeaponMode() != NPC_WEAPON_MAG && !book->open && !book->in_movement;
+        for (int i = n - 1; i >= 0; i--) {   // rueckwaerts: DeRegister(int) setzt den letzten Eintrag an die frei gewordene Stelle
+            oCItem* it = book->spellitems[i];
+            void* vt = NULL;
+            int ref = 0;
+            const char* why = it ? CoopVobDeadWhy(it, &vt, &ref, false) : NULL;
+            if (!why)
+                continue;
+            if (ruhig) {
+                book->DeRegister(i);
+                static CoopDiagBudget budget = { 0, 0 };
+                if (CoopDiagAllow(budget, 20))
+                    OthelloCompatLog("[%lld s, %s] Zauberbuch: zerstoerter Gegenstand %p an Platz %d ausgetragen (%s; vtable %p, Zaehler %d) (P389)",
+                        DiagSeconds(), DiagRole(), (void*)it, i, why, vt, ref);
+            }
+            else {
+                static CoopDiagBudget budget = { 0, 0 };
+                if (CoopDiagAllow(budget, 5))
+                    OthelloCompatLog("[%lld s, %s] Zauberbuch: zerstoerter Gegenstand %p an Platz %d (%s) - wartet, bis kein Zauber bereit und der Zauberkreis zu ist (P389)",
+                        DiagSeconds(), DiagRole(), (void*)it, i, why);
+            }
+        }
+        const int m = book->spellitems.GetNumInList();
+        for (int i = 0; i < m && CoopZbCount < CoopZbMax; i++)
+            CoopZbItems[CoopZbCount++] = (const void*)book->spellitems[i];
+    }
+
     void CoopMsgItemsWorldGone() {   // LoadBegin (Plugin.cpp): die Zeiger gehoeren zur alten Welt
+        CoopZbCount = 0;   // u292 (P389): Zeiger gehoeren zur alten Welt
         CoopMsgItems.clear();
         CoopMsgItemInUse = NULL;
     }
@@ -518,6 +603,7 @@ namespace GOTHIC_ENGINE {
         if (!ogame || !player || !ogame->GetGameWorld())
             return;
         CoopScrubDeadSlots(player, NULL, false);
+        CoopZauberbuchPruefen();   // u292 (P389): zerstoerte Eintraege im Zauberbuch des eigenen Helden austragen
         for (auto& kv : PlayerNpcs)
             CoopScrubDeadSlots(kv.first, NULL, false);
         static long long next = 0;

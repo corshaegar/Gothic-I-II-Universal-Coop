@@ -70,8 +70,11 @@ namespace GOTHIC_ENGINE {
     static const char* const MOUSE_CURSOR_OWN = "GOTHICCOOP_CURSOR.TGA";
     static bool MouseCursorOwn = false;
 
+    // u288 (P372, Nutzer 18.11.: "Ich moechte, dass du die Maus ersetzt mit der Standard-Gothic-1-Maus, die wir fuer Coop da haben"): auch
+    // unter Othello zeichnet GT seinen eigenen Pfeil (GOTHICCOOP_CURSOR wie in Gothic 1 und Gothic II) statt Othellos OTHELLO_CURSOR.TGA.
+    // Othellos eigene Fenster (Inventar, B-Fenster) zeichnen ihren Zeiger selbst. Gothic.ini [GOTHICCOOP] coopMenuCursor stellt ihn um
     static std::string MouseCursorDefault() {
-        return CoopProfileIsOthello() ? "OTHELLO_CURSOR.TGA" : MOUSE_CURSOR_OWN;
+        return MOUSE_CURSOR_OWN;
     }
     static zCView* MouseView = NULL;
     static volatile bool MouseMenuOn = false;
@@ -400,6 +403,14 @@ namespace GOTHIC_ENGINE {
                 }
             }
         }
+        // u289 (P374, Othello-Test u288 18.11.: "wenn ich z. B. ueber die Auftraege gehe, dann bewegt sich die Auswahl der Menues links";
+        // Log: "Tagebuch: Zeiger auf MENU_ITEM_SEL_MISSIONS_FAILED - Esc an die Liste", waehrend der Zeiger ueber der Themenliste stand):
+        // die Zeilen-Regel von u267 nahm im Tagebuch den Reiter derselben Hoehe, sobald der Zeiger ueber der Liste in der Mitte kein Thema
+        // traf (unter dem letzten Thema, neben den Zeilen) - die Kategorie wechselte, eine laufende Liste bekam Esc. Menues mit Themenliste
+        // (MENU_ITEM_LISTBOX: das Tagebuch) nehmen die Regel nicht. Allgemein G1/G2 (seit u267)
+        for (int i = 0; i < n; i++)
+            if (menu->m_listItems[i] && menu->m_listItems[i]->m_parType == MENU_ITEM_LISTBOX)
+                return -1;
         // u267 (P326, Nutzer 15.11.: "in den Othello Einstellungen fuer Steuerung kann man die einzelnen Zeilen nicht anklicken"): kein
         // Eintrag unter dem Zeiger bzw. ein Wertefeld, dessen Beschriftung nicht direkt davor in der Liste steht (Othellos Tastenmenue) - dann
         // gilt der waehlbare Eintrag derselben Zeile (Hoehe ueberlappt), bei mehreren der waagrecht naechste; ein Wertefeld (Eingabe, Auswahl,
@@ -659,11 +670,23 @@ namespace GOTHIC_ENGINE {
         MouseLog("Tagebuch: %s", buf);
     }
 
+    // u288 (P373, Nutzer 18.11.: "alle Elemente des Tagebuchs muessen anklickbar sein und bereits beim Hovern darueber klickbar sein"):
+    // unter Othello steht auf dem vtable-Platz zUtilities (G1 0x007D2C1C -> ZUTILITIES.DLL+0x25150). Gemessen (ZUTILITIES.DLL aus Othellos
+    // $Templates$): es ruft zuerst Gothics DrawFront (Union-Original) und faerbt danach in den vier Tagebuch-Listen nur einzelne Zeilen
+    // (zCViewText Farbe +0x2C, colored +0x34) - die Zeilen liegen also wie bei Gothic. Darum gilt u21 (Ueberfahren markiert das Thema,
+    // Klick zeigt es, Zeiger auf einem Reiter wechselt die Liste) jetzt auch mit zUtilities' DrawFront
+    static bool MouseListZUtilities(DWORD fn) {
+        HMODULE zu = GetModuleHandleA("ZUTILITIES.DLL");
+        HMODULE von = NULL;
+        return zu && GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCSTR)fn, &von) &&
+            von == zu;
+    }
+
     static bool MouseListOwnDraw(zCMenuItem* it) {
         if (!it || it->m_parType != MENU_ITEM_LISTBOX)
             return false;
         DWORD* slot = *(DWORD**)it + CoopAddr::vtslot_zCMenuItem_DrawFront / 4;
-        return IsReadableMemory(slot, 4) && *slot == CoopAddr::zCMenuItemList_DrawFront;
+        return IsReadableMemory(slot, 4) && (*slot == CoopAddr::zCMenuItemList_DrawFront || MouseListZUtilities(*slot));
     }
 
     // Thema unter dem Zeiger (Zeilen wie zCMenuItemList::DrawFront), sonst -1
@@ -703,6 +726,17 @@ namespace GOTHIC_ENGINE {
         return NULL;
     }
 
+    // u290 (P375, Othello-Test u289 18.11.: "nur der erste wird gehighlightet, wenn man weiter ueber die anderen Eintraege geht, dann werden
+    // die nicht hervorgehoben, aber wenn man draufklickt, ist es der korrekte Eintrag"): GT setzte beim Ueberfahren nur m_cur_element - die
+    // Zeilen schreibt aber erst zCMenuItemList::DrawFront neu; Gothics HandleEvent ruft es nach jedem Wechsel ueber den vtable-Platz
+    // (G1 0x004D96C3: call [edx+0x58]). Jetzt zeichnet GT die Liste nach jedem Wechsel ebenso neu (unter Othello steht dort zUtilities, das
+    // Gothics DrawFront ruft und die Farben setzt). Allgemein G1/G2
+    static void MouseListRedraw(zCMenuItem* it) {
+        typedef void(__thiscall* VoidFn)(zCMenuItem*);
+        if (it)
+            ((VoidFn)(*(DWORD**)it)[CoopAddr::vtslot_zCMenuItem_DrawFront / 4])(it);
+    }
+
     // true = Bild erledigt (der Rest der Menue-Maus nicht)
     static bool MouseListFrame(zCMenu* menu, zCMenuItem* runList, bool menuOnTop, int x, int y, bool moved, bool click) {
         const DWORD now = MouseMenuTick;
@@ -719,6 +753,7 @@ namespace GOTHIC_ENGINE {
                 const bool ok = MouseListWantIdx < l->m_list.GetNum();
                 if (ok) {
                     l->m_cur_element = MouseListWantIdx;
+                    MouseListRedraw(runList);   // u290 (P375)
                     if (MouseListWantOpen)
                         MousePushKey(0x1C);
                 }
@@ -733,6 +768,7 @@ namespace GOTHIC_ENGINE {
             if (idx >= 0) {
                 if ((moved || click) && idx != l->m_cur_element) {
                     l->m_cur_element = idx;
+                    MouseListRedraw(runList);   // u290 (P375): Markierung sichtbar nachziehen
                     MouseBrowseSound();
                 }
                 if (click) {
@@ -743,6 +779,11 @@ namespace GOTHIC_ENGINE {
             }
             int valueIdx = -1;
             const int hit = (moved || click) ? MouseHit(menu, x, y, valueIdx) : -1;
+            // u289 (P374, Log u288: "Klick in MENU_LOG auf MENU_ITEM_SEL_MISSIONS_ACT -> RETURN", gleich danach "Zeiger auf
+            // MENU_ITEM_SEL_MISSIONS_ACT - Esc an die Liste"): der Zeiger auf dem eigenen Reiter der laufenden Liste verlaesst sie nicht -
+            // nur ein anderer Reiter wechselt die Liste
+            if (hit >= 0 && MouseTabList(menu, menu->m_listItems[hit]) == runList)
+                return true;
             if (hit >= 0 && now - MouseListEscAt > 500) {   // Zeiger auf einem Reiter: Liste verlassen
                 MouseListEscAt = now;
                 MouseListTabIdx = hit;

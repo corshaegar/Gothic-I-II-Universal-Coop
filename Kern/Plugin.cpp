@@ -312,7 +312,9 @@ namespace GOTHIC_ENGINE {
 
     void CoopKeysGamePulse();    // u226 (P268): CoopKeys.cpp - Hinweise im Spiel (Hilfe-Taste, Hosten/Firewall, Mitspieler bewusstlos)
     void CoopKeysWorldGone();    // u226: CoopKeys.cpp - NPC-Zeiger der alten Welt verwerfen
+    void CoopKeysAfterLoad();    // u294 (P394): CoopKeys.cpp - Bewegungssperre 1,5 s nach dem Laden pruefen
     void CoopKeysMenuKeyPulse(); // u226: CoopKeys.cpp - Hilfe-/Fenster-Taste am Tastenzustand, Menue ueber eigenen Tastencode
+    void CoopMenuOhnePausePulse(); // u284 (P367): CoopKeys.cpp - im Coop haelt ein offenes Menue das Spiel nicht an
 
     // u225 (P262): Bildzeit je Abschnitt von Game_Loop - CoopDiag.cpp schreibt alle 30 s die Zeile "Bildzeit"
     void CoopFrameProfAdd(int abschnitt, double ms);
@@ -340,6 +342,7 @@ namespace GOTHIC_ENGINE {
 
         FpFrame fp;   // u225 (P262)
         CurrentMs = GetCurrentMs();
+        CoopMenuOhnePausePulse();   // u284 (P367): Menue offen - die Welt laeuft weiter, der eigene Held ist gesperrt
         GameChat->Render();
         GameStatsLoop();
         PacketProcessorLoop();
@@ -403,6 +406,9 @@ namespace GOTHIC_ENGINE {
         CoopTeleportPulse();  // v102: Teleport-Rune (Ziel Mitspieler, Startausstattung)
         PluginState = "Truhe";
         CoopTruhePulse();     // u97: Coop-Truhe (Benutzen -> Fenster, Schliessen, Gegenstand im Inventar)
+        CoopSchussPulse();    // u279 (P355): Schaupfeile des Partners weiterbewegen
+        CoopStufePulse();     // u281 (P361): eigener Stufenaufstieg an den Partner
+        CoopHandRestePulse(); // u281 (P362): Geschoss ohne gezogene Waffe zurueck ins Inventar
         PluginState = "PartnerMarker";
         CoopPartnerMarkerPulse();   // v104: Name ueber dem Kopf / Pfeil am Bildrand / Marke auf Othellos Karte
         CoopKeysGamePulse();        // u226 (P268): Hinweise (Hilfe-Taste, Hosten/Firewall, Mitspieler bewusstlos)
@@ -700,6 +706,9 @@ namespace GOTHIC_ENGINE {
         }
         LoadEnd();
         CoopWorldSyncSaveLoaded();       // u137: wartende Mechanismen anderer Welten verwerfen
+        CoopStufeNachLaden();            // u281 (P361): eigener Held wird gleich wiederhergestellt - 20 s keine Stufenmeldung
+        CoopLiegenNachLaden();           // u282 (P363): nach dem Laden liegt niemand mehr
+        CoopKeysAfterLoad();             // u294 (P394): Bewegungssperre des neuen Helden pruefen
         CoopSaveSyncEntryVarsAtLoad();   // u140: Eintritts-Merker der fremden Weltdateien dieses Slots
 
         auto coopFriendInstanceId = GetFriendDefaultInstanceId();

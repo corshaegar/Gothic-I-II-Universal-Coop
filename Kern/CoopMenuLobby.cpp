@@ -64,6 +64,8 @@ namespace GOTHIC_ENGINE {
         std::set<std::string> runs;   // v93: Durchlaeufe, die dieser Client kennt
         std::string nick;             // v93: Spielername (Durchlauf-Kennung)
         std::string why;              // u198 (P209): warum er nicht passt, wenn nicht die Fassung (anderes Spiel)
+        std::string pc;               // u280 (P357): seine PC-Kennung (Antwort "have")
+        std::vector<CoopListEntry> bk;   // u280 (P357): Staende, deren Kopie meines PCs er als Sicherung hat - mir fehlen sie
     };
 
     struct CoopLobbyState {
@@ -76,6 +78,10 @@ namespace GOTHIC_ENGINE {
         std::set<std::string> gameHave, gameRuns;
         bool gameHaveKnown = false;
         long long gameAskMs = 0;
+        std::string gamePc;                  // u280 (P357): im Spiel - PC-Kennung des Partners (Antwort "have")
+        std::vector<CoopListEntry> gameBk;   // u280 (P357): im Spiel - Zeilen "beim Partner"
+        std::string bkWaitSid;               // u280 (P357): Hauptmenue - Zeile "beim Partner" gewaehlt, eigene Kopie wird zurueckgeholt
+        long long bkWaitMs = 0;
         // Client
         bool helloSent = false, hostHello = false, hostVerOk = false, hostInGame = false;
         bool hostTakes = false;       // v71: Host spielt schon und schickt den laufenden Stand
@@ -228,6 +234,7 @@ namespace GOTHIC_ENGINE {
         json j;
         j["op"] = "slots";
         j["slots"] = list;
+        j["pc"] = CoopSaveSyncPcId();   // u280 (P357): der Partner meldet Sicherungen meiner Staende, die mir fehlen ("bk")
         LobbySend(j);
         LobbyLog("%s: %u eigene gemeinsame St" COOP_AE "nde an den Partner geschickt", ServerThread ? "Host" : "Client", (unsigned)Lobby.listSids.size());
     }
@@ -236,12 +243,14 @@ namespace GOTHIC_ENGINE {
     static void LobbyAnswerSlots(json& e) {
         json have = json::array();
         int n = 0, k = 0;
+        std::set<std::string> theirs;   // u280 (P357): seine eigenen gemeinsamen Staende
         if (e.contains("slots") && e["slots"].is_array()) {
             for (auto& s : e["slots"]) {
                 if (!s.contains("sid") || !s["sid"].is_string())
                     continue;
                 n++;
                 const std::string sid = s["sid"].get<std::string>();
+                theirs.insert(sid);
                 if (CoopSaveSyncHasOwnHero(sid)) {
                     have.push_back(sid);
                     k++;
@@ -253,15 +262,48 @@ namespace GOTHIC_ENGINE {
         json r = json::array();
         for (auto const& x : runs)
             r.push_back(x);
+        // u280 (P357): Staende, deren Kopie seines PCs hier als Sicherung liegt und die ihm selbst fehlen - er zeigt sie als Zeilen
+        // "beim Partner" (hoechstens 100, neueste zuerst)
+        json bk = json::array();
+        const std::string pc = e.contains("pc") && e["pc"].is_string() ? e["pc"].get<std::string>() : std::string();
+        if (!pc.empty()) {
+            std::vector<CoopListEntry> his;
+            CoopSaveSyncBackupsOf(pc, his);
+            for (auto const& b : his) {
+                if (theirs.count(b.sid) || bk.size() >= 100)
+                    continue;
+                json x;
+                x["sid"] = b.sid;
+                x["name"] = b.name;
+                x["time"] = b.time;
+                x["run"] = b.run;
+                x["key"] = b.key;
+                bk.push_back(x);
+            }
+        }
         json j;
         j["op"] = "have";
         j["sids"] = have;
         j["runs"] = r;
+        j["pc"] = CoopSaveSyncPcId();   // u280 (P357)
+        if (!bk.empty())
+            j["bk"] = bk;
         LobbySend(j);
-        LobbyLog("zu %d von %d St" COOP_AE "nden des Partners einen eigenen Helden, %u Durchl" COOP_AE "ufe gemeldet", k, n, (unsigned)runs.size());
+        LobbyLog("zu %d von %d St" COOP_AE "nden des Partners einen eigenen Helden, %u Durchl" COOP_AE "ufe gemeldet, %u Zeilen beim Partner (P357)", k, n,
+            (unsigned)runs.size(), (unsigned)bk.size());
     }
 
-    static void LobbyReadHave(json& e, std::set<std::string>& have, std::set<std::string>& runs) {
+    // u280 (P357): Name eines Archivordners (Kennung, Durchlauf) aus einem Paket - keine Pfadzeichen (92 Rueckstrich, 34 Anfuehrungszeichen)
+    static bool LobbyFolderNameOk(const std::string& s) {
+        for (char c : s)
+            if (c == 92 || c == '/' || c == ':' || c == '*' || c == '?' || c == 34 || c == '<' || c == '>' || c == '|')
+                return false;
+        return s.find("..") == std::string::npos;
+    }
+
+    // u280 (P357): dazu seine PC-Kennung ("pc") und seine Zeilen "beim Partner" ("bk": meine Staende, die nur noch er hat)
+    static void LobbyReadHave(json& e, std::set<std::string>& have, std::set<std::string>& runs, std::string* pc = NULL,
+        std::vector<CoopListEntry>* bk = NULL, const std::string& from = std::string()) {
         have.clear();
         runs.clear();
         if (e.contains("sids") && e["sids"].is_array())
@@ -272,6 +314,31 @@ namespace GOTHIC_ENGINE {
             for (auto& s : e["runs"])
                 if (s.is_string())
                     runs.insert(s.get<std::string>());
+        const std::string theirPc = e.contains("pc") && e["pc"].is_string() ? e["pc"].get<std::string>() : std::string();
+        if (pc)
+            *pc = theirPc;
+        if (!bk)
+            return;
+        bk->clear();
+        if (theirPc.empty() || !e.contains("bk") || !e["bk"].is_array())
+            return;
+        for (auto& x : e["bk"]) {
+            if (!x.is_object() || !x.contains("sid") || !x["sid"].is_string())
+                continue;
+            CoopListEntry b;
+            b.sid = x["sid"].get<std::string>();
+            b.name = x.contains("name") && x["name"].is_string() ? x["name"].get<std::string>() : std::string();
+            b.time = x.contains("time") && x["time"].is_string() ? x["time"].get<std::string>() : std::string();
+            b.run = x.contains("run") && x["run"].is_string() ? x["run"].get<std::string>() : std::string();
+            b.key = x.contains("key") && x["key"].is_string() ? x["key"].get<std::string>() : std::string();
+            if (b.sid.empty() || !LobbyFolderNameOk(b.sid) || !LobbyFolderNameOk(b.run))
+                continue;
+            b.kind = "bk";
+            b.both = true;
+            b.from = from;
+            b.pc = theirPc;
+            bk->push_back(b);
+        }
     }
 
     static bool LobbyPeersReady(std::string& why) {
@@ -296,6 +363,49 @@ namespace GOTHIC_ENGINE {
         LobbyLog("Hinweis: %s", text.c_str());
         if (menu)
             menu->PrintInformation(zSTRING(text.c_str()));
+    }
+
+    void CoopMenuCloseRequest();   // CoopTitle.cpp (v90) - hier fuer LobbyFetchBackup (u280)
+
+    // u280 (P357): Zeile "beim Partner" gewaehlt - meine Kopie dieses Stands liegt nur noch beim Partner (Sicherung beim Partner, u55):
+    // erst zurueckholen, danach ist es wieder eine eigene Zeile, die wie jeder gemeinsame Stand laedt. Im Spiel holt der Spieltakt
+    // (BkPulse) - die Menues gehen zu, die Meldung kommt im Chat; im Hauptmenue (Host) LobbyBackupPulse
+    static void LobbyFetchBackup(const CoopListEntry& e, zCMenu* menu) {
+        std::string why;
+        if (!CoopSaveSyncFetchBackup(e, why)) {
+            LobbyNote(CoopTr("Stand nicht zur" COOP_UE "ckholbar (", "Cannot fetch the save back (") + why + ").", menu);
+            return;
+        }
+        LobbyLog("Zeile %s (Sicherung bei %s, PC %s) - hole meine Kopie zur" COOP_UE "ck (P357)", e.sid.c_str(), e.from.c_str(), e.pc.c_str());
+        if (player) {
+            CoopMenuCloseRequest();
+            LobbyNote(CoopTr("Hole deinen Stand vom Mitspieler zur" COOP_UE "ck - danach die Liste noch einmal " COOP_OE "ffnen.",
+                "Fetching your save back from your partner - then open the list again."), menu);
+            return;
+        }
+        Lobby.bkWaitSid = e.sid;
+        Lobby.bkWaitMs = GetCurrentMs();
+        LobbyNote(CoopTr("Hole deinen Stand vom Mitspieler zur" COOP_UE "ck - danach die Zeile noch einmal w" COOP_AE "hlen.",
+            "Fetching your save back from your partner - then pick the row again."), menu);
+    }
+
+    // u280 (P357): Hauptmenue (Host) - zurueckgeholt: dem Partner die eigenen Staende neu schicken, die Zeile wird damit gemeinsam
+    static void LobbyBackupPulse() {
+        if (Lobby.bkWaitSid.empty())
+            return;
+        const std::string sid = Lobby.bkWaitSid;
+        if (CoopSaveSyncLastRestoredSid() == sid) {
+            Lobby.bkWaitSid.clear();
+            LobbyLog("Stand %s aus der Sicherung beim Partner zur" COOP_UE "ck - Liste neu (P357)", sid.c_str());
+            LobbySendSlots();
+            Lobby.rowsMs = 0;
+            LobbyNote(CoopTr("Stand ist zur" COOP_UE "ck - jetzt die Zeile w" COOP_AE "hlen.", "Save is back - now pick the row."), NULL);
+        }
+        else if (!CoopSaveSyncFetchingBackup(sid) || GetCurrentMs() > Lobby.bkWaitMs + 200000) {
+            Lobby.bkWaitSid.clear();
+            LobbyLog("Stand %s: aus der Sicherung beim Partner nicht zur" COOP_UE "ckbekommen (P357)", sid.c_str());
+            LobbyNote(CoopTr("Stand nicht vom Mitspieler bekommen.", "Could not get the save from your partner."), NULL);
+        }
     }
 
     // --- Pakete --------------------------------------------------------------------------------------------------
@@ -381,10 +491,10 @@ namespace GOTHIC_ENGINE {
         }
         if (op == "have" && ServerThread) {
             CoopLobbyPeer& p = Lobby.peers[from];
-            LobbyReadHave(e, p.have, p.runs);
+            LobbyReadHave(e, p.have, p.runs, &p.pc, &p.bk, from);   // u280 (P357): mit seiner PC-Kennung und den Zeilen "beim Partner"
             p.haveKnown = true;
-            LobbyLog("Host: %s hat zu %u von %u St" COOP_AE "nden einen eigenen Helden, kennt %u Durchl" COOP_AE "ufe", from.c_str(),
-                (unsigned)p.have.size(), (unsigned)Lobby.listSids.size(), (unsigned)p.runs.size());
+            LobbyLog("Host: %s hat zu %u von %u St" COOP_AE "nden einen eigenen Helden, kennt %u Durchl" COOP_AE "ufe, %u Zeilen beim Partner (P357)",
+                from.c_str(), (unsigned)p.have.size(), (unsigned)Lobby.listSids.size(), (unsigned)p.runs.size(), (unsigned)p.bk.size());
             return;
         }
     }
@@ -636,6 +746,10 @@ namespace GOTHIC_ENGINE {
             }
             // v93: Stand aus dem Coop-Archiv - liegt er in keinem Slot, kommt er jetzt in einen Coop-Slot (vorher gesichert)
             const CoopListEntry& e = Lobby.rows[n];
+            if (e.kind == "bk") {   // u280 (P357): meine Kopie liegt nur noch beim Partner - erst zurueckholen
+                LobbyFetchBackup(e, menu);
+                return;
+            }
             const int slot = e.sid.empty() ? e.slot : CoopSaveSyncPrepareSlot(e.sid, why);
             if (slot < 1) {
                 LobbyNote(CoopTr("Stand nicht ladbar (", "Cannot load save (") + why + ").", menu);
@@ -676,6 +790,10 @@ namespace GOTHIC_ENGINE {
             return;
         }
         const CoopListEntry e = Lobby.rows[n];
+        if (e.kind == "bk") {   // u280 (P357): meine Kopie liegt nur noch beim Partner - erst zurueckholen
+            LobbyFetchBackup(e, menu);
+            return;
+        }
         if (ClientThread && !ServerThread && !e.sid.empty() && CoopSaveSyncAskLoadSid(e.sid)) {   // wie v90: der Host laedt, hier einmal mit
             CoopMenuCloseRequest();
             LobbyNote(CoopTr("Ladewunsch an den Host geschickt - es wird gleich einmal f" COOP_UE "r beide geladen.", "Load request sent to the host - it will load once for both."), menu);
@@ -1007,7 +1125,7 @@ namespace GOTHIC_ENGINE {
         return r;
     }
 
-    static void LobbyIngameSlots(json& e, const std::string& op);   // v93: weiter unten
+    static void LobbyIngameSlots(json& e, const std::string& op, const std::string& from);   // v93: weiter unten; u280 mit Absender
 
     // Aus ProcessCoopPacket (im Spiel): ein Client im Hauptmenue meldet sich - "Host spielt schon" zurueckmelden.
     // v71: bei gleicher Fassung bekommt er den laufenden Stand (gemeinsame Sicherung, dann Ladeauftrag - CoopSaveSync.cpp).
@@ -1019,7 +1137,7 @@ namespace GOTHIC_ENGINE {
             return;
         }
         if ((op == "slots" || op == "have") && !e.contains("by")) {   // v93: welche Staende beide haben (Liste im Esc-Menue)
-            LobbyIngameSlots(e, op);
+            LobbyIngameSlots(e, op, id);   // u280 (P357): mit Absender (Zeilen "beim Partner")
             return;
         }
         // u264 (P320, Othello-Sitzung des Nutzers 14.11.: "Spielstand wird manchmal nicht direkt angezeigt obwohl der Client gejoint
@@ -1278,7 +1396,9 @@ namespace GOTHIC_ENGINE {
         std::string text = label;
         if (e.time.size() >= 16 && label.find(e.time.substr(0, 10)) == std::string::npos)
             text += "  " + e.time.substr(0, 6) + " " + e.time.substr(11, 5);
-        if (partner && !e.both)
+        if (e.kind == "bk")   // u280 (P357): meine Kopie liegt nur noch beim Partner
+            text += CoopTr("  (beim Partner)", "  (at partner)");
+        else if (partner && !e.both)
             text += e.sid.empty() ? CoopTr("  (lokal)", "  (local)") : CoopTr("  (nur hier)", "  (only here)");
         return text;
     }
@@ -1306,6 +1426,20 @@ namespace GOTHIC_ENGINE {
         return true;
     }
 
+    // u280 (P357): PC-Kennung des Partners und seine Zeilen "beim Partner" - Quelle wie LobbyPartnerList
+    static const std::vector<CoopListEntry>* LobbyPartnerBk(std::string& pc) {
+        pc.clear();
+        if (!player) {
+            if (!ServerThread || Lobby.peers.empty())
+                return NULL;
+            const CoopLobbyPeer& p = Lobby.peers.begin()->second;
+            pc = p.pc;
+            return &p.bk;
+        }
+        pc = Lobby.gamePc;
+        return &Lobby.gameBk;
+    }
+
     static void LobbyBuildRows(std::vector<std::string>& texts) {
         std::vector<CoopListEntry> own;
         CoopSaveSyncListJoint(own);
@@ -1313,11 +1447,19 @@ namespace GOTHIC_ENGINE {
         const std::set<std::string>* runs = NULL;
         bool known = false;
         const bool partner = LobbyPartnerList(have, runs, known);
+        std::string ppc;   // u280 (P357)
+        const std::vector<CoopListEntry>* pbk = partner ? LobbyPartnerBk(ppc) : NULL;
         const std::string cur = CoopSaveSyncCurrentRun();
         Lobby.allRows.clear();
         Lobby.localRows = 0;
         for (auto& e : own) {
             e.both = partner && known && !e.sid.empty() && have->count(e.sid) > 0;
+            // u280 (P357): ihm fehlt seine Kopie, hier liegt aber seine Sicherung - laedt der Host, holt der Mitspieler sie zurueck (u55);
+            // waehlt der Mitspieler, laedt er selbst (der Host hat keine Kopie) und der Host holt seine ebenso von ihm (HandleRemoteLoad)
+            if (partner && known && !e.both && !e.sid.empty() && !ppc.empty() && CoopSaveSyncHasBackupOf(e.sid, ppc)) {
+                e.both = true;
+                e.partnerBk = true;
+            }
             bool show = true;
             if (partner) {
                 if (!known)
@@ -1330,6 +1472,19 @@ namespace GOTHIC_ENGINE {
             }
             if (show)
                 Lobby.allRows.push_back(e);
+        }
+        // u280 (P357): meine Kopie liegt nur noch beim Partner (Sicherung beim Partner) - Zeile "beim Partner", gewaehlt wird sie erst
+        // zurueckgeholt (LobbyFetchBackup)
+        if (partner && known && pbk && !pbk->empty()) {
+            for (auto const& b : *pbk) {
+                bool mine = false;
+                for (auto const& e : own)
+                    if (e.sid == b.sid)
+                        mine = true;
+                if (!mine)
+                    Lobby.allRows.push_back(b);
+            }
+            std::stable_sort(Lobby.allRows.begin(), Lobby.allRows.end(), [](const CoopListEntry& x, const CoopListEntry& y) { return x.key > y.key; });
         }
         const int total = (int)Lobby.allRows.size();
         if (Lobby.rowTop > total - LOBBY_ROWS)
@@ -1795,16 +1950,16 @@ namespace GOTHIC_ENGINE {
     }
 
     // v93: im Spiel die "slots"/"have"-Abfrage der Liste (beide Rollen) - aus CoopLobbyReceiveInGame
-    static void LobbyIngameSlots(json& e, const std::string& op) {
+    static void LobbyIngameSlots(json& e, const std::string& op, const std::string& from) {
         if (op == "slots") {
             LobbyAnswerSlots(e);
             return;
         }
-        LobbyReadHave(e, Lobby.gameHave, Lobby.gameRuns);
+        LobbyReadHave(e, Lobby.gameHave, Lobby.gameRuns, &Lobby.gamePc, &Lobby.gameBk, from);   // u280 (P357)
         Lobby.gameHaveKnown = true;
         Lobby.rowsMs = 0;   // Liste gleich neu
-        LobbyLog("Liste im Spiel: Partner hat %u meiner St" COOP_AE "nde, kennt %u Durchl" COOP_AE "ufe", (unsigned)Lobby.gameHave.size(),
-            (unsigned)Lobby.gameRuns.size());
+        LobbyLog("Liste im Spiel: Partner hat %u meiner St" COOP_AE "nde, kennt %u Durchl" COOP_AE "ufe, %u Zeilen beim Partner (P357)",
+            (unsigned)Lobby.gameHave.size(), (unsigned)Lobby.gameRuns.size(), (unsigned)Lobby.gameBk.size());
     }
 
     // v91: MENU_COOP_NG - welche Othello-Schwierigkeit gewaehlt ist und ob der Mitspieler bereit ist
@@ -2049,6 +2204,10 @@ namespace GOTHIC_ENGINE {
             Lobby.connectedMs = 0;
         }
         CoopLogShipPulse();
+        if (ServerThread) {   // u280 (P357): Host im Hauptmenue - Dateien senden, eigene Kopie aus der Sicherung beim Partner zurueckholen
+            CoopSaveSyncMenuHostPulse();
+            LobbyBackupPulse();
+        }
         if (ClientThread && !ServerThread && CoopClientState == 2 && !Lobby.loading) {
             CoopSaveSyncMenuPulse();   // Ladeauftrag des Hosts: Dateien holen, Slot vorbereiten (ruft CoopLobbyLoadFromMenu)
             if (Lobby.loadPending) {

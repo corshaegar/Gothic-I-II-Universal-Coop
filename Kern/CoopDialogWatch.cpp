@@ -381,6 +381,50 @@ namespace GOTHIC_ENGINE {
             DiagSeconds(), DiagRole(), n, erste.c_str());
     }
 
+    // u278 (P354, Test Othello u273 16.11.: "Wenn der Mitspieler mit einem NPC im Dialog ist, dann kann dieser stuck sein, wenn man den
+    // NPC angreift - der bleibt dann im Dialog stecken"; Nutzer 17.11.: "Dialog beenden ... es darf den Dialog aber nicht brechen").
+    // Log: Der Host schlug VLK_580_GRIM, waehrend der Client das Gespraech begann - beim Client wartete es 36 s auf EV_PROCESSINFOS, bis
+    // ein Laden es beendete. Jetzt: Greift der Partner den NPC an, mit dem der eigene Held spricht, endet das Gespraech an der naechsten
+    // sicheren Stelle - wie "ENDE" in der Auswahl: nie, waehrend Zeilen laufen, und nie bei offener Auswahl (Info_AddChoice) - sonst ginge
+    // die Wahl verloren. Haengt das Gespraech noch am Anfang (nichts gezeigt), endet es sofort
+    static oCNpc* DialogAngriffNpc = NULL;
+
+    void CoopDialogAngriff(oCNpc* npc, const char* von) {
+        oCInformationManager& im = oCInformationManager::GetInformationManager();
+        if (!npc || im.IsDone || im.Npc != npc || DialogAngriffNpc == npc)
+            return;
+        DialogAngriffNpc = npc;
+        char name[64];
+        CDiagName(npc, name, sizeof(name));
+        if (DialogWatchDarfLoggen())
+            OthelloCompatLog("[%lld s, %s] Dialog-Waechter: %s greift %s an - das Gespraech endet an der naechsten sicheren Stelle (P354)",
+                DiagSeconds(), DiagRole(), von ? von : "-", name);
+    }
+
+    static void DialogAngriffPulse(oCInformationManager& im) {
+        if (!DialogAngriffNpc)
+            return;
+        if (im.IsDone || im.Npc != DialogAngriffNpc) {
+            DialogAngriffNpc = NULL;
+            return;
+        }
+        const bool infoAuswahl = im.IsWaitingForSelection && im.Mode == oCInformationManager::INFO_MGR_MODE_INFO;   // Auswahl der Infos, keine Info_AddChoice
+        const bool amAnfang = im.IsWaitingForScript && !im.IsWaitingForEnd && !im.IsWaitingForSelection;
+        const bool handel = im.Mode == oCInformationManager::INFO_MGR_MODE_TRADE;
+        if (!infoAuswahl && !amAnfang && !handel)
+            return;   // Zeilen laufen oder eine Auswahl ist offen - warten
+        char name[64];
+        CDiagName(DialogAngriffNpc, name, sizeof(name));
+        const std::string anzeige = DialogAngriffNpc->GetName(0).ToChar();
+        im.Exit();
+        if (DialogWatchDarfLoggen())
+            OthelloCompatLog("[%lld s, %s] Dialog-Waechter: Gespraech mit %s nach dem Angriff beendet (%s, P354)", DiagSeconds(), DiagRole(),
+                name, infoAuswahl ? "Auswahl der Infos" : amAnfang ? "noch am Anfang" : "Handel");
+        ChatLog(string::Combine(CoopTr("Gespr\xE4" "ch mit %s wegen eines Angriffs beendet.", "Conversation with %s ended because of an attack."),
+            string(anzeige.c_str())), zCOLOR(255, 200, 80, 255));
+        DialogAngriffNpc = NULL;
+    }
+
     void CoopDialogWatchPulse() {
         static oCNpc* watchNpc = NULL;
         static long long since = 0;
@@ -390,6 +434,7 @@ namespace GOTHIC_ENGINE {
         CoopTalkLockPulse(im);   // u216 (P253)
         CoopFadeLockPulse(im);   // u217 (P254)
         DialogWatchListenScan();   // u244 (P291)
+        DialogAngriffPulse(im);   // u278 (P354)
         if (!im.Npc || !im.Player || im.IsDone) {
             watchNpc = NULL;
             tries = 0;
@@ -409,9 +454,10 @@ namespace GOTHIC_ENGINE {
         DialogWatchListenPruefen(im);   // u244 (P291)
         if (im.IsDone)
             return;
+        // u278 (P354): Versuche nicht mehr auf 0, sobald die neu eingereihte Nachricht da ist - sie verschwand im Log jedes Mal wieder
+        // ("Versuch 1" 17-mal in 36 s), und der Ausstieg nach 3 Versuchen kam nie. Zurueck auf 0 geht es mit dem Ende des Gespraechs (oben)
         if (DialogWatchHatProcessInfos(im.Npc)) {
-            watchNpc = NULL;
-            tries = 0;
+            since = CurrentMs;
             return;
         }
         if (watchNpc != im.Npc) {          // Zustand neu gesehen: erst beobachten
@@ -472,6 +518,7 @@ namespace GOTHIC_ENGINE {
     std::string CoopDialogLastEnded;
     int CoopTalkLockResets = 0;
     void CoopDialogWatchPulse() {}
+    void CoopDialogAngriff(oCNpc*, const char*) {}
     void CoopDialogWatchLoadBegin() {}
     void CoopTalkLockAfterLoad() {}
     void CoopTalkLockCheckSoon(const char*) {}

@@ -79,6 +79,12 @@ namespace GOTHIC_ENGINE {
         SYNC_ITEM_SPAWN,
         // u181 gemeinsames Spieltempo der Testinstanzen (CoopTempo.cpp): w Wunsch x100, b beschaeftigt (Dialog/Waffe)
         SYNC_TEMPO,
+        // u279 (P355) Schaupfeil (CoopWorldSync.cpp): w Welt, i Geschoss-Instanz, p Start, e Ziel - nur Bild, ohne Schaden
+        SYNC_SCHUSS,
+        // u281 (P361) Stufenaufstieg (CoopWorldSync.cpp): l Stufe, n Spielername - beim Partner als Meldung
+        SYNC_STUFE,
+        // u282 (P363) Liegen statt Sterben (ReviveFriendLoop.cpp): op liegt/steht/esc (ueber sich), auf (Host an einen Client), tot (Host an alle)
+        SYNC_LIEGEN,
     };
 
     struct PlayerHit

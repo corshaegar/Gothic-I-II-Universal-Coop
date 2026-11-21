@@ -5,6 +5,7 @@ namespace GOTHIC_ENGINE {
     void CoopSelfTestReceive(json& e, const std::string& id);
     void CoopWpHostFeed(const json& j);                            // u33: CoopWorldProcess.cpp - Figur-Pakete an den Weltprozess (u38: auch Client)
     void CoopTempoReceive(json& e, const std::string& id);         // u181: CoopTempo.cpp
+    void CoopLiegenEmpfangen(json& e, const std::string& id);      // u282 (P363): ReviveFriendLoop.cpp
 
     // u198 (P209): Der Host spielt ein anderes Spiel (andere Engine oder Mod, CoopGameMismatch in CoopCore.cpp) - Verbindung beenden,
     // bevor sein Stand kommt (im Spiel hier, im Hauptmenue CoopMenuLobby.cpp). Nachfolgende Pakete verwirft die Paketschleife,
@@ -101,6 +102,18 @@ namespace GOTHIC_ENGINE {
 
         // Truhen/Gegenstaende gehoeren zu keinem NPC: vor der NPC-Zuordnung abzweigen (sonst legte
         // ein erstes Weltpaket eines Spielers dessen Figur an und loeste Myself->Reinit aus).
+        if (type == SYNC_SCHUSS) {   // u279 (P355): Schaupfeil des Partners (CoopWorldSync.cpp)
+            CoopSchussEmpfangen(e, id);
+            return;
+        }
+        if (type == SYNC_STUFE) {   // u281 (P361): Stufenaufstieg des Partners (CoopWorldSync.cpp)
+            CoopStufeEmpfangen(e, id);
+            return;
+        }
+        if (type == SYNC_LIEGEN) {   // u282 (P363): liegt/steht/auf/tot/esc (ReviveFriendLoop.cpp)
+            CoopLiegenEmpfangen(e, id);
+            return;
+        }
         if (CoopWorldSyncHandles(type)) {
             CoopWorldSyncReceive(e, id);
             return;
